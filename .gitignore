@@ -1,0 +1,53 @@
+# Atlassian Plugin SDK / Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Bitbucket Data Center local instance
+/bitbucket/
+atlassian-ide-plugin.xml
+
+# IDE specific files
+*.iml
+*.ipr
+*.iws
+.idea/
+.project
+.classpath
+.settings/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# Build artifacts
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# But keep the pr_listener_script.groovy for reference
+!pr_listener_script.groovy

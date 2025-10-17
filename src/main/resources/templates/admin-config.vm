@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Code Reviewer - Configuration</title>
+    <meta name="decorator" content="atl.admin">
+    <meta name="application-base-url" content="$baseUrl">
+    $webResourceManager.requireResource("com.example.bitbucket.ai-code-reviewer:ai-reviewer-admin-resources")
+</head>
+<body>
+    <header class="aui-page-header">
+        <div class="aui-page-header-inner">
+            <div class="aui-page-header-main">
+                <h1>AI Code Reviewer Configuration</h1>
+            </div>
+        </div>
+    </header>
+
+    <div class="aui-page-panel">
+        <div class="aui-page-panel-inner">
+            <section class="aui-page-panel-content">
+                <div id="ai-reviewer-config-container">
+
+                    <!-- Status Messages -->
+                    <div id="aui-message-container"></div>
+
+                    <form id="ai-reviewer-config-form" class="aui">
+
+                        <!-- Ollama Configuration -->
+                        <h2>Ollama Configuration</h2>
+                        <div class="field-group">
+                            <label for="ollama-url">Ollama URL<span class="aui-icon icon-required">(required)</span></label>
+                            <input class="text long-field" type="text" id="ollama-url" name="ollamaUrl"
+                                   value="$ollamaUrl" placeholder="http://ollama:11434">
+                            <div class="description">The URL of your Ollama service endpoint</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="ollama-model">Primary AI Model<span class="aui-icon icon-required">(required)</span></label>
+                            <input class="text long-field" type="text" id="ollama-model" name="ollamaModel"
+                                   value="$ollamaModel" placeholder="qwen3-coder:30b">
+                            <div class="description">The primary model to use for code review</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="fallback-model">Fallback AI Model</label>
+                            <input class="text long-field" type="text" id="fallback-model" name="fallbackModel"
+                                   value="$fallbackModel" placeholder="qwen3-coder:7b">
+                            <div class="description">Fallback model if primary fails (optional)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <button type="button" id="test-connection-btn" class="aui-button">
+                                <span class="aui-icon aui-icon-small aui-iconfont-check-circle"></span> Test Connection
+                            </button>
+                            <span id="test-connection-result"></span>
+                        </div>
+
+                        <!-- Processing Configuration -->
+                        <h2>Processing Configuration</h2>
+                        <div class="field-group">
+                            <label for="max-chars-per-chunk">Max Characters Per Chunk</label>
+                            <input class="text medium-field" type="number" id="max-chars-per-chunk"
+                                   name="maxCharsPerChunk" value="$maxCharsPerChunk" min="10000" max="100000">
+                            <div class="description">Maximum characters to include in each analysis chunk (default: 60000)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="max-files-per-chunk">Max Files Per Chunk</label>
+                            <input class="text medium-field" type="number" id="max-files-per-chunk"
+                                   name="maxFilesPerChunk" value="$maxFilesPerChunk" min="1" max="10">
+                            <div class="description">Maximum files per chunk (default: 3)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="max-chunks">Max Total Chunks</label>
+                            <input class="text medium-field" type="number" id="max-chunks"
+                                   name="maxChunks" value="$maxChunks" min="1" max="50">
+                            <div class="description">Maximum chunks to process per PR (default: 20)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="parallel-threads">Parallel Processing Threads</label>
+                            <input class="text medium-field" type="number" id="parallel-threads"
+                                   name="parallelThreads" value="$parallelThreads" min="1" max="16">
+                            <div class="description">Number of threads for parallel processing (default: 4)</div>
+                        </div>
+
+                        <!-- Timeout Configuration -->
+                        <h2>Timeout Configuration (milliseconds)</h2>
+                        <div class="field-group">
+                            <label for="connect-timeout">Connection Timeout</label>
+                            <input class="text medium-field" type="number" id="connect-timeout"
+                                   name="connectTimeout" value="$connectTimeout" min="1000">
+                            <div class="description">HTTP connection timeout in ms (default: 10000)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="read-timeout">Read Timeout</label>
+                            <input class="text medium-field" type="number" id="read-timeout"
+                                   name="readTimeout" value="$readTimeout" min="1000">
+                            <div class="description">HTTP read timeout in ms (default: 30000)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="ollama-timeout">Ollama Analysis Timeout</label>
+                            <input class="text medium-field" type="number" id="ollama-timeout"
+                                   name="ollamaTimeout" value="$ollamaTimeout" min="10000">
+                            <div class="description">Timeout for Ollama analysis in ms (default: 300000)</div>
+                        </div>
+
+                        <!-- Review Configuration -->
+                        <h2>Review Configuration</h2>
+                        <div class="field-group">
+                            <label for="max-issues-per-file">Max Issues Per File</label>
+                            <input class="text medium-field" type="number" id="max-issues-per-file"
+                                   name="maxIssuesPerFile" value="$maxIssuesPerFile" min="1" max="100">
+                            <div class="description">Maximum issues to report per file (default: 50)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="max-issue-comments">Max Issue Comments</label>
+                            <input class="text medium-field" type="number" id="max-issue-comments"
+                                   name="maxIssueComments" value="$maxIssueComments" min="1" max="100">
+                            <div class="description">Maximum issue comments to post (default: 30)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="max-diff-size">Max Diff Size (bytes)</label>
+                            <input class="text medium-field" type="number" id="max-diff-size"
+                                   name="maxDiffSize" value="$maxDiffSize" min="1000000">
+                            <div class="description">Maximum diff size to analyze (default: 10000000)</div>
+                        </div>
+
+                        <!-- Retry Configuration -->
+                        <h2>Retry Configuration</h2>
+                        <div class="field-group">
+                            <label for="max-retries">Max Retries</label>
+                            <input class="text medium-field" type="number" id="max-retries"
+                                   name="maxRetries" value="$maxRetries" min="0" max="10">
+                            <div class="description">Maximum retry attempts for failed requests (default: 3)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="base-retry-delay">Base Retry Delay (ms)</label>
+                            <input class="text medium-field" type="number" id="base-retry-delay"
+                                   name="baseRetryDelay" value="$baseRetryDelay" min="100">
+                            <div class="description">Base delay between retries in ms (default: 1000)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="api-delay">API Delay (ms)</label>
+                            <input class="text medium-field" type="number" id="api-delay"
+                                   name="apiDelay" value="$apiDelay" min="0">
+                            <div class="description">Delay between API calls in ms (default: 100)</div>
+                        </div>
+
+                        <!-- Review Profile -->
+                        <h2>Review Profile</h2>
+                        <div class="field-group">
+                            <label for="min-severity">Minimum Severity</label>
+                            <select id="min-severity" name="minSeverity" class="select">
+                                <option value="low" #if($minSeverity == "low")selected#end>Low</option>
+                                <option value="medium" #if($minSeverity == "medium")selected#end>Medium</option>
+                                <option value="high" #if($minSeverity == "high")selected#end>High</option>
+                                <option value="critical" #if($minSeverity == "critical")selected#end>Critical</option>
+                            </select>
+                            <div class="description">Minimum severity level to report</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="require-approval-for">Require Approval For</label>
+                            <input class="text long-field" type="text" id="require-approval-for"
+                                   name="requireApprovalFor" value="$requireApprovalFor">
+                            <div class="description">Comma-separated severity levels that require PR changes (e.g., critical,high)</div>
+                        </div>
+
+                        <!-- File Filtering -->
+                        <h2>File Filtering</h2>
+                        <div class="field-group">
+                            <label for="review-extensions">Review File Extensions</label>
+                            <input class="text long-field" type="text" id="review-extensions"
+                                   name="reviewExtensions" value="$reviewExtensions">
+                            <div class="description">Comma-separated list of file extensions to review</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="ignore-patterns">Ignore Patterns</label>
+                            <input class="text long-field" type="text" id="ignore-patterns"
+                                   name="ignorePatterns" value="$ignorePatterns">
+                            <div class="description">Comma-separated glob patterns to ignore</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="ignore-paths">Ignore Paths</label>
+                            <input class="text long-field" type="text" id="ignore-paths"
+                                   name="ignorePaths" value="$ignorePaths">
+                            <div class="description">Comma-separated paths to ignore</div>
+                        </div>
+
+                        <!-- Feature Flags -->
+                        <h2>Feature Flags</h2>
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="enabled" name="enabled"
+                                       #if($enabled)checked#end>
+                                <label for="enabled">Enable AI Code Review</label>
+                            </div>
+                            <div class="description">Master switch to enable or disable AI code review</div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="review-draft-prs" name="reviewDraftPRs"
+                                       #if($reviewDraftPRs)checked#end>
+                                <label for="review-draft-prs">Review Draft PRs</label>
+                            </div>
+                            <div class="description">Enable AI review for draft pull requests</div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="skip-generated-files" name="skipGeneratedFiles"
+                                       #if($skipGeneratedFiles)checked#end>
+                                <label for="skip-generated-files">Skip Generated Files</label>
+                            </div>
+                            <div class="description">Skip analysis of generated files</div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="skip-tests" name="skipTests"
+                                       #if($skipTests)checked#end>
+                                <label for="skip-tests">Skip Test Files</label>
+                            </div>
+                            <div class="description">Skip analysis of test files</div>
+                        </div>
+
+                        <!-- Submit Buttons -->
+                        <div class="buttons-container">
+                            <div class="buttons">
+                                <button type="submit" id="save-config-btn" class="aui-button aui-button-primary">
+                                    <span class="aui-icon aui-icon-small aui-iconfont-success"></span> Save Configuration
+                                </button>
+                                <button type="button" id="reset-config-btn" class="aui-button">
+                                    <span class="aui-icon aui-icon-small aui-iconfont-undo"></span> Reset to Defaults
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <!-- Loading Indicator -->
+                    <div id="loading-indicator" class="aui-spinner" style="display: none;"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

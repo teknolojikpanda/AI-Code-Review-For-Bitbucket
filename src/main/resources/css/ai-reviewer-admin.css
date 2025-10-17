@@ -1,0 +1,188 @@
+/* AI Code Reviewer Admin Configuration Styles */
+
+#ai-reviewer-config-container {
+    max-width: 900px;
+    margin: 20px auto;
+}
+
+#ai-reviewer-config-form h2 {
+    margin-top: 30px;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #dfe1e6;
+    color: #172b4d;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+#ai-reviewer-config-form .field-group {
+    margin-bottom: 20px;
+}
+
+#ai-reviewer-config-form .field-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+    color: #172b4d;
+}
+
+#ai-reviewer-config-form .field-group .description {
+    margin-top: 5px;
+    font-size: 12px;
+    color: #6b778c;
+    font-style: italic;
+}
+
+#ai-reviewer-config-form .long-field {
+    width: 100%;
+    max-width: 600px;
+}
+
+#ai-reviewer-config-form .medium-field {
+    width: 200px;
+}
+
+#ai-reviewer-config-form .buttons-container {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #dfe1e6;
+}
+
+#ai-reviewer-config-form .buttons {
+    display: flex;
+    gap: 10px;
+}
+
+#test-connection-result {
+    margin-left: 10px;
+    display: inline-block;
+}
+
+#test-connection-result.success {
+    color: #006644;
+    font-weight: 600;
+}
+
+#test-connection-result.success::before {
+    content: "✓ ";
+}
+
+#test-connection-result.error {
+    color: #de350b;
+    font-weight: 600;
+}
+
+#test-connection-result.error::before {
+    content: "✗ ";
+}
+
+#test-connection-result.testing {
+    color: #0052cc;
+}
+
+#loading-indicator {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+}
+
+/* Message Styles */
+#aui-message-container {
+    margin-bottom: 20px;
+}
+
+#aui-message-container .aui-message {
+    margin-bottom: 10px;
+}
+
+/* Checkbox Styling */
+.field-group .checkbox {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.field-group .checkbox input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.field-group .checkbox label {
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    #ai-reviewer-config-container {
+        margin: 10px;
+    }
+
+    #ai-reviewer-config-form .long-field,
+    #ai-reviewer-config-form .medium-field {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    #ai-reviewer-config-form .buttons {
+        flex-direction: column;
+    }
+
+    #ai-reviewer-config-form .buttons button {
+        width: 100%;
+    }
+}
+
+/* Animation for Loading */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#loading-indicator.active {
+    display: block;
+    animation: spin 1s linear infinite;
+}
+
+/* Form Validation */
+.field-group.error input,
+.field-group.error select {
+    border-color: #de350b;
+}
+
+.field-group.error .error-message {
+    color: #de350b;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.field-group.success input,
+.field-group.success select {
+    border-color: #006644;
+}
+
+/* Button Hover Effects */
+#save-config-btn:hover {
+    background-color: #0052cc;
+}
+
+#reset-config-btn:hover {
+    background-color: #f4f5f7;
+}
+
+#test-connection-btn:hover {
+    background-color: #f4f5f7;
+}
+
+/* Icon Styling */
+.aui-icon {
+    vertical-align: middle;
+}
+
+/* Required Field Indicator */
+.icon-required {
+    color: #de350b;
+    font-size: 10px;
+    margin-left: 2px;
+}

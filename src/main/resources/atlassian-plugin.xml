@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<atlassian-plugin key="com.example.bitbucket.ai-code-reviewer" name="${project.name}" plugins-version="2">
+    <plugin-info>
+        <description>${project.description}</description>
+        <version>${project.version}</version>
+        <vendor name="${project.organization.name}" url="${project.organization.url}"/>
+        <param name="plugin-icon">images/pluginIcon.png</param>
+        <param name="plugin-logo">images/pluginLogo.png</param>
+        <param name="atlassian-data-center-status">compatible</param>
+        <param name="atlassian-data-center-compatible">true</param>
+    </plugin-info>
+
+    <!-- Internationalization Resources -->
+    <resource type="i18n" name="i18n" location="i18n/ai-code-reviewer"/>
+
+    <!-- Active Objects Entity Definitions -->
+    <ao key="ao-module">
+        <description>Active Objects module for AI Code Reviewer</description>
+        <entity>com.example.bitbucket.aireviewer.ao.AIReviewConfiguration</entity>
+        <entity>com.example.bitbucket.aireviewer.ao.AIReviewHistory</entity>
+    </ao>
+
+    <!--
+        Component imports for dependency injection
+        These are required for @ComponentImport to work properly
+    -->
+    <component-import key="userManager" interface="com.atlassian.sal.api.user.UserManager"/>
+    <component-import key="loginUriProvider" interface="com.atlassian.sal.api.auth.LoginUriProvider"/>
+    <component-import key="templateRenderer" interface="com.atlassian.templaterenderer.TemplateRenderer"/>
+    <component-import key="permissionService" interface="com.atlassian.bitbucket.permission.PermissionService"/>
+    <component-import key="activeObjects" interface="com.atlassian.activeobjects.external.ActiveObjects"/>
+    <component-import key="pluginAccessor" interface="com.atlassian.plugin.PluginAccessor"/>
+
+    <!--
+        Component scanning is enabled via atlassian-spring-scanner-maven-plugin
+        All @Component, @Named, and @Scanned classes will be automatically discovered
+    -->
+
+    <!-- REST API for Configuration -->
+    <rest key="aiReviewerRestEndpoints"
+          path="/ai-reviewer"
+          version="1.0">
+        <description>REST API for AI Code Reviewer configuration</description>
+        <package>com.example.bitbucket.aireviewer.rest</package>
+    </rest>
+
+    <!-- Admin Configuration Page -->
+    <web-item key="ai-reviewer-admin-link"
+              name="AI Code Reviewer"
+              section="atl.admin/admin-plugins-section"
+              weight="200">
+        <description>Link to AI Code Reviewer configuration</description>
+        <label key="ai.reviewer.admin.link"/>
+        <link>/plugins/servlet/ai-reviewer/admin</link>
+    </web-item>
+
+    <!-- Admin Configuration Servlet -->
+    <servlet key="ai-reviewer-admin-servlet"
+             name="AI Reviewer Admin Servlet"
+             class="com.example.bitbucket.aireviewer.servlet.AdminConfigServlet">
+        <description>Admin configuration page for AI Code Reviewer</description>
+        <url-pattern>/ai-reviewer/admin</url-pattern>
+    </servlet>
+
+    <!-- Web Resources -->
+    <web-resource key="ai-reviewer-admin-resources" name="AI Reviewer Admin Resources">
+        <description>Resources for the admin configuration page</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>com.atlassian.auiplugin:aui-flag</dependency>
+        <dependency>com.atlassian.auiplugin:aui-form-validation</dependency>
+        <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
+
+        <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-admin.js" location="/js/ai-reviewer-admin.js"/>
+        <context>ai-reviewer-admin</context>
+    </web-resource>
+</atlassian-plugin>
