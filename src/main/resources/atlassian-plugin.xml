@@ -30,6 +30,10 @@
     <component-import key="permissionService" interface="com.atlassian.bitbucket.permission.PermissionService"/>
     <component-import key="activeObjects" interface="com.atlassian.activeobjects.external.ActiveObjects"/>
     <component-import key="pluginAccessor" interface="com.atlassian.plugin.PluginAccessor"/>
+    <component-import key="eventPublisher" interface="com.atlassian.event.api.EventPublisher"/>
+    <component-import key="pullRequestService" interface="com.atlassian.bitbucket.pull.PullRequestService"/>
+    <component-import key="commentService" interface="com.atlassian.bitbucket.comment.CommentService"/>
+    <component-import key="applicationPropertiesService" interface="com.atlassian.bitbucket.server.ApplicationPropertiesService"/>
 
     <!--
         Component scanning is enabled via atlassian-spring-scanner-maven-plugin

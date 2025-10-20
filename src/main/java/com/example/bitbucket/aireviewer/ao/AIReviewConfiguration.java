@@ -106,6 +106,9 @@ public interface AIReviewConfiguration extends Entity {
     boolean isReviewDraftPRs();
     void setReviewDraftPRs(boolean review);
 
+    boolean isAutoApprove();
+    void setAutoApprove(boolean autoApprove);
+
     // Configuration Metadata
     @StringLength(100)
     String getConfigurationName();

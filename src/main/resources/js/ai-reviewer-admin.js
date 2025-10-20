@@ -6,7 +6,13 @@
 (function($) {
     'use strict';
 
-    var baseUrl = AJS.$('meta[name="application-base-url"]').attr("content");
+    // Get base URL - try multiple methods
+    var baseUrl = AJS.$('meta[name="application-base-url"]').attr("content") ||
+                  AJS.$('meta[name="ajs-context-path"]').attr("content") ||
+                  window.location.origin + (AJS.contextPath() || '');
+
+    console.log('Base URL:', baseUrl);
+
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
 
     /**

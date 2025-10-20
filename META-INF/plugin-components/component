@@ -1,0 +1,6 @@
+com.example.bitbucket.aireviewer.listener.PullRequestAIReviewListener
+com.example.bitbucket.aireviewer.rest.ConfigResource
+com.example.bitbucket.aireviewer.service.AIReviewServiceImpl
+com.example.bitbucket.aireviewer.service.AIReviewerConfigServiceImpl
+com.example.bitbucket.aireviewer.servlet.AdminConfigServlet
+com.example.bitbucket.aireviewer.util.HttpClientUtil
