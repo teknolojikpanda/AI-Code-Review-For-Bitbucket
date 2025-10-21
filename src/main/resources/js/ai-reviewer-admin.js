@@ -236,8 +236,10 @@
             contentType: 'application/json',
             data: JSON.stringify({ ollamaUrl: ollamaUrl }),
             success: function(response) {
+                console.log('Connection test response:', response);
+                var message = response.message || 'Connection successful!';
                 $('#test-connection-result').removeClass('testing').addClass('success')
-                    .text('Connection successful!');
+                    .text(message);
                 setTimeout(function() {
                     $('#test-connection-result').fadeOut(function() {
                         $(this).text('').removeClass('success').show();
@@ -245,10 +247,19 @@
                 }, 3000);
             },
             error: function(xhr, status, error) {
-                var errorMsg = xhr.responseJSON && xhr.responseJSON.message ?
-                    xhr.responseJSON.message : error;
+                console.error('Connection test failed:', xhr, status, error);
+                var errorMsg = 'Connection failed';
+                
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMsg = xhr.responseJSON.error;
+                } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                } else if (error) {
+                    errorMsg = 'Connection failed: ' + error;
+                }
+                
                 $('#test-connection-result').removeClass('testing').addClass('error')
-                    .text('Connection failed: ' + errorMsg);
+                    .text(errorMsg);
             }
         });
     }

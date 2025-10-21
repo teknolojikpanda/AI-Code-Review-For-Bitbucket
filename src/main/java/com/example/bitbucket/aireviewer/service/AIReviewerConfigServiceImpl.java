@@ -61,10 +61,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
 
     @Inject
     public AIReviewerConfigServiceImpl(
-            @ComponentImport ActiveObjects ao,
-            HttpClientUtil httpClientUtil) {
+            @ComponentImport ActiveObjects ao) {
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
-        this.httpClientUtil = Objects.requireNonNull(httpClientUtil, "httpClientUtil cannot be null");
+        this.httpClientUtil = new HttpClientUtil(); // Create with default settings
     }
 
     @Nonnull

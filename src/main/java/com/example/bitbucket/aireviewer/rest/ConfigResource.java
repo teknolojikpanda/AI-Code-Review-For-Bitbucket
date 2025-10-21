@@ -138,17 +138,16 @@ public class ConfigResource {
         try {
             boolean success = configService.testOllamaConnection(ollamaUrl);
 
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", success);
-
             if (success) {
-                result.put("message", "Connection test passed (URL validation)");
-                result.put("note", "Full HTTP connection test will be implemented with Ollama client");
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", true);
+                result.put("message", "Connection successful!");
+                return Response.ok(result).build();
             } else {
-                result.put("message", "Connection test failed");
+                return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Connection test failed. Unable to reach Ollama server at " + ollamaUrl))
+                    .build();
             }
-
-            return Response.ok(result).build();
 
         } catch (IllegalArgumentException e) {
             return Response.status(Response.Status.BAD_REQUEST)

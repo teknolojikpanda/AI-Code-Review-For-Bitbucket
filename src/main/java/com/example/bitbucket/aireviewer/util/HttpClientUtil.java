@@ -45,6 +45,13 @@ public class HttpClientUtil {
     private final RateLimiter rateLimiter;
 
     /**
+     * Default constructor for dependency injection.
+     */
+    public HttpClientUtil() {
+        this(10000, 30000, 3, 1000, 100);
+    }
+
+    /**
      * Creates a new HTTP client utility.
      *
      * @param connectTimeout connection timeout in milliseconds

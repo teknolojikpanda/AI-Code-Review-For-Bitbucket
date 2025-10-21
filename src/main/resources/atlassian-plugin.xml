@@ -40,6 +40,14 @@
         All @Component, @Named, and @Scanned classes will be automatically discovered
     -->
 
+    <!-- Explicit component declarations for services -->
+    <component key="aiReviewerConfigService" 
+               class="com.example.bitbucket.aireviewer.service.AIReviewerConfigServiceImpl" 
+               public="true">
+        <description>AI Reviewer Configuration Service</description>
+        <interface>com.example.bitbucket.aireviewer.service.AIReviewerConfigService</interface>
+    </component>
+
     <!-- REST API for Configuration -->
     <rest key="aiReviewerRestEndpoints"
           path="/ai-reviewer"
