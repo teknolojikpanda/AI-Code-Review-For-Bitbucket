@@ -35,6 +35,7 @@
     <component-import key="commentService" interface="com.atlassian.bitbucket.comment.CommentService"/>
     <component-import key="applicationPropertiesService" interface="com.atlassian.bitbucket.server.ApplicationPropertiesService"/>
 
+
     <!--
         Component scanning is enabled via atlassian-spring-scanner-maven-plugin
         All @Component, @Named, and @Scanned classes will be automatically discovered
@@ -46,6 +47,18 @@
                public="true">
         <description>AI Reviewer Configuration Service</description>
         <interface>com.example.bitbucket.aireviewer.service.AIReviewerConfigService</interface>
+    </component>
+
+    <component key="aiReviewService" 
+               class="com.example.bitbucket.aireviewer.service.AIReviewServiceImpl" 
+               public="true">
+        <description>AI Review Service</description>
+        <interface>com.example.bitbucket.aireviewer.service.AIReviewService</interface>
+    </component>
+
+    <component key="pullRequestAIReviewListener" 
+               class="com.example.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
+        <description>Pull Request AI Review Event Listener</description>
     </component>
 
     <!-- REST API for Configuration -->

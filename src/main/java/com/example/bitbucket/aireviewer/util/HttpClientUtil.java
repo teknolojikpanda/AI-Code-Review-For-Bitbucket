@@ -1,7 +1,6 @@
 package com.example.bitbucket.aireviewer.util;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
+// Using simple string building for JSON to avoid external dependencies
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +34,7 @@ import java.util.Objects;
 public class HttpClientUtil {
 
     private static final Logger log = LoggerFactory.getLogger(HttpClientUtil.class);
-    private static final Gson gson = new Gson();
+    // Using simple string building for JSON to avoid external dependencies
 
     private final int connectTimeout;
     private final int readTimeout;
@@ -75,29 +74,30 @@ public class HttpClientUtil {
     }
 
     /**
-     * Sends a POST request with JSON payload and returns JSON response.
+     * Sends a POST request with JSON payload and returns response string.
+     * Simplified implementation without external JSON dependencies.
      *
      * @param url the URL to send the request to
-     * @param requestBody the request body as a map
-     * @return the response body as a JsonObject
+     * @param requestBody the request body as JSON string
+     * @return the response body as a string
      * @throws IOException if the request fails
      */
     @Nonnull
-    public JsonObject postJson(@Nonnull String url, @Nonnull Map<String, Object> requestBody) throws IOException {
+    public String postJson(@Nonnull String url, @Nonnull String requestBody) throws IOException {
         return postJson(url, requestBody, maxRetries);
     }
 
     /**
-     * Sends a POST request with JSON payload and returns JSON response.
+     * Sends a POST request with JSON payload and returns response string.
      *
      * @param url the URL to send the request to
-     * @param requestBody the request body as a map
+     * @param requestBody the request body as JSON string
      * @param retries number of retries to attempt
-     * @return the response body as a JsonObject
+     * @return the response body as a string
      * @throws IOException if the request fails after all retries
      */
     @Nonnull
-    public JsonObject postJson(@Nonnull String url, @Nonnull Map<String, Object> requestBody, int retries)
+    public String postJson(@Nonnull String url, @Nonnull String requestBody, int retries)
             throws IOException {
         Objects.requireNonNull(url, "url cannot be null");
         Objects.requireNonNull(requestBody, "requestBody cannot be null");
@@ -143,12 +143,12 @@ public class HttpClientUtil {
      * Performs the actual HTTP POST request.
      *
      * @param urlString the URL
-     * @param requestBody the request body
-     * @return the response as JsonObject
+     * @param requestBody the request body as JSON string
+     * @return the response as string
      * @throws IOException if the request fails
      */
     @Nonnull
-    private JsonObject doPostJson(@Nonnull String urlString, @Nonnull Map<String, Object> requestBody)
+    private String doPostJson(@Nonnull String urlString, @Nonnull String requestBody)
             throws IOException {
         URL url = new URL(urlString);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -163,11 +163,10 @@ public class HttpClientUtil {
             conn.setDoOutput(true);
 
             // Send request body
-            String jsonRequest = gson.toJson(requestBody);
-            log.debug("POST {} - Request: {}", urlString, truncate(jsonRequest, 500));
+            log.debug("POST {} - Request: {}", urlString, truncate(requestBody, 500));
 
             try (OutputStream os = conn.getOutputStream()) {
-                byte[] input = jsonRequest.getBytes(StandardCharsets.UTF_8);
+                byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
                 os.write(input, 0, input.length);
             }
 
@@ -184,7 +183,7 @@ public class HttpClientUtil {
             String responseBody = readInputStream(conn);
             log.debug("POST {} - Response: {}", urlString, truncate(responseBody, 500));
 
-            return gson.fromJson(responseBody, JsonObject.class);
+            return responseBody;
 
         } finally {
             conn.disconnect();

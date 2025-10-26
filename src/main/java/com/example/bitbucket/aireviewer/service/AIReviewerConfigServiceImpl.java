@@ -32,7 +32,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private final HttpClientUtil httpClientUtil;
 
     // Default configuration values
-    private static final String DEFAULT_OLLAMA_URL = "http://10.152.98.37:11434";
+    private static final String DEFAULT_OLLAMA_URL = "http://0.0.0.0:11434";
     private static final String DEFAULT_OLLAMA_MODEL = "qwen3-coder:30b";
     private static final String DEFAULT_FALLBACK_MODEL = "qwen3-coder:7b";
     private static final int DEFAULT_MAX_CHARS_PER_CHUNK = 60000;
@@ -193,7 +193,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("maxDiffSize", DEFAULT_MAX_DIFF_SIZE);
         defaults.put("maxRetries", DEFAULT_MAX_RETRIES);
         defaults.put("baseRetryDelay", DEFAULT_BASE_RETRY_DELAY);
-        defaults.put("apiDelay", DEFAULT_API_DELAY);
+        defaults.put("apiDelayMs", DEFAULT_API_DELAY);
         defaults.put("minSeverity", DEFAULT_MIN_SEVERITY);
         defaults.put("requireApprovalFor", DEFAULT_REQUIRE_APPROVAL_FOR);
         defaults.put("reviewExtensions", DEFAULT_REVIEW_EXTENSIONS);
@@ -300,8 +300,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (configMap.containsKey("baseRetryDelay")) {
             config.setBaseRetryDelayMs(getIntValue(configMap, "baseRetryDelay"));
         }
-        if (configMap.containsKey("apiDelay")) {
-            config.setApiDelayMs(getIntValue(configMap, "apiDelay"));
+        if (configMap.containsKey("apiDelayMs")) {
+            config.setApiDelayMs(getIntValue(configMap, "apiDelayMs"));
         }
         if (configMap.containsKey("minSeverity")) {
             config.setMinSeverity((String) configMap.get("minSeverity"));
@@ -352,7 +352,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("maxDiffSize", config.getMaxDiffSize());
         map.put("maxRetries", config.getMaxRetries());
         map.put("baseRetryDelay", config.getBaseRetryDelayMs());
-        map.put("apiDelay", config.getApiDelayMs());
+        map.put("apiDelayMs", config.getApiDelayMs());
         map.put("minSeverity", config.getMinSeverity());
         map.put("requireApprovalFor", config.getRequireApprovalFor());
         map.put("reviewExtensions", config.getReviewExtensions());

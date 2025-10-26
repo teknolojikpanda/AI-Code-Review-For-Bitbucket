@@ -45,6 +45,8 @@ public class ReviewIssue {
 
     private final String path;
     private final Integer line;
+    private final Integer lineStart;
+    private final Integer lineEnd;
     private final Severity severity;
     private final String type;
     private final String summary;
@@ -55,6 +57,8 @@ public class ReviewIssue {
     private ReviewIssue(Builder builder) {
         this.path = builder.path;
         this.line = builder.line;
+        this.lineStart = builder.lineStart;
+        this.lineEnd = builder.lineEnd;
         this.severity = builder.severity;
         this.type = builder.type;
         this.summary = builder.summary;
@@ -77,10 +81,49 @@ public class ReviewIssue {
      * Gets the line number where the issue occurs.
      *
      * @return the line number, or null if not line-specific
+     * @deprecated Use getLineStart() and getLineEnd() for line range information
      */
     @Nullable
+    @Deprecated
     public Integer getLine() {
-        return line;
+        return lineStart != null ? lineStart : line;
+    }
+
+    /**
+     * Gets the starting line number where the issue occurs.
+     *
+     * @return the starting line number, or null if not line-specific
+     */
+    @Nullable
+    public Integer getLineStart() {
+        return lineStart != null ? lineStart : line;
+    }
+
+    /**
+     * Gets the ending line number where the issue occurs.
+     *
+     * @return the ending line number, or null if not line-specific
+     */
+    @Nullable
+    public Integer getLineEnd() {
+        return lineEnd;
+    }
+
+    /**
+     * Gets the line range as a formatted string.
+     *
+     * @return formatted line range (e.g., "42-45" or "42" for single line), or "?" if no line info
+     */
+    @Nonnull
+    public String getLineRangeDisplay() {
+        if (lineStart != null && lineEnd != null && !lineStart.equals(lineEnd)) {
+            return lineStart + "-" + lineEnd;
+        } else if (lineStart != null) {
+            return String.valueOf(lineStart);
+        } else if (line != null) {
+            return String.valueOf(line);
+        }
+        return "?";
     }
 
     /**
@@ -188,6 +231,8 @@ public class ReviewIssue {
     public static class Builder {
         private String path;
         private Integer line;
+        private Integer lineStart;
+        private Integer lineEnd;
         private Severity severity = Severity.MEDIUM;
         private String type = "general";
         private String summary;
@@ -207,6 +252,25 @@ public class ReviewIssue {
         @Nonnull
         public Builder line(@Nullable Integer line) {
             this.line = line;
+            return this;
+        }
+
+        @Nonnull
+        public Builder lineStart(@Nullable Integer lineStart) {
+            this.lineStart = lineStart;
+            return this;
+        }
+
+        @Nonnull
+        public Builder lineEnd(@Nullable Integer lineEnd) {
+            this.lineEnd = lineEnd;
+            return this;
+        }
+
+        @Nonnull
+        public Builder lineRange(@Nullable Integer lineStart, @Nullable Integer lineEnd) {
+            this.lineStart = lineStart;
+            this.lineEnd = lineEnd;
             return this;
         }
 

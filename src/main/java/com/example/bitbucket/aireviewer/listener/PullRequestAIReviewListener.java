@@ -12,14 +12,13 @@ import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.InitializingBean;
 
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Event listener for pull request events that triggers AI code reviews.
@@ -31,14 +30,13 @@ import java.util.concurrent.Executors;
  * Reviews are executed asynchronously to avoid blocking the PR creation/update.
  */
 @Named
-public class PullRequestAIReviewListener implements DisposableBean {
+public class PullRequestAIReviewListener implements DisposableBean, InitializingBean {
 
     private static final Logger log = LoggerFactory.getLogger(PullRequestAIReviewListener.class);
 
     private final EventPublisher eventPublisher;
     private final AIReviewService reviewService;
     private final AIReviewerConfigService configService;
-    private final ExecutorService executorService;
 
     @Inject
     public PullRequestAIReviewListener(
@@ -48,11 +46,22 @@ public class PullRequestAIReviewListener implements DisposableBean {
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher cannot be null");
         this.reviewService = Objects.requireNonNull(reviewService, "reviewService cannot be null");
         this.configService = Objects.requireNonNull(configService, "configService cannot be null");
-        this.executorService = Executors.newFixedThreadPool(2); // Max 2 concurrent reviews
+        log.info("PullRequestAIReviewListener constructed");
+    }
 
-        // Register this listener with the event publisher
-        eventPublisher.register(this);
-        log.info("PullRequestAIReviewListener registered successfully");
+    /**
+     * Called after dependency injection is complete.
+     * Registers this listener with the event publisher.
+     */
+    @Override
+    public void afterPropertiesSet() {
+        try {
+            eventPublisher.register(this);
+            log.info("✅ PullRequestAIReviewListener successfully registered with EventPublisher");
+        } catch (Exception e) {
+            log.error("❌ Failed to register PullRequestAIReviewListener with EventPublisher", e);
+            throw e;
+        }
     }
 
     /**
@@ -65,10 +74,11 @@ public class PullRequestAIReviewListener implements DisposableBean {
     @EventListener
     public void onPullRequestOpened(@Nonnull PullRequestOpenedEvent event) {
         PullRequest pullRequest = event.getPullRequest();
-        log.info("PR opened event received: PR #{} in {}/{}",
+        log.info("🚀 PR OPENED EVENT RECEIVED: PR #{} in {}/{} - Title: '{}'",
                 pullRequest.getId(),
                 pullRequest.getToRef().getRepository().getProject().getKey(),
-                pullRequest.getToRef().getRepository().getSlug());
+                pullRequest.getToRef().getRepository().getSlug(),
+                pullRequest.getTitle());
 
         // Check if reviews are enabled
         if (!isReviewEnabled()) {
@@ -86,8 +96,8 @@ public class PullRequestAIReviewListener implements DisposableBean {
             log.info("PR #{} is a draft but reviewDraftPRs=true - proceeding with review", pullRequest.getId());
         }
 
-        // Execute review asynchronously
-        executeReviewAsync(pullRequest, false);
+        // Execute review synchronously
+        executeReview(pullRequest, false);
     }
 
     /**
@@ -120,47 +130,45 @@ public class PullRequestAIReviewListener implements DisposableBean {
             }
         }
 
-        // Execute re-review asynchronously (compares with previous review)
-        executeReviewAsync(pullRequest, true);
+        // Execute re-review synchronously (compares with previous review)
+        executeReview(pullRequest, true);
     }
 
     /**
-     * Executes a review asynchronously in a background thread.
+     * Executes a review synchronously to maintain authentication context.
      *
      * @param pullRequest the pull request to review
      * @param isUpdate true if this is a re-review (PR update), false if new PR
      */
-    private void executeReviewAsync(@Nonnull PullRequest pullRequest, boolean isUpdate) {
-        executorService.submit(() -> {
-            try {
-                log.info("Starting {} review for PR #{} (async)",
-                        isUpdate ? "update" : "initial",
-                        pullRequest.getId());
+    private void executeReview(@Nonnull PullRequest pullRequest, boolean isUpdate) {
+        try {
+            log.info("Starting {} review for PR #{}",
+                    isUpdate ? "update" : "initial",
+                    pullRequest.getId());
 
-                ReviewResult result;
-                if (isUpdate) {
-                    result = reviewService.reReviewPullRequest(pullRequest);
-                } else {
-                    result = reviewService.reviewPullRequest(pullRequest);
-                }
-
-                log.info("Review completed for PR #{}: status={}, issues={}, filesReviewed={}",
-                        pullRequest.getId(),
-                        result.getStatus(),
-                        result.getIssueCount(),
-                        result.getFilesReviewed());
-
-                if (result.hasCriticalIssues()) {
-                    log.warn("PR #{} has critical issues that require attention", pullRequest.getId());
-                }
-
-            } catch (Exception e) {
-                log.error("Failed to review PR #{}: {}",
-                        pullRequest.getId(),
-                        e.getMessage(),
-                        e);
+            ReviewResult result;
+            if (isUpdate) {
+                result = reviewService.reReviewPullRequest(pullRequest);
+            } else {
+                result = reviewService.reviewPullRequest(pullRequest);
             }
-        });
+
+            log.info("Review completed for PR #{}: status={}, issues={}, filesReviewed={}",
+                    pullRequest.getId(),
+                    result.getStatus(),
+                    result.getIssueCount(),
+                    result.getFilesReviewed());
+
+            if (result.hasCriticalIssues()) {
+                log.warn("PR #{} has critical issues that require attention", pullRequest.getId());
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to review PR #{}: {}",
+                    pullRequest.getId(),
+                    e.getMessage(),
+                    e);
+        }
     }
 
     /**
@@ -243,13 +251,12 @@ public class PullRequestAIReviewListener implements DisposableBean {
 
     /**
      * Cleanup method called when the plugin is unloaded.
-     * Unregisters the listener and shuts down the executor.
+     * Unregisters the listener.
      */
     @Override
     public void destroy() {
         log.info("Destroying PullRequestAIReviewListener");
         eventPublisher.unregister(this);
-        executorService.shutdown();
         log.info("PullRequestAIReviewListener destroyed successfully");
     }
 }

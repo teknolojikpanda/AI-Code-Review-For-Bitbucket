@@ -23,15 +23,16 @@
         <maven.compiler.target>1.8</maven.compiler.target>
 
         <!-- Bitbucket and Atlassian versions -->
-        <bitbucket.version>8.9.0</bitbucket.version>
-        <amps.version>8.11.0</amps.version>
+        <bitbucket.version>9.6.5</bitbucket.version>
+        <amps.version>9.6.0</amps.version>
         <atlassian.spring.scanner.version>2.2.4</atlassian.spring.scanner.version>
 
         <!-- Dependency versions -->
         <spring.version>5.3.23</spring.version>
         <javax.inject.version>1</javax.inject.version>
         <slf4j.version>1.7.36</slf4j.version>
-        <gson.version>2.8.9</gson.version>
+        <jackson.version>2.17.1</jackson.version>
+
         <httpclient.version>4.5.13</httpclient.version>
 
         <!-- Test dependency versions -->
@@ -104,6 +105,7 @@
         <dependency>
             <groupId>javax.servlet</groupId>
             <artifactId>javax.servlet-api</artifactId>
+            <version>3.1.0</version>
             <scope>provided</scope>
         </dependency>
 
@@ -138,11 +140,11 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- JSON Processing -->
         <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>${gson.version}</version>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- HTTP Client for Ollama API calls -->
