@@ -55,54 +55,59 @@ public class RateLimiter {
      * @throws InterruptedException if the thread is interrupted while waiting
      */
     public void acquire() throws InterruptedException {
-        Instant now = Instant.now();
+        try {
+            Instant now = Instant.now();
 
-        synchronized (this) {
-            // Remove timestamps outside the time window
-            cleanupOldTimestamps(now);
+            synchronized (this) {
+                // Remove timestamps outside the time window
+                cleanupOldTimestamps(now);
 
-            // If we're at the limit, wait until we can proceed
-            while (requestTimestamps.size() >= maxRequests) {
-                Instant oldest = requestTimestamps.peek();
-                if (oldest == null) {
-                    break;
-                }
+                // If we're at the limit, wait until we can proceed
+                while (requestTimestamps.size() >= maxRequests) {
+                    Instant oldest = requestTimestamps.peek();
+                    if (oldest == null) {
+                        break;
+                    }
 
-                // Calculate how long until the oldest request expires
-                Instant windowStart = now.minus(timeWindow);
-                if (oldest.isBefore(windowStart)) {
-                    // Oldest request is already outside the window, remove it
-                    requestTimestamps.poll();
-                    cleanupOldTimestamps(now);
-                } else {
-                    // Need to wait for the oldest request to expire
-                    long waitTimeMs = Duration.between(windowStart, oldest).toMillis();
-                    if (waitTimeMs > 0) {
-                        log.debug("Rate limiter [{}] waiting {}ms (queue size: {}/{})",
-                                name, waitTimeMs, requestTimestamps.size(), maxRequests);
-                        Thread.sleep(waitTimeMs);
-                        now = Instant.now();
+                    // Calculate how long until the oldest request expires
+                    Instant windowStart = now.minus(timeWindow);
+                    if (oldest.isBefore(windowStart)) {
+                        // Oldest request is already outside the window, remove it
+                        requestTimestamps.poll();
                         cleanupOldTimestamps(now);
+                    } else {
+                        // Need to wait for the oldest request to expire
+                        long waitTimeMs = Duration.between(windowStart, oldest).toMillis();
+                        if (waitTimeMs > 0) {
+                            log.debug("Rate limiter [{}] waiting {}ms (queue size: {}/{})",
+                                    name, waitTimeMs, requestTimestamps.size(), maxRequests);
+                            Thread.sleep(waitTimeMs);
+                            now = Instant.now();
+                            cleanupOldTimestamps(now);
+                        }
                     }
                 }
-            }
 
-            // Add minimum delay between requests if configured
-            if (minDelayMs > 0 && lastRequestTime != null) {
-                long timeSinceLastMs = Duration.between(lastRequestTime, now).toMillis();
-                if (timeSinceLastMs < minDelayMs) {
-                    long delayMs = minDelayMs - timeSinceLastMs;
-                    log.debug("Rate limiter [{}] enforcing minimum delay of {}ms", name, delayMs);
-                    Thread.sleep(delayMs);
-                    now = Instant.now();
+                // Add minimum delay between requests if configured
+                if (minDelayMs > 0 && lastRequestTime != null) {
+                    long timeSinceLastMs = Duration.between(lastRequestTime, now).toMillis();
+                    if (timeSinceLastMs < minDelayMs) {
+                        long delayMs = minDelayMs - timeSinceLastMs;
+                        log.debug("Rate limiter [{}] enforcing minimum delay of {}ms", name, delayMs);
+                        Thread.sleep(delayMs);
+                        now = Instant.now();
+                    }
                 }
-            }
 
-            // Record this request
-            requestTimestamps.offer(now);
-            lastRequestTime = now;
-            log.debug("Rate limiter [{}] acquired (queue size: {}/{})",
-                    name, requestTimestamps.size(), maxRequests);
+                // Record this request
+                requestTimestamps.offer(now);
+                lastRequestTime = now;
+                log.debug("Rate limiter [{}] acquired (queue size: {}/{})",
+                        name, requestTimestamps.size(), maxRequests);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         }
     }
 

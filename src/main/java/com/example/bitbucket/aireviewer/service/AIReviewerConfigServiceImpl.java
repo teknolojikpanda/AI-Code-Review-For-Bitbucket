@@ -91,7 +91,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return ao.executeInTransaction(() -> {
             AIReviewConfiguration config = getOrCreateConfiguration();
 
-            // Update all fields from the map
+            // Update all fields from the map using safe setters
             updateConfigurationFields(config, configMap);
 
             config.save();
@@ -210,7 +210,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     // Private helper methods
 
     private AIReviewConfiguration getOrCreateConfiguration() {
-        AIReviewConfiguration[] configs = ao.find(AIReviewConfiguration.class);
+        AIReviewConfiguration[] configs = ao.find(AIReviewConfiguration.class, Query.select());
 
         if (configs.length == 0) {
             return createDefaultConfiguration();

@@ -207,10 +207,11 @@ public class ReviewIssue {
 
     @Override
     public String toString() {
+        String lineInfo = getLineRangeDisplay();
         return String.format("[%s] %s:%s - %s: %s",
                 severity.getValue(),
                 path,
-                line != null ? line : "?",
+                lineInfo,
                 type,
                 summary);
     }

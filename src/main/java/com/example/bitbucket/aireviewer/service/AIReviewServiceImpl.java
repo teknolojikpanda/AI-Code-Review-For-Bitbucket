@@ -115,227 +115,309 @@ public class AIReviewServiceImpl implements AIReviewService {
         Instant overallStart = metrics.recordStart("overall");
 
         try {
-            PullRequest pr = pullRequest; 
-            log.info("Reviewing PR #{} in {}/{}: {}",
-                    pr.getId(),
-                    pr.getToRef().getRepository().getProject().getKey(),
-                    pr.getToRef().getRepository().getSlug(),
-                    pr.getTitle());
-
-            // Fetch diff
-            Instant fetchStart = metrics.recordStart("fetchDiff");
-            String diffText = fetchDiff(pr);
-            metrics.recordEnd("fetchDiff", fetchStart);
-
-            if (diffText == null || diffText.trim().isEmpty()) {
-                log.warn("No diff content found for PR #{}", pullRequestId);
-                return ReviewResult.builder()
-                        .pullRequestId(pullRequestId)
-                        .status(ReviewResult.Status.SKIPPED)
-                        .message("No changes to review")
-                        .filesReviewed(0)
-                        .filesSkipped(0)
-                        .metrics(metrics.getMetrics())
-                        .build();
+            logPullRequestInfo(pullRequest);
+            
+            String diffText = fetchAndValidateDiff(pullRequest, metrics);
+            if (diffText == null) {
+                return buildSkippedResult(pullRequestId, "No changes to review", metrics);
             }
-
-            // Validate PR size
-            Instant validateStart = metrics.recordStart("validateSize");
-            PRSizeValidation sizeCheck = validatePRSize(diffText);
-            metrics.recordEnd("validateSize", validateStart);
-            metrics.recordMetric("diffSizeMB", (long) sizeCheck.getSizeMB());
-            metrics.recordMetric("diffLines", sizeCheck.getLines());
-
+            
+            PRSizeValidation sizeCheck = validatePRSize(diffText, metrics);
             if (!sizeCheck.isValid()) {
-                log.error("PR #{} too large: {}", pullRequestId, sizeCheck.getMessage());
-                return ReviewResult.builder()
-                        .pullRequestId(pullRequestId)
-                        .status(ReviewResult.Status.FAILED)
-                        .message(sizeCheck.getMessage())
-                        .filesReviewed(0)
-                        .filesSkipped(0)
-                        .metrics(metrics.getMetrics())
-                        .build();
+                return buildFailedResult(pullRequestId, sizeCheck.getMessage(), metrics);
             }
-
-            log.info("PR #{} size: {} lines, {} MB", pullRequestId, sizeCheck.getLines(), String.format("%.2f", sizeCheck.getSizeMB()));
-
-            // Analyze diff for file changes
-            Instant analyzeStart = metrics.recordStart("analyzeDiff");
-            Map<String, FileChange> fileChanges = analyzeDiffForSummary(diffText);
-            metrics.recordEnd("analyzeDiff", analyzeStart);
-            metrics.recordMetric("totalFiles", fileChanges.size());
-
-            log.info("PR #{} changes {} file(s)", pullRequestId, fileChanges.size());
-
-            // Filter files for review
-            Instant filterStart = metrics.recordStart("filterFiles");
-            Set<String> filesToReview = filterFilesForReview(fileChanges.keySet());
-            metrics.recordEnd("filterFiles", filterStart);
-            metrics.recordMetric("filesToReview", filesToReview.size());
-            metrics.recordMetric("filesSkipped", fileChanges.size() - filesToReview.size());
-
-            log.info("PR #{} will review {} file(s), skipped {} file(s)",
-                    pullRequestId, filesToReview.size(), fileChanges.size() - filesToReview.size());
-
+            
+            Map<String, FileChange> fileChanges = analyzeFileChanges(diffText, metrics);
+            Set<String> filesToReview = filterFilesForReview(fileChanges, metrics);
+            
             if (filesToReview.isEmpty()) {
-                log.info("No files to review after filtering");
-                return ReviewResult.builder()
-                        .pullRequestId(pullRequestId)
-                        .status(ReviewResult.Status.SUCCESS)
-                        .message("No reviewable files found (all filtered)")
-                        .filesReviewed(0)
-                        .filesSkipped(fileChanges.size())
-                        .metrics(metrics.getMetrics())
-                        .build();
-            }
-
-            // Chunk diff
-            Instant chunkStart = metrics.recordStart("chunkDiff");
-            List<DiffChunk> chunks = smartChunkDiff(diffText, filesToReview);
-            metrics.recordEnd("chunkDiff", chunkStart);
-            metrics.recordMetric("chunks", chunks.size());
-
-            log.info("PR #{} split into {} chunk(s) for processing", pullRequestId, chunks.size());
-            chunks.forEach(chunk -> log.debug("  {}", chunk));
-
-            // Process chunks with Ollama in parallel
-            Instant ollamaStart = metrics.recordStart("ollamaProcessing");
-             List<ReviewIssue> rawIssues = processChunksInParallel(chunks, pr);
-            metrics.recordEnd("ollamaProcessing", ollamaStart);
-            
-            // Validate and filter issues early
-            List<ReviewIssue> issues = rawIssues.stream()
-                    .filter(issue -> isValidIssue(issue, diffText))
-                    .collect(Collectors.toList());
-            
-            int invalidIssues = rawIssues.size() - issues.size();
-            if (invalidIssues > 0) {
-                log.warn("Filtered out {} invalid issues (null paths, invalid line numbers, mismatched code)", invalidIssues);
+                return buildSuccessResult(pullRequestId, "No reviewable files found (all filtered)", 
+                    0, fileChanges.size(), metrics);
             }
             
-            metrics.recordMetric("totalIssues", issues.size());
-            metrics.recordMetric("invalidIssues", invalidIssues);
-
-            log.info("PR #{} analysis complete: {} valid issues found ({} invalid filtered)", pullRequestId, issues.size(), invalidIssues);
-
-            // Count issues by severity
-            long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
-            long highCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.HIGH).count();
-            long mediumCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.MEDIUM).count();
-            long lowCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.LOW).count();
-
-            metrics.recordMetric("criticalIssues", criticalCount);
-            metrics.recordMetric("highIssues", highCount);
-            metrics.recordMetric("mediumIssues", mediumCount);
-            metrics.recordMetric("lowIssues", lowCount);
-
-            log.info("Issue breakdown - Critical: {}, High: {}, Medium: {}, Low: {}",
-                    criticalCount, highCount, mediumCount, lowCount);
-
-            // Re-review comparison logic
-            List<ReviewIssue> previousIssues = getPreviousIssues(pr);
-            List<ReviewIssue> resolvedIssues = new ArrayList<>();
-            List<ReviewIssue> newIssues = new ArrayList<>();
-
-            if (!previousIssues.isEmpty()) {
-                resolvedIssues = findResolvedIssues(previousIssues, issues);
-                newIssues = findNewIssues(previousIssues, issues);
-                log.info("Re-review comparison: {} resolved, {} new out of {} previous and {} current issues",
-                        resolvedIssues.size(), newIssues.size(), previousIssues.size(), issues.size());
-                metrics.recordMetric("resolvedIssues", resolvedIssues.size());
-                metrics.recordMetric("newIssues", newIssues.size());
-            } else {
-                log.info("No previous review found - first review for this PR");
-            }
-
-            // Post comments to PR
-            Instant commentStart = metrics.recordStart("postComments");
-            int commentsPosted = 0;
-            int failedChunks = 0; // Track from parallel processing if needed
-
-            if (!issues.isEmpty()) {
-                try {
-                    // Calculate elapsed time for summary
-                    long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
-
-                    // Build and post summary comment (includes resolved/new issues if applicable)
-                    String summaryText = buildSummaryComment(issues, fileChanges, pr, elapsedSeconds, failedChunks, resolvedIssues, newIssues);
-                    Comment summaryComment = addPRComment(pr, summaryText);
-                    log.info("Posted summary comment with ID: {}", summaryComment.getId());
-
-                    // Post individual issue comments as replies
-                    commentsPosted = postIssueComments(issues, summaryComment, pr);
-                    log.info("✓ Posted {} issue comment replies", commentsPosted);
-
-                } catch (Exception e) {
-                    log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
-                    log.error("Full exception stack trace:", e);
-                    // Continue even if comment posting fails - we still have the results
-                }
-            } else {
-                log.info("No issues found - skipping comment posting");
-            }
-
-            metrics.recordEnd("postComments", commentStart);
-            metrics.recordMetric("commentsPosted", commentsPosted);
-
-            // PR Approval/Rejection Logic
-            Map<String, Object> config = configService.getConfigurationAsMap();
-            boolean approved = false;
-
-            if (shouldApprovePR(issues, config)) {
-                log.info("Attempting to auto-approve PR #{}", pullRequestId);
-                approved = approvePR(pr);
-                if (approved) {
-                    log.info("✅ PR #{} auto-approved - no critical/high issues found", pullRequestId);
-                    metrics.recordMetric("autoApproved", 1);
-                } else {
-                    log.warn("Failed to auto-approve PR #{}", pullRequestId);
-                    metrics.recordMetric("autoApproveFailed", 1);
-                }
-            } else {
-                log.info("PR #{} not auto-approved - critical/high issues present or auto-approve disabled", pullRequestId);
-                metrics.recordMetric("autoApproved", 0);
-            }
-
-            // Determine status based on critical issues
-            ReviewResult.Status status = criticalCount > 0 || highCount > 0
-                    ? ReviewResult.Status.PARTIAL
-                    : ReviewResult.Status.SUCCESS;
-
-            String approvalStatus = approved ? " (auto-approved)" : "";
-            String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
-                    issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted + (issues.isEmpty() ? 0 : 1), approvalStatus);
-
-            ReviewResult result = ReviewResult.builder()
-                    .pullRequestId(pullRequestId)
-                    .status(status)
-                    .message(message)
-                    .issues(issues)
-                    .filesReviewed(filesToReview.size())
-                    .filesSkipped(fileChanges.size() - filesToReview.size())
-                    .metrics(metrics.getMetrics())
-                    .build();
-
-            // Save review history to database
-            saveReviewHistory(pr, issues, result);
-
+            List<DiffChunk> chunks = chunkDiff(diffText, filesToReview, metrics);
+            List<ReviewIssue> issues = processAndValidateIssues(chunks, pullRequest, diffText, metrics);
+            
+            ReviewComparison comparison = compareWithPreviousReview(pullRequest, issues, metrics);
+            int commentsPosted = postCommentsIfNeeded(issues, fileChanges, pullRequest, 
+                overallStart, comparison, metrics);
+            
+            boolean approved = handleAutoApproval(issues, pullRequest, metrics);
+            ReviewResult result = buildFinalResult(pullRequestId, issues, filesToReview.size(), 
+                fileChanges.size(), commentsPosted, approved, metrics);
+            
+            saveReviewHistory(pullRequest, issues, result);
             return result;
-
+            
         } catch (Exception e) {
-            log.error("Failed to review pull request: {}", pullRequestId, e);
-            metrics.setGauge("error", e.getMessage());
-            return ReviewResult.builder()
-                    .pullRequestId(pullRequestId)
-                    .status(ReviewResult.Status.FAILED)
-                    .message("Review failed: " + e.getMessage())
-                    .filesReviewed(0)
-                    .filesSkipped(0)
-                    .metrics(metrics.getMetrics())
-                    .build();
+            return handleReviewException(pullRequestId, e, metrics);
         } finally {
             metrics.logMetrics();
+        }
+    }
+    
+    private void logPullRequestInfo(@Nonnull PullRequest pr) {
+        log.info("Reviewing PR #{} in {}/{}: {}",
+                pr.getId(),
+                pr.getToRef().getRepository().getProject().getKey(),
+                pr.getToRef().getRepository().getSlug(),
+                pr.getTitle());
+    }
+    
+    private String fetchAndValidateDiff(@Nonnull PullRequest pr, @Nonnull MetricsCollector metrics) {
+        Instant fetchStart = metrics.recordStart("fetchDiff");
+        String diffText = fetchDiff(pr);
+        metrics.recordEnd("fetchDiff", fetchStart);
+        
+        if (diffText == null || diffText.trim().isEmpty()) {
+            log.warn("No diff content found for PR #{}", pr.getId());
+            return null;
+        }
+        return diffText;
+    }
+    
+    private PRSizeValidation validatePRSize(@Nonnull String diffText, @Nonnull MetricsCollector metrics) {
+        Instant validateStart = metrics.recordStart("validateSize");
+        PRSizeValidation sizeCheck = validatePRSize(diffText);
+        metrics.recordEnd("validateSize", validateStart);
+        metrics.recordMetric("diffSizeMB", (long) sizeCheck.getSizeMB());
+        metrics.recordMetric("diffLines", sizeCheck.getLines());
+        
+        if (!sizeCheck.isValid()) {
+            log.error("PR too large: {}", sizeCheck.getMessage());
+        } else {
+            log.info("PR size: {} lines, {} MB", sizeCheck.getLines(), 
+                String.format("%.2f", sizeCheck.getSizeMB()));
+        }
+        return sizeCheck;
+    }
+    
+    private Map<String, FileChange> analyzeFileChanges(@Nonnull String diffText, @Nonnull MetricsCollector metrics) {
+        Instant analyzeStart = metrics.recordStart("analyzeDiff");
+        Map<String, FileChange> fileChanges = analyzeDiffForSummary(diffText);
+        metrics.recordEnd("analyzeDiff", analyzeStart);
+        metrics.recordMetric("totalFiles", fileChanges.size());
+        return fileChanges;
+    }
+    
+    private Set<String> filterFilesForReview(@Nonnull Map<String, FileChange> fileChanges, @Nonnull MetricsCollector metrics) {
+        Instant filterStart = metrics.recordStart("filterFiles");
+        Set<String> filesToReview = filterFilesForReview(fileChanges.keySet());
+        metrics.recordEnd("filterFiles", filterStart);
+        metrics.recordMetric("filesToReview", filesToReview.size());
+        metrics.recordMetric("filesSkipped", fileChanges.size() - filesToReview.size());
+        
+        log.info("Will review {} file(s), skipped {} file(s)",
+                filesToReview.size(), fileChanges.size() - filesToReview.size());
+        return filesToReview;
+    }
+    
+    private List<DiffChunk> chunkDiff(@Nonnull String diffText, @Nonnull Set<String> filesToReview, @Nonnull MetricsCollector metrics) {
+        Instant chunkStart = metrics.recordStart("chunkDiff");
+        List<DiffChunk> chunks = smartChunkDiff(diffText, filesToReview);
+        metrics.recordEnd("chunkDiff", chunkStart);
+        metrics.recordMetric("chunks", chunks.size());
+        
+        log.info("Split into {} chunk(s) for processing", chunks.size());
+        return chunks;
+    }
+    
+    private List<ReviewIssue> processAndValidateIssues(@Nonnull List<DiffChunk> chunks, @Nonnull PullRequest pr, 
+            @Nonnull String diffText, @Nonnull MetricsCollector metrics) {
+        Instant ollamaStart = metrics.recordStart("ollamaProcessing");
+        List<ReviewIssue> rawIssues = processChunksInParallel(chunks, pr);
+        metrics.recordEnd("ollamaProcessing", ollamaStart);
+        
+        List<ReviewIssue> issues = new ArrayList<>();
+        int invalidIssues = 0;
+        
+        for (ReviewIssue issue : rawIssues) {
+            if (isValidIssue(issue, diffText)) {
+                issues.add(issue);
+            } else {
+                invalidIssues++;
+                log.warn("Filtered out invalid issue: {} at {}:{} - {}", 
+                    issue.getType(), issue.getPath(), 
+                    issue.getLineStart() != null ? issue.getLineStart() : issue.getLine(),
+                    issue.getSummary());
+            }
+        }
+        
+        if (invalidIssues > 0) {
+            log.warn("Filtered out {} invalid issues (null paths, invalid line numbers, mismatched code)", invalidIssues);
+        }
+        
+        recordIssueMetrics(issues, invalidIssues, metrics);
+        return issues;
+    }
+    
+    private void recordIssueMetrics(@Nonnull List<ReviewIssue> issues, int invalidIssues, @Nonnull MetricsCollector metrics) {
+        metrics.recordMetric("totalIssues", issues.size());
+        metrics.recordMetric("invalidIssues", invalidIssues);
+        
+        long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
+        long highCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.HIGH).count();
+        long mediumCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.MEDIUM).count();
+        long lowCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.LOW).count();
+        
+        metrics.recordMetric("criticalIssues", criticalCount);
+        metrics.recordMetric("highIssues", highCount);
+        metrics.recordMetric("mediumIssues", mediumCount);
+        metrics.recordMetric("lowIssues", lowCount);
+        
+        log.info("Analysis complete: {} valid issues found ({} invalid filtered)", issues.size(), invalidIssues);
+        log.info("Issue breakdown - Critical: {}, High: {}, Medium: {}, Low: {}",
+                criticalCount, highCount, mediumCount, lowCount);
+    }
+    
+    private ReviewComparison compareWithPreviousReview(@Nonnull PullRequest pr, @Nonnull List<ReviewIssue> issues, @Nonnull MetricsCollector metrics) {
+        List<ReviewIssue> previousIssues = getPreviousIssues(pr);
+        List<ReviewIssue> resolvedIssues = new ArrayList<>();
+        List<ReviewIssue> newIssues = new ArrayList<>();
+        
+        if (!previousIssues.isEmpty()) {
+            resolvedIssues = findResolvedIssues(previousIssues, issues);
+            newIssues = findNewIssues(previousIssues, issues);
+            log.info("Re-review comparison: {} resolved, {} new out of {} previous and {} current issues",
+                    resolvedIssues.size(), newIssues.size(), previousIssues.size(), issues.size());
+            metrics.recordMetric("resolvedIssues", resolvedIssues.size());
+            metrics.recordMetric("newIssues", newIssues.size());
+        } else {
+            log.info("No previous review found - first review for this PR");
+        }
+        
+        return new ReviewComparison(resolvedIssues, newIssues);
+    }
+    
+    private int postCommentsIfNeeded(@Nonnull List<ReviewIssue> issues, @Nonnull Map<String, FileChange> fileChanges,
+            @Nonnull PullRequest pr, @Nonnull Instant overallStart, @Nonnull ReviewComparison comparison, @Nonnull MetricsCollector metrics) {
+        Instant commentStart = metrics.recordStart("postComments");
+        int commentsPosted = 0;
+        
+        if (!issues.isEmpty()) {
+            try {
+                long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
+                String summaryText = buildSummaryComment(issues, fileChanges, pr, elapsedSeconds, 0, 
+                    comparison.resolvedIssues, comparison.newIssues);
+                Comment summaryComment = addPRComment(pr, summaryText);
+                log.info("Posted summary comment with ID: {}", summaryComment.getId());
+                
+                commentsPosted = postIssueComments(issues, summaryComment, pr);
+                log.info("✓ Posted {} issue comment replies", commentsPosted);
+            } catch (Exception e) {
+                log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            }
+        } else {
+            log.info("No issues found - skipping comment posting");
+        }
+        
+        metrics.recordEnd("postComments", commentStart);
+        metrics.recordMetric("commentsPosted", commentsPosted);
+        return commentsPosted;
+    }
+    
+    private boolean handleAutoApproval(@Nonnull List<ReviewIssue> issues, @Nonnull PullRequest pr, @Nonnull MetricsCollector metrics) {
+        Map<String, Object> config = configService.getConfigurationAsMap();
+        boolean approved = false;
+        
+        if (shouldApprovePR(issues, config)) {
+            log.info("Attempting to auto-approve PR #{}", pr.getId());
+            approved = approvePR(pr);
+            if (approved) {
+                log.info("✅ PR #{} auto-approved - no critical/high issues found", pr.getId());
+                metrics.recordMetric("autoApproved", 1);
+            } else {
+                log.warn("Failed to auto-approve PR #{}", pr.getId());
+                metrics.recordMetric("autoApproveFailed", 1);
+            }
+        } else {
+            log.info("PR #{} not auto-approved - critical/high issues present or auto-approve disabled", pr.getId());
+            metrics.recordMetric("autoApproved", 0);
+        }
+        
+        return approved;
+    }
+    
+    private ReviewResult buildFinalResult(long pullRequestId, @Nonnull List<ReviewIssue> issues, int filesReviewed, 
+            int totalFiles, int commentsPosted, boolean approved, @Nonnull MetricsCollector metrics) {
+        long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
+        long highCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.HIGH).count();
+        long mediumCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.MEDIUM).count();
+        long lowCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.LOW).count();
+        
+        ReviewResult.Status status = criticalCount > 0 || highCount > 0
+                ? ReviewResult.Status.PARTIAL
+                : ReviewResult.Status.SUCCESS;
+        
+        String approvalStatus = approved ? " (auto-approved)" : "";
+        String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
+                issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted + (issues.isEmpty() ? 0 : 1), approvalStatus);
+        
+        return ReviewResult.builder()
+                .pullRequestId(pullRequestId)
+                .status(status)
+                .message(message)
+                .issues(issues)
+                .filesReviewed(filesReviewed)
+                .filesSkipped(totalFiles - filesReviewed)
+                .metrics(metrics.getMetrics())
+                .build();
+    }
+    
+    private ReviewResult buildSkippedResult(long pullRequestId, @Nonnull String message, @Nonnull MetricsCollector metrics) {
+        return ReviewResult.builder()
+                .pullRequestId(pullRequestId)
+                .status(ReviewResult.Status.SKIPPED)
+                .message(message)
+                .filesReviewed(0)
+                .filesSkipped(0)
+                .metrics(metrics.getMetrics())
+                .build();
+    }
+    
+    private ReviewResult buildFailedResult(long pullRequestId, @Nonnull String message, @Nonnull MetricsCollector metrics) {
+        return ReviewResult.builder()
+                .pullRequestId(pullRequestId)
+                .status(ReviewResult.Status.FAILED)
+                .message(message)
+                .filesReviewed(0)
+                .filesSkipped(0)
+                .metrics(metrics.getMetrics())
+                .build();
+    }
+    
+    private ReviewResult buildSuccessResult(long pullRequestId, @Nonnull String message, int filesReviewed, 
+            int filesSkipped, @Nonnull MetricsCollector metrics) {
+        return ReviewResult.builder()
+                .pullRequestId(pullRequestId)
+                .status(ReviewResult.Status.SUCCESS)
+                .message(message)
+                .filesReviewed(filesReviewed)
+                .filesSkipped(filesSkipped)
+                .metrics(metrics.getMetrics())
+                .build();
+    }
+    
+    private ReviewResult handleReviewException(long pullRequestId, @Nonnull Exception e, @Nonnull MetricsCollector metrics) {
+        log.error("Failed to review pull request: {}", pullRequestId, e);
+        metrics.setGauge("error", e.getMessage());
+        return ReviewResult.builder()
+                .pullRequestId(pullRequestId)
+                .status(ReviewResult.Status.FAILED)
+                .message("Review failed: " + e.getMessage())
+                .filesReviewed(0)
+                .filesSkipped(0)
+                .metrics(metrics.getMetrics())
+                .build();
+    }
+    
+    private static class ReviewComparison {
+        final List<ReviewIssue> resolvedIssues;
+        final List<ReviewIssue> newIssues;
+        
+        ReviewComparison(@Nonnull List<ReviewIssue> resolvedIssues, @Nonnull List<ReviewIssue> newIssues) {
+            this.resolvedIssues = resolvedIssues;
+            this.newIssues = newIssues;
         }
     }
 
@@ -741,72 +823,31 @@ public class AIReviewServiceImpl implements AIReviewService {
         String slug = pullRequest.getToRef().getRepository().getSlug();
         long prId = pullRequest.getId();
 
-        String systemPrompt = "You are an expert senior software engineer performing a comprehensive code review. " +
-                "ONLY analyze NEW or MODIFIED code, marked with '+' prefix in the diff.\n\n" +
-                "⚠️ CRITICAL RULES:\n" +
-                "1. ONLY analyze lines starting with '+' (new/modified code)\n" +
-                "2. COMPLETELY IGNORE lines with '-' or ' ' prefix (old/unchanged code)\n" +
-                "3. NEVER report issues in unchanged code sections\n" +
-                "4. ONLY use EXACT file paths from the provided diff\n" +
-                "5. VERIFY line numbers correspond to the new file version\n\n" +
-                "CRITICAL ANALYSIS AREAS:\n" +
-                "🔴 SECURITY: SQL injection, XSS, CSRF, authentication bypass, authorization flaws, input validation, data exposure, cryptographic issues\n" +
-                "🔴 BUGS & LOGIC: Null pointer exceptions, array bounds, race conditions, deadlocks, infinite loops, incorrect algorithms, edge cases\n" +
-                "🔴 PERFORMANCE: Memory leaks, inefficient queries, O(n²) algorithms, unnecessary computations, resource exhaustion\n" +
-                "🔴 RELIABILITY: Error handling, exception management, transaction integrity, data consistency, retry logic\n" +
-                "🔴 MAINTAINABILITY: Code complexity, duplicated logic, tight coupling, missing documentation, unclear naming\n" +
-                "🔴 TESTING: Missing test coverage, inadequate assertions, test data issues, mock problems\n\n" +
-                "SEVERITY GUIDELINES:\n" +
-                "- CRITICAL: Security vulnerabilities, data corruption, system crashes, production outages\n" +
-                "- HIGH: Logic errors, performance bottlenecks, reliability issues, significant bugs\n" +
-                "- MEDIUM: Code quality issues, maintainability problems, minor performance issues\n" +
-                "- LOW: Style improvements, documentation gaps, minor optimizations\n\n" +
-                "BE THOROUGH - even small changes can introduce significant issues.";
+        String systemPrompt = "MANDATORY COMPLIANCE RULES:\n" +
+                "1. NEVER guess line numbers - ONLY use numbers from [Line N] tags\n" +
+                "2. NEVER report issues without [Line N] annotation\n" +
+                "3. NEVER use calculated or estimated line numbers\n" +
+                "4. ONLY analyze '+' prefixed lines that have [Line N] tags\n" +
+                "5. If you see line without [Line N], SKIP IT COMPLETELY";
 
-        String userPrompt = String.format("COMPREHENSIVE CODE REVIEW REQUEST\n\n" +
-                "Repository: %s/%s\n" +
-                "Pull Request: #%d\n" +
-                "Analyzing chunk %d of %d\n\n" +
-                "PERFORM DETAILED LINE-BY-LINE ANALYSIS:\n\n" +
-                "===DIFF START===\n%s\n===DIFF END===\n\n" +
-                "AVAILABLE FILES IN THIS DIFF:\n%s\n\n" +
-                "You MUST only report issues for files listed above. Do not invent or guess file paths.\n\n" +
-                "CRITICAL INSTRUCTIONS:\n" +
-                "1. ONLY analyze lines that start with '+' (additions) - these are the NEW/CHANGED code\n" +
-                "2. IGNORE lines that start with '-' (deletions) or ' ' (context) - these are old/unchanged code\n" +
-                "3. Focus exclusively on potential issues in the ADDED/MODIFIED lines\n" +
-                "4. Report line numbers based on the NEW file version (after changes)\n" +
-                "5. Consider the broader context but only flag issues in the changed code\n" +
-                "6. Look for subtle bugs that could cause runtime failures in NEW code\n" +
-                "7. Identify security vulnerabilities in ADDED lines\n" +
-                "8. Check for performance implications of NEW changes\n\n" +
-                "IMPORTANT FILE PATH RULES:\n" +
-                "- ONLY use file paths that appear EXACTLY in the diff above\n" +
-                "- DO NOT invent, guess, or modify file paths\n" +
-                "- DO NOT use similar or related file paths\n\n" +
-                "LINE RANGE REPORTING (CRITICAL - READ CAREFULLY):\n" +
-                "- Each code line in the diff is prefixed with [Line N] showing its EXACT line number\n" +
-                "- For each issue, specify 'lineStart' (required) and 'lineEnd' (optional for multiline issues)\n" +
-                "- Use ONLY the line numbers shown in [Line N] prefixes\n" +
-                "- Example: '[Line 67] +    public void foo()' means this code is at line 67\n" +
-                "- MULTILINE ISSUES: If issue spans lines 67-71, set lineStart: 67, lineEnd: 71\n" +
-                "- SINGLE LINE ISSUES: If issue is on single line 67, set lineStart: 67 (omit lineEnd)\n" +
-                "- WHEN TO USE MULTILINE: Use lineEnd when the issue affects multiple consecutive lines\n" +
-                "  * Method/function definitions spanning multiple lines\n" +
-                "  * Complex expressions or statements across multiple lines\n" +
-                "  * Code blocks with related issues (try-catch, if-else blocks)\n" +
-                "  * Class or interface definitions\n" +
-                "- NEVER guess or calculate line numbers - ONLY use what you see in [Line N] tags\n" +
-                "- NEVER use line numbers not explicitly shown with [Line N] prefix\n\n" +
-                "Provide detailed findings in JSON format with EXACT file paths from the diff and specific line ranges for CHANGED CODE ONLY.\n\n" +
-                "For each issue, include the 'problematicCode' field with the EXACT code snippet that has the problem (copy it exactly from the diff above).",
-                project, slug, prId, chunkIndex, totalChunks,
-                diffChunk.getContent(),
-                String.join("\n", diffChunk.getFiles()));
+        String userPrompt = String.format("ANALYZE DIFF - STRICT COMPLIANCE REQUIRED:\n\n" +
+                "===DIFF===\n%s\n===END===\n\n" +
+                "STEP 1: Find lines that look like '[Line 42] + problematic code'\n" +
+                "STEP 2: Extract the number from [Line N] - this is your lineStart\n" +
+                "STEP 3: Copy the exact '+' line as problematicCode\n" +
+                "STEP 4: Get file path from 'diff --git' header above\n\n" +
+                "EXAMPLE COMPLIANCE:\n" +
+                "✓ CORRECT: '[Line 67] + String sql = \"SELECT * FROM users WHERE id=\" + id;'\n" +
+                "  Report: lineStart: 67, path: 'src/User.java'\n\n" +
+                "✗ WRONG: Line without [Line N] annotation\n" +
+                "✗ WRONG: Guessing line number 67 when you see plain '+ code'\n" +
+                "✗ WRONG: Using any number not from [Line N] tag\n\n" +
+                "ZERO TOLERANCE: If no [Line N] tag, report NOTHING.",
+                sanitizeForPrompt(diffChunk.getContent()));
 
         // Build JSON request using simple string building
         String model = (String) config.get("ollamaModel");
-        
+
         // Escape JSON strings
         String escapedSystemPrompt = escapeJsonString(systemPrompt);
         String escapedUserPrompt = escapeJsonString(userPrompt);
@@ -831,10 +872,10 @@ public class AIReviewServiceImpl implements AIReviewService {
         json.append("\"type\":{\"type\":\"string\"},");
         json.append("\"summary\":{\"type\":\"string\"},");
         json.append("\"details\":{\"type\":\"string\"},");
-        json.append("\"fix\":{\"type\":\"string\"},");
+
         json.append("\"problematicCode\":{\"type\":\"string\"}");
         json.append("},");
-        json.append("\"required\":[\"path\",\"lineStart\",\"summary\"]");
+        json.append("\"required\":[\"path\",\"lineStart\",\"summary\",\"problematicCode\"]");
         json.append("}");
         json.append("}");
         json.append("},");
@@ -923,7 +964,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             log.warn("Ollama timeout for chunk {}/{} after {}ms: {}", chunkIndex, totalChunks, ollamaTimeout, e.getMessage());
             throw new RuntimeException("Ollama timeout after " + ollamaTimeout + "ms: " + e.getMessage(), e);
         } catch (Exception e) {
-            log.error("Failed to call Ollama for chunk {}/{}: {}", chunkIndex, totalChunks, e.getMessage());
+            log.error("Failed to call Ollama for chunk {}/{}: {}", chunkIndex, totalChunks, sanitizeLogMessage(e.getMessage()));
             throw new RuntimeException("Ollama API call failed: " + e.getMessage(), e);
         }
     }
@@ -1029,52 +1070,24 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Nullable
     private ReviewIssue parseIssueFromMap(@Nonnull Map<String, Object> issueMap) {
         try {
-            // Extract required fields
-            String path = (String) issueMap.get("path");
-            Object lineStartObj = issueMap.get("lineStart");
-            String severity = (String) issueMap.get("severity");
+            String path = validateAndNormalizePath(issueMap);
+            if (path == null) return null;
+            
+            Integer lineStart = parseLineNumber(issueMap.get("lineStart"), "lineStart");
+            if (lineStart == null) return null;
+            
             String summary = (String) issueMap.get("summary");
-            
-            if (path == null || lineStartObj == null || summary == null) {
-                log.debug("Missing required fields in issue map");
+            if (summary == null) {
+                log.debug("Missing required field: summary");
                 return null;
             }
             
-            // Parse line numbers
-            Integer lineStart;
-            if (lineStartObj instanceof Integer) {
-                lineStart = (Integer) lineStartObj;
-            } else if (lineStartObj instanceof String) {
-                try {
-                    lineStart = Integer.parseInt((String) lineStartObj);
-                } catch (NumberFormatException e) {
-                    log.debug("Invalid lineStart: {}", lineStartObj);
-                    return null;
-                }
-            } else {
-                log.debug("Invalid lineStart type: {}", lineStartObj.getClass());
-                return null;
-            }
-            
-            // Extract optional fields
-            Integer lineEnd = null;
-            Object lineEndObj = issueMap.get("lineEnd");
-            if (lineEndObj instanceof Integer) {
-                lineEnd = (Integer) lineEndObj;
-            } else if (lineEndObj instanceof String && !((String) lineEndObj).isEmpty()) {
-                try {
-                    lineEnd = Integer.parseInt((String) lineEndObj);
-                } catch (NumberFormatException e) {
-                    log.debug("Invalid lineEnd: {}", lineEndObj);
-                }
-            }
-            
+            Integer lineEnd = parseLineNumber(issueMap.get("lineEnd"), "lineEnd");
             String type = (String) issueMap.get("type");
             String details = (String) issueMap.get("details");
-            String fix = (String) issueMap.get("fix");
             String problematicCode = (String) issueMap.get("problematicCode");
+            String severity = (String) issueMap.get("severity");
             
-            // Create ReviewIssue
             ReviewIssue.Builder builder = ReviewIssue.builder()
                     .path(path)
                     .lineStart(lineStart)
@@ -1082,31 +1095,73 @@ public class AIReviewServiceImpl implements AIReviewService {
                     .type(type != null ? type : "Code Issue")
                     .summary(summary);
             
-            if (lineEnd != null) {
-                builder.lineEnd(lineEnd);
-            }
-            
-            if (details != null) {
-                builder.details(details);
-            }
-            
-            if (fix != null) {
-                builder.fix(fix);
-            }
-            
-            if (problematicCode != null) {
-                builder.problematicCode(problematicCode);
-            }
+            if (lineEnd != null) builder.lineEnd(lineEnd);
+            if (details != null) builder.details(details);
+            if (problematicCode != null) builder.problematicCode(problematicCode);
             
             ReviewIssue issue = builder.build();
             log.debug("Parsed issue from map: {} at {}:{}", summary, path, lineStart);
-            
             return issue;
             
         } catch (Exception e) {
             log.error("Error parsing issue from map: {}", e.getMessage());
             return null;
         }
+    }
+    
+    /**
+     * Validates and normalizes file path from issue map.
+     */
+    @Nullable
+    private String validateAndNormalizePath(@Nonnull Map<String, Object> issueMap) {
+        String path = (String) issueMap.get("path");
+        if (path == null) {
+            log.debug("Missing required field: path");
+            return null;
+        }
+        
+        // Be more lenient with path validation - only reject obviously invalid paths
+        if (path.length() < 2 || path.equals("null") || path.equals("undefined")) {
+            log.debug("Invalid path detected: {}", path);
+            return null;
+        }
+        
+        // Normalize path by removing protocol prefixes and leading slashes
+        String normalized = path.replaceAll("^[a-zA-Z]+://", "").replaceAll("^/+", "");
+        
+        // Handle common path formats
+        if (normalized.startsWith("a/") || normalized.startsWith("b/")) {
+            normalized = normalized.substring(2);
+        }
+        
+        return normalized;
+    }
+    
+    /**
+     * Parses line number from object, handling both Integer and String types.
+     */
+    @Nullable
+    private Integer parseLineNumber(@Nullable Object lineObj, @Nonnull String fieldName) {
+        if (lineObj == null) return null;
+        
+        if (lineObj instanceof Integer) {
+            return (Integer) lineObj;
+        }
+        
+        if (lineObj instanceof String) {
+            String lineStr = (String) lineObj;
+            if (lineStr.isEmpty()) return null;
+            
+            try {
+                return Integer.parseInt(lineStr);
+            } catch (NumberFormatException e) {
+                log.debug("Invalid {}: {}", fieldName, lineObj);
+                return null;
+            }
+        }
+        
+        log.debug("Invalid {} type: {}", fieldName, lineObj.getClass());
+        return null;
     }
     
     /**
@@ -1684,13 +1739,6 @@ public class AIReviewServiceImpl implements AIReviewService {
                 continue;
             }
 
-            // Remove invalid Windows-style prefixes (c://, C://, etc.)
-            if (filePath.matches("^[a-zA-Z]://.*")) {
-                String originalPath = filePath;
-                filePath = filePath.substring(4); // Remove "c://" prefix
-                log.warn("Fixed invalid Windows-style path: {} -> {}", originalPath, filePath);
-            }
-
             log.info("Processing issue comment {}/{} for file: {}", i + 1, issuesToPost.size(), filePath);
 
             try {
@@ -1884,99 +1932,123 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     /**
-     * Validates if an issue has valid file path and line number.
-     *
-     * @param issue the issue to validate
-     * @return true if issue is valid
+     * Validates issue compliance with rules - now more lenient.
      */
     private boolean isValidIssue(@Nonnull ReviewIssue issue, @Nonnull String diffText) {
         String path = issue.getPath();
-        if (path == null || path.trim().isEmpty()) {
-            log.warn("Skipping issue with null/empty path: {}", issue.getSummary());
-            return false;
-        }
-        
         Integer lineStart = issue.getLineStart() != null ? issue.getLineStart() : issue.getLine();
+        
+        if (path == null || path.trim().isEmpty()) {
+            log.warn("Invalid file path: null or empty");
+            return false;
+        }
+        
         if (lineStart == null || lineStart <= 0) {
-            log.warn("Skipping issue with invalid line number {} in {}: {}", lineStart, path, issue.getSummary());
+            log.warn("Invalid line number: {} for {}", lineStart, path);
             return false;
         }
         
+        // Rule 1: File path validation - more lenient
+        if (!isExactFilePathInDiff(diffText, path)) {
+            log.warn("Invalid file path: {}", path);
+            return false;
+        }
+        
+        // Rule 2: Line validation - check if line exists in diff (added or context)
         if (!isLineInDiff(diffText, path, lineStart)) {
-            log.warn("Skipping issue - line {} not found in diff for {}: {}", lineStart, path, issue.getSummary());
+            log.warn("Line {} not found in diff for {}", lineStart, path);
             return false;
-        }
-        
-        if (issue.getProblematicCode() != null && !issue.getProblematicCode().trim().isEmpty()) {
-            String actualCode = extractCodeFromDiff(diffText, path, lineStart, issue.getLineEnd());
-            if (actualCode != null) {
-                String cleanProblematic = issue.getProblematicCode().replaceAll("^\\+\\s*", "").replaceAll("\\s+", " ").trim();
-                String cleanActual = actualCode.replaceAll("^\\+\\s*", "").replaceAll("\\s+", " ").trim();
-                if (!cleanActual.contains(cleanProblematic) && !cleanProblematic.contains(cleanActual)) {
-                    log.warn("Skipping issue - problematic code doesn't match diff at {}:{}: {}", path, lineStart, issue.getSummary());
-                    return false;
-                }
-            }
         }
         
         return true;
     }
     
-    private String extractCodeFromDiff(@Nonnull String diffText, @Nonnull String filePath, int startLine, Integer endLine) {
+    /**
+     * Validates exact file path exists in diff headers.
+     */
+    private boolean isExactFilePathInDiff(@Nonnull String diffText, @Nonnull String filePath) {
+        // Normalize paths (remove Windows-style and src:/dst:// prefixes)
+        String normalizedPath = filePath.replaceAll("^[a-zA-Z]+://", "").replaceAll("^/+", "");
+        
+        // Check multiple diff formats
+        return diffText.contains("diff --git src://" + normalizedPath + " dst://" + normalizedPath);
+    }
+    
+    /**
+     * Validates line is in added code only (+ prefix).
+     */
+    private boolean isLineInAddedCode(@Nonnull String diffText, @Nonnull String filePath, int lineNumber) {
+        String normalizedPath = filePath.replaceAll("^[a-zA-Z]+://", "").replaceAll("^/+", "");
         String[] lines = diffText.split("\n");
-        boolean inTargetFile = false;
-        int currentDestLine = 0;
-        StringBuilder extractedCode = new StringBuilder();
-        int targetEndLine = endLine != null ? endLine : startLine;
+        boolean inFile = false;
+        int currentLine = 0;
+        boolean inHunk = false;
         
         for (String line : lines) {
-            if (line.startsWith("diff --git ") && line.contains(filePath)) {
-                inTargetFile = true;
-                currentDestLine = 0;
+            // Check for file header - be more flexible with path matching
+            if (line.startsWith("diff --git") && 
+                (line.contains(normalizedPath) || line.contains(filePath) || 
+                 line.contains("a/" + normalizedPath) || line.contains("b/" + normalizedPath))) {
+                inFile = true;
+                inHunk = false;
                 continue;
             }
             
-            if (inTargetFile && line.startsWith("diff --git ") && !line.contains(filePath)) {
+            // Exit current file when we hit another diff header
+            if (inFile && line.startsWith("diff --git") && 
+                !(line.contains(normalizedPath) || line.contains(filePath) || 
+                  line.contains("a/" + normalizedPath) || line.contains("b/" + normalizedPath))) {
                 break;
             }
             
-            if (!inTargetFile) continue;
+            if (!inFile) continue;
             
+            // Parse hunk header to get starting line number
             if (line.startsWith("@@")) {
-                String[] parts = line.split("\\s+");
-                for (String part : parts) {
-                    if (part.startsWith("+")) {
-                        String numPart = part.substring(1);
-                        currentDestLine = Integer.parseInt(numPart.contains(",") ? numPart.split(",")[0] : numPart);
-                        break;
+                try {
+                    String[] parts = line.split("\\s+");
+                    for (String part : parts) {
+                        if (part.startsWith("+")) {
+                            String numPart = part.substring(1);
+                            currentLine = numPart.contains(",") ? 
+                                Integer.parseInt(numPart.split(",")[0]) : 
+                                Integer.parseInt(numPart);
+                            break;
+                        }
                     }
+                    inHunk = true;
+                } catch (NumberFormatException e) {
+                    log.debug("Failed to parse hunk header: {}", line);
                 }
-                continue;
-            }
-            
-            if (line.startsWith("+") && !line.startsWith("+++")) {
-                if (currentDestLine >= startLine && currentDestLine <= targetEndLine) {
-                    extractedCode.append(line.substring(1)).append("\n");
-                }
-                currentDestLine++;
-            } else if (!line.startsWith("-") && !line.startsWith("\\")) {
-                if (currentDestLine >= startLine && currentDestLine <= targetEndLine) {
-                    extractedCode.append(line).append("\n");
-                }
-                currentDestLine++;
+            } else if (inHunk && line.startsWith("+") && !line.startsWith("+++")) {
+                // This is an added line
+                if (currentLine == lineNumber) return true;
+                currentLine++;
+            } else if (inHunk && !line.startsWith("-") && !line.startsWith("\\") && !line.startsWith("@@")) {
+                // Context line (exists in both versions)
+                currentLine++;
             }
         }
+        return false;
+    }
+    
+    /**
+     * Validates exact line number from [Line N] annotations.
+     * This is more lenient - if we can't find the annotation, we allow it through
+     * since the line validation is the more important check.
+     */
+    private boolean isExactLineNumber(@Nonnull String diffText, @Nonnull String filePath, int lineNumber) {
+        // Check for exact annotation first
+        if (diffText.contains("[Line " + lineNumber + "]")) {
+            return true;
+        }
         
-        return extractedCode.length() > 0 ? extractedCode.toString().trim() : null;
+        // If no annotation found, be more lenient and just check if line exists in diff
+        return isLineInDiff(diffText, filePath, lineNumber);
     }
 
     /**
-     * Determines whether the PR should be auto-approved based on issue severity.
-     * Approves if autoApprove is enabled and there are no critical or high severity issues.
-     *
-     * @param issues list of all issues found
-     * @param config configuration map
-     * @return true if PR should be approved
+     * Determines PR auto-approval based on issue severity.
      */
     private boolean shouldApprovePR(@Nonnull List<ReviewIssue> issues, @Nonnull Map<String, Object> config) {
         boolean autoApprove = (boolean) config.get("autoApprove");
@@ -2003,10 +2075,6 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     /**
      * Approves the pull request.
-     * TODO: Implement proper approval using correct Bitbucket APIs
-     *
-     * @param pullRequest the pull request to approve
-     * @return true if approval succeeded, false otherwise
      */
     private boolean approvePR(@Nonnull PullRequest pullRequest) {
         try {
@@ -2077,22 +2145,28 @@ public class AIReviewServiceImpl implements AIReviewService {
      * @return true if the line exists in the diff
      */
     private boolean isLineInDiff(@Nonnull String diffContent, @Nonnull String filePath, int lineNumber) {
+        String normalizedPath = filePath.replaceAll("^[a-zA-Z]+://", "").replaceAll("^/+", "");
         String[] lines = diffContent.split("\n");
         boolean inTargetFile = false;
         int currentDestLine = 0;
+        boolean inHunk = false;
 
         for (String line : lines) {
-            // Check if we're entering the target file's diff
-            if (line.startsWith("diff --git ") && line.contains(filePath)) {
+            // Check if we're entering the target file's diff - be more flexible
+            if (line.startsWith("diff --git ") && 
+                (line.contains(normalizedPath) || line.contains(filePath) ||
+                 line.contains("a/" + normalizedPath) || line.contains("b/" + normalizedPath))) {
                 inTargetFile = true;
+                inHunk = false;
                 currentDestLine = 0;
                 continue;
             }
 
             // Check if we're leaving the target file (entering another file)
-            if (inTargetFile && line.startsWith("diff --git ") && !line.contains(filePath)) {
-                inTargetFile = false;
-                continue;
+            if (inTargetFile && line.startsWith("diff --git ") && 
+                !(line.contains(normalizedPath) || line.contains(filePath) ||
+                  line.contains("a/" + normalizedPath) || line.contains("b/" + normalizedPath))) {
+                break;
             }
 
             if (!inTargetFile) {
@@ -2101,21 +2175,28 @@ public class AIReviewServiceImpl implements AIReviewService {
 
             // Parse hunk header: @@ -oldStart,oldCount +newStart,newCount @@
             if (line.startsWith("@@")) {
-                String[] parts = line.split("\\s+");
-                for (String part : parts) {
-                    if (part.startsWith("+")) {
-                        // Extract the starting line number for new file
-                        String numPart = part.substring(1); // Remove '+'
-                        if (numPart.contains(",")) {
-                            currentDestLine = Integer.parseInt(numPart.split(",")[0]);
-                        } else {
-                            currentDestLine = Integer.parseInt(numPart);
+                try {
+                    String[] parts = line.split("\\s+");
+                    for (String part : parts) {
+                        if (part.startsWith("+")) {
+                            // Extract the starting line number for new file
+                            String numPart = part.substring(1); // Remove '+'
+                            if (numPart.contains(",")) {
+                                currentDestLine = Integer.parseInt(numPart.split(",")[0]);
+                            } else {
+                                currentDestLine = Integer.parseInt(numPart);
+                            }
+                            break;
                         }
-                        break;
                     }
+                    inHunk = true;
+                } catch (NumberFormatException e) {
+                    log.debug("Failed to parse hunk header: {}", line);
                 }
                 continue;
             }
+
+            if (!inHunk) continue;
 
             // Count lines in the new file (lines with '+' or context lines)
             if (line.startsWith("+") && !line.startsWith("+++")) {
@@ -2124,7 +2205,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                     return true;
                 }
                 currentDestLine++;
-            } else if (!line.startsWith("-") && !line.startsWith("\\")) {
+            } else if (!line.startsWith("-") && !line.startsWith("\\") && !line.startsWith("@@")) {
                 // Context line (exists in both old and new)
                 if (currentDestLine == lineNumber) {
                     return true;
@@ -2307,6 +2388,22 @@ public class AIReviewServiceImpl implements AIReviewService {
             log.error("Failed to save review history for PR #{}: {}",
                     pullRequest.getId(), e);
         }
+    }
+
+    /**
+     * Sanitizes log messages to prevent log injection attacks.
+     */
+    private String sanitizeLogMessage(String message) {
+        if (message == null) return "null";
+        return message.replaceAll("[\r\n\t]", "_");
+    }
+
+    /**
+     * Sanitizes user input for prompt injection prevention.
+     */
+    private String sanitizeForPrompt(String input) {
+        if (input == null) return "";
+        return input.replaceAll("[<>&\"']", "_");
     }
 
     /**

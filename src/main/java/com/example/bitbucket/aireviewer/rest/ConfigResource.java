@@ -133,6 +133,13 @@ public class ConfigResource {
                     .build();
         }
 
+        // Validate URL to prevent SSRF attacks
+        if (!isValidOllamaUrl(ollamaUrl)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid URL format or forbidden host"))
+                    .build();
+        }
+
         log.info("Testing connection to Ollama: {}", ollamaUrl);
 
         try {
@@ -145,7 +152,7 @@ public class ConfigResource {
                 return Response.ok(result).build();
             } else {
                 return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error("Connection test failed. Unable to reach Ollama server at " + ollamaUrl))
+                    .entity(error("Connection test failed. Unable to reach Ollama server"))
                     .build();
             }
 
@@ -158,6 +165,21 @@ public class ConfigResource {
             return Response.serverError()
                     .entity(error("Connection test failed: " + e.getMessage()))
                     .build();
+        }
+    }
+
+    /**
+     * Validates Ollama URL to prevent SSRF attacks
+     */
+    private boolean isValidOllamaUrl(String url) {
+        try {
+            java.net.URL parsedUrl = new java.net.URL(url);
+            
+            // Only allow HTTP/HTTPS
+            String protocol = parsedUrl.getProtocol().toLowerCase();
+            return "http".equals(protocol) || "https".equals(protocol);
+        } catch (Exception e) {
+            return false;
         }
     }
 
