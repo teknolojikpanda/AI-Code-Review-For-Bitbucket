@@ -3,7 +3,6 @@ package com.example.bitbucket.aireviewer.service;
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 
 import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.util.Map;
 
 /**

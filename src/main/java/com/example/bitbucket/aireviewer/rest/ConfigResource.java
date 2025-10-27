@@ -1,7 +1,9 @@
 package com.example.bitbucket.aireviewer.rest;
 
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
+import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,18 +47,22 @@ public class ConfigResource {
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public Response getConfiguration(@Context HttpServletRequest request) {
-        String username = userManager.getRemoteUsername(request);
+        UserProfile profile = userManager.getRemoteUser(request);
 
-        if (username == null || !userManager.isSystemAdmin(username)) {
+        if (!isSystemAdmin(profile)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
         }
 
+        String username = profile.getUsername();
         log.debug("Getting configuration for user: {}", username);
 
         try {
-            Map<String, Object> config = configService.getConfigurationAsMap();
+            Map<String, Object> config = new HashMap<>(configService.getConfigurationAsMap());
+            Map<String, Object> defaults = configService.getDefaultConfiguration();
+            Object defaultApiDelay = defaults.get("apiDelayMs");
+            config.putIfAbsent("apiDelay", config.getOrDefault("apiDelayMs", defaultApiDelay));
             return Response.ok(config).build();
         } catch (Exception e) {
             log.error("Error getting configuration", e);
@@ -78,19 +84,21 @@ public class ConfigResource {
             Map<String, Object> config,
             @Context HttpServletRequest request) {
 
-        String username = userManager.getRemoteUsername(request);
+        UserProfile profile = userManager.getRemoteUser(request);
 
-        if (username == null || !userManager.isSystemAdmin(username)) {
+        if (!isSystemAdmin(profile)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
         }
 
+        String username = profile.getUsername();
         log.info("Updating configuration by user: {}", username);
         log.debug("New configuration: {}", config);
 
         try {
-            configService.updateConfiguration(config);
+            Map<String, Object> normalized = normalizeConfigPayload(config);
+            configService.updateConfiguration(normalized);
             return Response.ok(success("Configuration updated successfully")).build();
         } catch (IllegalArgumentException e) {
             log.warn("Invalid configuration: {}", e.getMessage());
@@ -118,9 +126,9 @@ public class ConfigResource {
             Map<String, String> params,
             @Context HttpServletRequest request) {
 
-        String username = userManager.getRemoteUsername(request);
+        UserProfile profile = userManager.getRemoteUser(request);
 
-        if (username == null || !userManager.isSystemAdmin(username)) {
+        if (!isSystemAdmin(profile)) {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
@@ -173,14 +181,24 @@ public class ConfigResource {
      */
     private boolean isValidOllamaUrl(String url) {
         try {
-            java.net.URL parsedUrl = new java.net.URL(url);
-            
-            // Only allow HTTP/HTTPS
-            String protocol = parsedUrl.getProtocol().toLowerCase();
-            return "http".equals(protocol) || "https".equals(protocol);
+            java.net.URI parsedUri = java.net.URI.create(url);
+            String scheme = parsedUri.getScheme();
+            if (scheme == null) {
+                return false;
+            }
+            String protocol = scheme.toLowerCase();
+            return ("http".equals(protocol) || "https".equals(protocol)) && parsedUri.getHost() != null;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean isSystemAdmin(UserProfile profile) {
+        if (profile == null) {
+            return false;
+        }
+        UserKey key = profile.getUserKey();
+        return key != null && userManager.isSystemAdmin(key);
     }
 
     /**
@@ -199,5 +217,14 @@ public class ConfigResource {
         Map<String, String> success = new HashMap<>();
         success.put("message", message);
         return success;
+    }
+
+    private Map<String, Object> normalizeConfigPayload(Map<String, Object> rawConfig) {
+        Map<String, Object> normalized = new HashMap<>(rawConfig);
+        if (normalized.containsKey("apiDelay")) {
+            normalized.put("apiDelayMs", normalized.get("apiDelay"));
+            normalized.remove("apiDelay");
+        }
+        return normalized;
     }
 }

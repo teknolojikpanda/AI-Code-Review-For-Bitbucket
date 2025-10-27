@@ -12,10 +12,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -150,8 +149,8 @@ public class HttpClientUtil {
     @Nonnull
     private String doPostJson(@Nonnull String urlString, @Nonnull String requestBody)
             throws IOException {
-        URL url = new URL(urlString);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        URI uri = URI.create(urlString);
+        HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
 
         try {
             // Configure connection
@@ -199,8 +198,8 @@ public class HttpClientUtil {
     public boolean testConnection(@Nonnull String baseUrl) {
         try {
             String url = baseUrl.endsWith("/") ? baseUrl + "api/tags" : baseUrl + "/api/tags";
-            URL testUrl = new URL(url);
-            HttpURLConnection conn = (HttpURLConnection) testUrl.openConnection();
+            URI uri = URI.create(url);
+            HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
 
             try {
                 conn.setRequestMethod("GET");

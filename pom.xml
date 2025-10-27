@@ -171,6 +171,51 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.eclipse.m2e</groupId>
+                    <artifactId>lifecycle-mapping</artifactId>
+                    <version>1.0.0</version>
+                    <configuration>
+                        <lifecycleMappingMetadata>
+                            <pluginExecutions>
+                                <pluginExecution>
+                                    <pluginExecutionFilter>
+                                        <groupId>com.atlassian.maven.plugins</groupId>
+                                        <artifactId>bitbucket-maven-plugin</artifactId>
+                                        <versionRange>[9.6.0,)</versionRange>
+                                        <goals>
+                                            <goal>compress-resources</goal>
+                                            <goal>filter-plugin-descriptor</goal>
+                                            <goal>generate-rest-docs</goal>
+                                            <goal>filter-test-plugin-descriptor</goal>
+                                        </goals>
+                                    </pluginExecutionFilter>
+                                    <action>
+                                        <ignore/>
+                                    </action>
+                                </pluginExecution>
+                                <pluginExecution>
+                                    <pluginExecutionFilter>
+                                        <groupId>com.atlassian.plugin</groupId>
+                                        <artifactId>atlassian-spring-scanner-maven-plugin</artifactId>
+                                        <versionRange>[2.2.4,)</versionRange>
+                                        <goals>
+                                            <goal>atlassian-spring-scanner</goal>
+                                        </goals>
+                                    </pluginExecutionFilter>
+                                    <action>
+                                        <ignore/>
+                                    </action>
+                                </pluginExecution>
+                            </pluginExecutions>
+                        </lifecycleMappingMetadata>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
         <plugins>
             <!-- Atlassian Maven Plugin for Bitbucket -->
             <plugin>

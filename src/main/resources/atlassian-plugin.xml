@@ -27,12 +27,13 @@
     <component-import key="userManager" interface="com.atlassian.sal.api.user.UserManager"/>
     <component-import key="loginUriProvider" interface="com.atlassian.sal.api.auth.LoginUriProvider"/>
     <component-import key="templateRenderer" interface="com.atlassian.templaterenderer.TemplateRenderer"/>
-    <component-import key="permissionService" interface="com.atlassian.bitbucket.permission.PermissionService"/>
     <component-import key="activeObjects" interface="com.atlassian.activeobjects.external.ActiveObjects"/>
     <component-import key="pluginAccessor" interface="com.atlassian.plugin.PluginAccessor"/>
     <component-import key="eventPublisher" interface="com.atlassian.event.api.EventPublisher"/>
     <component-import key="pullRequestService" interface="com.atlassian.bitbucket.pull.PullRequestService"/>
     <component-import key="commentService" interface="com.atlassian.bitbucket.comment.CommentService"/>
+    <component-import key="repositoryService" interface="com.atlassian.bitbucket.repository.RepositoryService"/>
+    <component-import key="compareService" interface="com.atlassian.bitbucket.compare.CompareService"/>
     <component-import key="applicationPropertiesService" interface="com.atlassian.bitbucket.server.ApplicationPropertiesService"/>
 
 
@@ -59,6 +60,35 @@
     <component key="pullRequestAIReviewListener" 
                class="com.example.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
         <description>Pull Request AI Review Event Listener</description>
+    </component>
+
+    <component key="aiDiffProvider"
+               class="com.example.bitbucket.aicode.core.DefaultDiffProvider">
+        <description>Diff provider for AI review pipeline</description>
+        <interface>com.example.bitbucket.aicode.api.DiffProvider</interface>
+    </component>
+
+    <component key="aiChunkPlanner"
+               class="com.example.bitbucket.aicode.core.HeuristicChunkPlanner">
+        <description>Chunk planner for AI review pipeline</description>
+        <interface>com.example.bitbucket.aicode.api.ChunkPlanner</interface>
+    </component>
+
+    <component key="aiReviewClient"
+               class="com.example.bitbucket.aicode.core.OllamaAiReviewClient">
+        <description>Ollama-backed AI review client</description>
+        <interface>com.example.bitbucket.aicode.api.AiReviewClient</interface>
+    </component>
+
+    <component key="aiReviewOrchestrator"
+               class="com.example.bitbucket.aicode.core.TwoPassReviewOrchestrator">
+        <description>Two-pass AI review orchestrator</description>
+        <interface>com.example.bitbucket.aicode.api.ReviewOrchestrator</interface>
+    </component>
+
+    <component key="aiReviewConfigFactory"
+               class="com.example.bitbucket.aicode.core.ReviewConfigFactory">
+        <description>Factory for building review configuration snapshots</description>
     </component>
 
     <!-- REST API for Configuration -->

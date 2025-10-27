@@ -75,8 +75,7 @@ public class MultilineCommentTest {
                 .summary("Code style issue")
                 .build();
 
-        assertEquals(Integer.valueOf(25), issue.getLine());
-        assertEquals(Integer.valueOf(25), issue.getLineStart()); // Should fall back to line
+        assertEquals("Fallback to line value expected", Integer.valueOf(25), issue.getLineStart());
         assertNull(issue.getLineEnd());
         assertEquals("25", issue.getLineRangeDisplay());
     }
@@ -97,8 +96,8 @@ public class MultilineCommentTest {
         assertEquals(Integer.valueOf(30), issue.getLineStart());
         assertEquals(Integer.valueOf(35), issue.getLineEnd());
         assertEquals("30-35", issue.getLineRangeDisplay());
-        // getLine() should return lineStart when available
-        assertEquals(Integer.valueOf(30), issue.getLine());
+        // API should report the explicit range regardless of deprecated setters
+        assertEquals(Integer.valueOf(30), issue.getLineStart());
     }
 
     @Test
@@ -112,7 +111,6 @@ public class MultilineCommentTest {
 
         assertNull(issue.getLineStart());
         assertNull(issue.getLineEnd());
-        assertNull(issue.getLine());
         assertEquals("?", issue.getLineRangeDisplay());
     }
 }

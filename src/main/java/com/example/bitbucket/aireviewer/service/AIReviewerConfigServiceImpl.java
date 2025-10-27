@@ -5,6 +5,7 @@ import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.example.bitbucket.aireviewer.util.HttpClientUtil;
+import net.java.ao.DBParam;
 import net.java.ao.Query;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,8 +13,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.net.URI;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -77,8 +77,17 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 return createDefaultConfiguration();
             }
 
-            // Return the first (and should be only) configuration
-            return configs[0];
+            AIReviewConfiguration config = configs[0];
+            long now = System.currentTimeMillis();
+            if (applyMissingDefaults(config, now)) {
+                log.info("Detected incomplete configuration, backfilled missing defaults");
+                config.setModifiedDate(now);
+                if (config.getCreatedDate() == 0L) {
+                    config.setCreatedDate(now);
+                }
+                config.save();
+            }
+            return config;
         });
     }
 
@@ -220,9 +229,12 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     }
 
     private AIReviewConfiguration createDefaultConfiguration() {
-        AIReviewConfiguration config = ao.create(AIReviewConfiguration.class);
+        AIReviewConfiguration config = ao.create(
+                AIReviewConfiguration.class,
+                new DBParam("OLLAMA_URL", DEFAULT_OLLAMA_URL),
+                new DBParam("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL));
 
-        // Set all default values
+        // Set remaining default values
         config.setOllamaUrl(DEFAULT_OLLAMA_URL);
         config.setOllamaModel(DEFAULT_OLLAMA_MODEL);
         config.setFallbackModel(DEFAULT_FALLBACK_MODEL);
@@ -248,6 +260,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setReviewDraftPRs(DEFAULT_REVIEW_DRAFT_PRS);
         config.setSkipGeneratedFiles(DEFAULT_SKIP_GENERATED);
         config.setSkipTests(DEFAULT_SKIP_TESTS);
+        config.setGlobalDefault(true);
+        long now = System.currentTimeMillis();
+        config.setCreatedDate(now);
+        config.setModifiedDate(now);
 
         config.save();
         return config;
@@ -335,41 +351,165 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
     }
 
+    private String defaultString(String value, String defaultValue) {
+        return value != null && !value.trim().isEmpty() ? value : defaultValue;
+    }
+
+    private int defaultInt(Integer value, int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        return value > 0 ? value : defaultValue;
+    }
+
+    private boolean defaultBoolean(Boolean value, boolean defaultValue) {
+        return value != null ? value : defaultValue;
+    }
+
+    private boolean applyMissingDefaults(AIReviewConfiguration config, long timestamp) {
+        boolean updated = false;
+
+        if (isBlank(config.getOllamaUrl())) {
+            config.setOllamaUrl(DEFAULT_OLLAMA_URL);
+            updated = true;
+        }
+        if (isBlank(config.getOllamaModel())) {
+            config.setOllamaModel(DEFAULT_OLLAMA_MODEL);
+            updated = true;
+        }
+        if (isBlank(config.getFallbackModel())) {
+            config.setFallbackModel(DEFAULT_FALLBACK_MODEL);
+            updated = true;
+        }
+
+        if (config.getMaxCharsPerChunk() <= 0) {
+            config.setMaxCharsPerChunk(DEFAULT_MAX_CHARS_PER_CHUNK);
+            updated = true;
+        }
+        if (config.getMaxFilesPerChunk() <= 0) {
+            config.setMaxFilesPerChunk(DEFAULT_MAX_FILES_PER_CHUNK);
+            updated = true;
+        }
+        if (config.getMaxChunks() <= 0) {
+            config.setMaxChunks(DEFAULT_MAX_CHUNKS);
+            updated = true;
+        }
+        if (config.getParallelChunkThreads() <= 0) {
+            config.setParallelChunkThreads(DEFAULT_PARALLEL_THREADS);
+            updated = true;
+        }
+
+        if (config.getConnectTimeout() <= 0) {
+            config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
+            updated = true;
+        }
+        if (config.getReadTimeout() <= 0) {
+            config.setReadTimeout(DEFAULT_READ_TIMEOUT);
+            updated = true;
+        }
+        if (config.getOllamaTimeout() <= 0) {
+            config.setOllamaTimeout(DEFAULT_OLLAMA_TIMEOUT);
+            updated = true;
+        }
+
+        if (config.getMaxIssuesPerFile() <= 0) {
+            config.setMaxIssuesPerFile(DEFAULT_MAX_ISSUES_PER_FILE);
+            updated = true;
+        }
+        if (config.getMaxIssueComments() <= 0) {
+            config.setMaxIssueComments(DEFAULT_MAX_ISSUE_COMMENTS);
+            updated = true;
+        }
+        if (config.getMaxDiffSize() <= 0) {
+            config.setMaxDiffSize(DEFAULT_MAX_DIFF_SIZE);
+            updated = true;
+        }
+        if (config.getMaxRetries() < 0) {
+            config.setMaxRetries(DEFAULT_MAX_RETRIES);
+            updated = true;
+        }
+        if (config.getBaseRetryDelayMs() <= 0) {
+            config.setBaseRetryDelayMs(DEFAULT_BASE_RETRY_DELAY);
+            updated = true;
+        }
+        if (config.getApiDelayMs() <= 0) {
+            config.setApiDelayMs(DEFAULT_API_DELAY);
+            updated = true;
+        }
+
+        if (isBlank(config.getReviewExtensions())) {
+            config.setReviewExtensions(DEFAULT_REVIEW_EXTENSIONS);
+            updated = true;
+        }
+        if (isBlank(config.getIgnorePatterns())) {
+            config.setIgnorePatterns(DEFAULT_IGNORE_PATTERNS);
+            updated = true;
+        }
+        if (isBlank(config.getIgnorePaths())) {
+            config.setIgnorePaths(DEFAULT_IGNORE_PATHS);
+            updated = true;
+        }
+
+        if (config.getMinSeverity() == null || config.getMinSeverity().trim().isEmpty()) {
+            config.setMinSeverity(DEFAULT_MIN_SEVERITY);
+            updated = true;
+        }
+        if (config.getRequireApprovalFor() == null) {
+            config.setRequireApprovalFor(DEFAULT_REQUIRE_APPROVAL_FOR);
+            updated = true;
+        }
+
+        if (config.getCreatedDate() == 0L) {
+            config.setCreatedDate(timestamp);
+            updated = true;
+        }
+
+        return updated;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
     private Map<String, Object> convertToMap(AIReviewConfiguration config) {
         Map<String, Object> map = new HashMap<>();
-        map.put("ollamaUrl", config.getOllamaUrl());
-        map.put("ollamaModel", config.getOllamaModel());
-        map.put("fallbackModel", config.getFallbackModel());
-        map.put("maxCharsPerChunk", config.getMaxCharsPerChunk());
-        map.put("maxFilesPerChunk", config.getMaxFilesPerChunk());
-        map.put("maxChunks", config.getMaxChunks());
-        map.put("parallelThreads", config.getParallelChunkThreads());
-        map.put("connectTimeout", config.getConnectTimeout());
-        map.put("readTimeout", config.getReadTimeout());
-        map.put("ollamaTimeout", config.getOllamaTimeout());
-        map.put("maxIssuesPerFile", config.getMaxIssuesPerFile());
-        map.put("maxIssueComments", config.getMaxIssueComments());
-        map.put("maxDiffSize", config.getMaxDiffSize());
-        map.put("maxRetries", config.getMaxRetries());
-        map.put("baseRetryDelay", config.getBaseRetryDelayMs());
-        map.put("apiDelayMs", config.getApiDelayMs());
-        map.put("minSeverity", config.getMinSeverity());
-        map.put("requireApprovalFor", config.getRequireApprovalFor());
-        map.put("reviewExtensions", config.getReviewExtensions());
-        map.put("ignorePatterns", config.getIgnorePatterns());
-        map.put("ignorePaths", config.getIgnorePaths());
-        map.put("enabled", config.isEnabled());
-        map.put("reviewDraftPRs", config.isReviewDraftPRs());
-        map.put("skipGeneratedFiles", config.isSkipGeneratedFiles());
-        map.put("skipTests", config.isSkipTests());
-        map.put("autoApprove", config.isAutoApprove());
+        map.put("ollamaUrl", defaultString(config.getOllamaUrl(), DEFAULT_OLLAMA_URL));
+        map.put("ollamaModel", defaultString(config.getOllamaModel(), DEFAULT_OLLAMA_MODEL));
+        map.put("fallbackModel", defaultString(config.getFallbackModel(), DEFAULT_FALLBACK_MODEL));
+        map.put("maxCharsPerChunk", defaultInt(config.getMaxCharsPerChunk(), DEFAULT_MAX_CHARS_PER_CHUNK));
+        map.put("maxFilesPerChunk", defaultInt(config.getMaxFilesPerChunk(), DEFAULT_MAX_FILES_PER_CHUNK));
+        map.put("maxChunks", defaultInt(config.getMaxChunks(), DEFAULT_MAX_CHUNKS));
+        map.put("parallelThreads", defaultInt(config.getParallelChunkThreads(), DEFAULT_PARALLEL_THREADS));
+        map.put("connectTimeout", defaultInt(config.getConnectTimeout(), DEFAULT_CONNECT_TIMEOUT));
+        map.put("readTimeout", defaultInt(config.getReadTimeout(), DEFAULT_READ_TIMEOUT));
+        map.put("ollamaTimeout", defaultInt(config.getOllamaTimeout(), DEFAULT_OLLAMA_TIMEOUT));
+        map.put("maxIssuesPerFile", defaultInt(config.getMaxIssuesPerFile(), DEFAULT_MAX_ISSUES_PER_FILE));
+        map.put("maxIssueComments", defaultInt(config.getMaxIssueComments(), DEFAULT_MAX_ISSUE_COMMENTS));
+        map.put("maxDiffSize", defaultInt(config.getMaxDiffSize(), DEFAULT_MAX_DIFF_SIZE));
+        map.put("maxRetries", defaultInt(config.getMaxRetries(), DEFAULT_MAX_RETRIES));
+        map.put("baseRetryDelay", defaultInt(config.getBaseRetryDelayMs(), DEFAULT_BASE_RETRY_DELAY));
+        map.put("apiDelayMs", defaultInt(config.getApiDelayMs(), DEFAULT_API_DELAY));
+        map.put("minSeverity", defaultString(config.getMinSeverity(), DEFAULT_MIN_SEVERITY));
+        map.put("requireApprovalFor", defaultString(config.getRequireApprovalFor(), DEFAULT_REQUIRE_APPROVAL_FOR));
+        map.put("reviewExtensions", defaultString(config.getReviewExtensions(), DEFAULT_REVIEW_EXTENSIONS));
+        map.put("ignorePatterns", defaultString(config.getIgnorePatterns(), DEFAULT_IGNORE_PATTERNS));
+        map.put("ignorePaths", defaultString(config.getIgnorePaths(), DEFAULT_IGNORE_PATHS));
+        map.put("enabled", defaultBoolean(config.isEnabled(), DEFAULT_ENABLED));
+        map.put("reviewDraftPRs", defaultBoolean(config.isReviewDraftPRs(), DEFAULT_REVIEW_DRAFT_PRS));
+        map.put("skipGeneratedFiles", defaultBoolean(config.isSkipGeneratedFiles(), DEFAULT_SKIP_GENERATED));
+        map.put("skipTests", defaultBoolean(config.isSkipTests(), DEFAULT_SKIP_TESTS));
+        map.put("autoApprove", defaultBoolean(config.isAutoApprove(), DEFAULT_AUTO_APPROVE));
         return map;
     }
 
     private void validateUrl(String url) {
         try {
-            new URL(url);
-        } catch (MalformedURLException e) {
+            URI uri = URI.create(url);
+            String scheme = uri.getScheme();
+            if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                throw new IllegalArgumentException("URL must use http or https: " + url);
+            }
+        } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid URL format: " + url, e);
         }
     }
@@ -401,18 +541,6 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             return Integer.parseInt((String) value);
         }
         throw new IllegalArgumentException("Cannot convert " + key + " to integer: " + value);
-    }
-
-    private long getLongValue(Map<String, Object> map, String key) {
-        Object value = map.get(key);
-        if (value instanceof Long) {
-            return (Long) value;
-        } else if (value instanceof Number) {
-            return ((Number) value).longValue();
-        } else if (value instanceof String) {
-            return Long.parseLong((String) value);
-        }
-        throw new IllegalArgumentException("Cannot convert " + key + " to long: " + value);
     }
 
     private boolean getBooleanValue(Map<String, Object> map, String key) {
