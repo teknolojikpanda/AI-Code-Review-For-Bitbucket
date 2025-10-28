@@ -14,6 +14,7 @@ import com.example.bitbucket.aicode.api.MetricsRecorder;
 import com.example.bitbucket.aicode.model.ReviewConfig;
 import com.example.bitbucket.aicode.model.ReviewContext;
 import com.example.bitbucket.aicode.model.ReviewOverview;
+import com.example.bitbucket.aicode.model.ReviewFileMetadata;
 import com.example.bitbucket.aicode.util.Diagnostics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,6 +75,7 @@ public class DefaultDiffProvider implements DiffProvider {
                     .config(config)
                     .rawDiff("")
                     .fileStats(new HashMap<>())
+                    .fileMetadata(Collections.emptyMap())
                     .collectedAt(Instant.now())
                     .build();
         }
@@ -132,6 +134,7 @@ public class DefaultDiffProvider implements DiffProvider {
         metrics.recordMetric("diff.lines", effectiveDiff.split("\n", -1).length);
 
         Map<String, ReviewOverview.FileStats> finalStats = computeFileStats(effectiveDiff);
+        Map<String, ReviewFileMetadata> metadata = FileMetadataExtractor.extract(finalStats);
         metrics.recordMetric("diff.files", finalStats.size());
         if (Diagnostics.isEnabled()) {
             Diagnostics.log(log, () -> String.format(
@@ -153,6 +156,7 @@ public class DefaultDiffProvider implements DiffProvider {
                 .rawDiff(effectiveDiff)
                 .fileStats(finalStats)
                 .fileDiffs(fileDiffs)
+                .fileMetadata(metadata)
                 .collectedAt(Instant.now())
                 .build();
     }

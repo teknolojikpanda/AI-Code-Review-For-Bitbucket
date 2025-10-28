@@ -1,6 +1,7 @@
 package com.example.bitbucket.aicode.model;
 
 import com.atlassian.bitbucket.pull.PullRequest;
+import com.example.bitbucket.aicode.model.ReviewFileMetadata;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -19,6 +20,7 @@ public final class ReviewContext {
     private final String rawDiff;
     private final Map<String, ReviewOverview.FileStats> fileStats;
     private final Map<String, String> fileDiffs;
+    private final Map<String, ReviewFileMetadata> fileMetadata;
     private final Instant collectedAt;
 
     private ReviewContext(Builder builder) {
@@ -30,6 +32,9 @@ public final class ReviewContext {
                 : Collections.emptyMap();
         this.fileDiffs = builder.fileDiffs != null
                 ? Collections.unmodifiableMap(builder.fileDiffs)
+                : Collections.emptyMap();
+        this.fileMetadata = builder.fileMetadata != null
+                ? Collections.unmodifiableMap(builder.fileMetadata)
                 : Collections.emptyMap();
         this.collectedAt = builder.collectedAt != null ? builder.collectedAt : Instant.now();
     }
@@ -60,6 +65,11 @@ public final class ReviewContext {
     }
 
     @Nonnull
+    public Map<String, ReviewFileMetadata> getFileMetadata() {
+        return fileMetadata;
+    }
+
+    @Nonnull
     public Instant getCollectedAt() {
         return collectedAt;
     }
@@ -74,6 +84,7 @@ public final class ReviewContext {
         private String rawDiff;
         private Map<String, ReviewOverview.FileStats> fileStats;
         private Map<String, String> fileDiffs;
+        private Map<String, ReviewFileMetadata> fileMetadata;
         private Instant collectedAt;
 
         public Builder pullRequest(@Nonnull PullRequest value) {
@@ -98,6 +109,11 @@ public final class ReviewContext {
 
         public Builder fileDiffs(@Nonnull Map<String, String> value) {
             this.fileDiffs = new java.util.LinkedHashMap<>(Objects.requireNonNull(value, "value"));
+            return this;
+        }
+
+        public Builder fileMetadata(@Nonnull Map<String, ReviewFileMetadata> value) {
+            this.fileMetadata = new java.util.LinkedHashMap<>(Objects.requireNonNull(value, "value"));
             return this;
         }
 

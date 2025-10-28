@@ -21,8 +21,9 @@
 - Updated alignment plan to reference the new backlog so status can be tracked per workstream.
 - Introduced the `ChunkStrategy` interface (Phase 1 / C1) to decouple chunk planning heuristics from the current `HeuristicChunkPlanner`.
 - Refactored `HeuristicChunkPlanner` to delegate chunk planning to `SizeFirstChunkStrategy`, completing backlog item C2.
+- Added file metadata extraction (Phase 1 / C3) to capture language, directories, churn, and test flags for each reviewed file.
 
 ## Next Steps
 
-- Prioritise backlog items C3 and P1–P2 for implementation spikes.
+- Prioritise backlog items P1–P2 for implementation spikes.
 - Define acceptance criteria and test coverage strategy for upcoming strategy variants (risk-based, security-first).
