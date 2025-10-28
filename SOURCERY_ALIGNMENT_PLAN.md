@@ -89,3 +89,4 @@ Replicate Sourcery AI’s automated pull-request review workflow inside Bitbucke
 2. Create progress log (`SOURCERY_ALIGNMENT_PROGRESS.md`) and update per milestone.
 3. Begin Phase 1 backlog refinement (define interfaces, plan refactor steps).
    - **Status:** backlog captured in `PHASE1_BACKLOG.md` with task breakdown for diff chunking, prompting, and validation streams.
+4. Apply duplicate fingerprint migration plan during Phase 3 observability work (see `docs/duplicate_fingerprint_migration_plan.md`).
