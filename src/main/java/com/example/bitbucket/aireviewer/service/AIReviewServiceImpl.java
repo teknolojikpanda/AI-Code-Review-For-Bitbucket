@@ -21,6 +21,7 @@ import com.example.bitbucket.aicode.api.ChunkPlanner;
 import com.example.bitbucket.aicode.api.DiffProvider;
 import com.example.bitbucket.aicode.api.ReviewOrchestrator;
 import com.example.bitbucket.aicode.core.DiffPositionResolver;
+import com.example.bitbucket.aicode.core.IssueFingerprintUtil;
 import com.example.bitbucket.aicode.core.MetricsRecorderAdapter;
 import com.example.bitbucket.aicode.core.ReviewConfigFactory;
 import com.example.bitbucket.aicode.model.ReviewConfig;
@@ -219,7 +220,8 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private List<ReviewIssue> convertFindings(@Nonnull List<ReviewFinding> findings) {
-        List<ReviewIssue> issues = new ArrayList<>();
+        Map<String, ReviewIssue> unique = new LinkedHashMap<>();
+        int duplicates = 0;
         for (ReviewFinding finding : findings) {
             ReviewIssue.Builder builder = ReviewIssue.builder()
                     .path(finding.getFilePath())
@@ -233,9 +235,16 @@ public class AIReviewServiceImpl implements AIReviewService {
             if (finding.getLineRange() != null) {
                 builder.lineRange(finding.getLineRange().getStart(), finding.getLineRange().getEnd());
             }
-            issues.add(builder.build());
+            ReviewIssue issue = builder.build();
+            String fingerprint = IssueFingerprintUtil.fingerprint(issue);
+            if (unique.putIfAbsent(fingerprint, issue) != null) {
+                duplicates++;
+            }
         }
-        return issues;
+        if (duplicates > 0) {
+            log.info("Filtered {} duplicate issue(s) using fingerprinting", duplicates);
+        }
+        return new ArrayList<>(unique.values());
     }
 
     private ReviewIssue.Severity convertSeverity(@Nonnull SeverityLevel severity) {
