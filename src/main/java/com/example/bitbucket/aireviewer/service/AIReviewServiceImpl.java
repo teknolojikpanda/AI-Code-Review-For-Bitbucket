@@ -920,42 +920,45 @@ public class AIReviewServiceImpl implements AIReviewService {
 
                 String commentText = buildIssueComment(issue, i + 1, issues.size());
 
-                // Get line number - use lineStart if available, otherwise fall back to deprecated line field
-                Integer lineNumber = issue.getLineStart();
+                // Determine anchor line: prefer lineEnd so the comment appears beneath the span
+                Integer anchorLine = issue.getLineEnd() != null && issue.getLineEnd() > 0
+                        ? issue.getLineEnd()
+                        : issue.getLineStart();
 
-                if (lineNumber == null || lineNumber <= 0) {
+                if (anchorLine == null || anchorLine <= 0) {
                     log.warn("Skipping issue comment {}/{} - invalid line number: {} for file: {}",
-                            i + 1, issuesToPost.size(), lineNumber, filePath);
+                            i + 1, issuesToPost.size(), anchorLine, filePath);
                     commentsFailed++;
                     continue;
                 }
 
-                // Map issue severity to comment severity
-                CommentSeverity commentSeverity = mapToCommentSeverity(issue.getSeverity());
+            // Map issue severity to comment severity
+            CommentSeverity commentSeverity = mapToCommentSeverity(issue.getSeverity());
 
-                log.info("Creating line comment request for '{}:{}' with severity '{}'",
-                        filePath, lineNumber, commentSeverity);
+            log.info("Creating line comment request for '{}:{}' with severity '{}'",
+                    filePath, anchorLine, commentSeverity);
 
-                // Create multiline-aware comment request for Bitbucket 9.6.5
-                AddLineCommentRequest request = createMultilineCommentRequest(
-                        pullRequest, 
-                        commentText, 
-                        filePath, 
-                        issue, 
-                        commentSeverity
-                );
+            // Create multiline-aware comment request for Bitbucket 9.6.5
+            AddLineCommentRequest request = createMultilineCommentRequest(
+                    pullRequest, 
+                    commentText, 
+                    filePath, 
+                    issue, 
+                    commentSeverity,
+                    anchorLine
+            );
 
-                log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
-                Comment comment = commentService.addComment(request);
-                // Log with multiline information
-                String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart())) 
-                    ? "multiline comment" : "line comment";
-                String lineInfo = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
-                    ? lineNumber + "-" + issue.getLineEnd() : String.valueOf(lineNumber);
+            log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
+            Comment comment = commentService.addComment(request);
+            // Log with multiline information
+            String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart())) 
+                ? "multiline comment" : "line comment";
+            String lineInfo = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
+                ? issue.getLineStart() + "-" + issue.getLineEnd() : String.valueOf(anchorLine);
                     
-                log.info("✓ Posted {} {} at {}:{} with ID {} (severity: {})",
-                         commentType, i + 1, filePath, lineInfo, comment.getId(), commentSeverity);
-                commentsCreated++;
+            log.info("✓ Posted {} {} at {}:{} with ID {} (severity: {})",
+                     commentType, i + 1, filePath, lineInfo, comment.getId(), commentSeverity);
+            commentsCreated++;
 
                 // Rate limiting delay
                 if (i < issuesToPost.size() - 1 && apiDelayMs > 0) {
@@ -968,7 +971,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                 }
 
             } catch (Exception e) {
-                Integer lineNumber = issue.getLineStart();
+                Integer lineNumber = issue.getLineEnd() != null && issue.getLineEnd() > 0
+                        ? issue.getLineEnd()
+                        : issue.getLineStart();
                 log.error("Failed to post line comment {}/{} at {}:{}: {} - {}",
                          i + 1, issuesToPost.size(), filePath, lineNumber,
                          e.getClass().getSimpleName(), e.getMessage());
@@ -1004,11 +1009,12 @@ public class AIReviewServiceImpl implements AIReviewService {
             @Nonnull String commentText,
             @Nonnull String filePath,
             @Nonnull ReviewIssue issue,
-            @Nonnull CommentSeverity commentSeverity) {
+            @Nonnull CommentSeverity commentSeverity,
+            @Nonnull Integer anchorLine) {
         
         Integer lineStart = issue.getLineStart();
         
-        log.debug("Creating comment request for {}:{}", filePath, lineStart);
+        log.debug("Creating comment request for {} anchored at line {}", filePath, anchorLine);
         
         // Build the request using the correct constructor
         AddLineCommentRequest.Builder builder = new AddLineCommentRequest.Builder(
@@ -1019,7 +1025,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         );
         
         // Set line number
-        builder.line(lineStart);
+        builder.line(anchorLine);
         
         // Set multiline range if lineEnd is specified
         Integer lineEnd = issue.getLineEnd();
@@ -1116,8 +1122,12 @@ public class AIReviewServiceImpl implements AIReviewService {
             return false;
         }
 
-        if (lineStart == null || lineStart <= 0) {
-            log.warn("Invalid line number: {} for {}", lineStart, path);
+        Integer anchorLine = issue.getLineEnd() != null && issue.getLineEnd() > 0
+                ? issue.getLineEnd()
+                : lineStart;
+
+        if (anchorLine == null || anchorLine <= 0) {
+            log.warn("Invalid line number: {} for {}", anchorLine, path);
             return false;
         }
 
@@ -1127,8 +1137,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             return false;
         }
 
-        if (!isLineInFileDiff(diff, lineStart)) {
-            log.warn("Line {} not found in diff for {}", lineStart, path);
+        if (!isLineInFileDiff(diff, anchorLine)) {
+            log.warn("Line {} not found in diff for {}", anchorLine, path);
             return false;
         }
 
