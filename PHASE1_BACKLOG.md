@@ -37,6 +37,7 @@ This backlog elaborates the Phase 1 items from the Sourcery Alignment Plan and b
 - 2025-10-28: ✅ C3 complete — File metadata extractor captures language, directory, and churn for strategy inputs.
 - 2025-10-28: ✅ P1 complete — Prompt templates externalised and configurable per AI review.
 - 2025-10-28: ✅ P2 complete — Chunk instructions now include per-file metadata context derived from collected diff data.
+- 2025-10-28: ✅ F1 complete — Diff position resolver validates issue line numbers against parsed hunks.
 - Tasks tagged with schema or database updates (C5, F3) require coordination with Phase 3 observability work; we will spike designs now but defer migrations until the data model story is ready.
 - Prompt profile UI wiring (P4) is blocked on Phase 2 admin improvements but backend structures can land earlier behind feature flags.
 - We should aim to complete C1–C3 and P1–P2 before tackling duplicate suppression to ensure the AI findings we store are already validated reliably.

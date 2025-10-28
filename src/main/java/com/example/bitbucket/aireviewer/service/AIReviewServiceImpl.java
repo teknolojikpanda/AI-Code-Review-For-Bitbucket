@@ -20,6 +20,7 @@ import com.example.bitbucket.aireviewer.util.*;
 import com.example.bitbucket.aicode.api.ChunkPlanner;
 import com.example.bitbucket.aicode.api.DiffProvider;
 import com.example.bitbucket.aicode.api.ReviewOrchestrator;
+import com.example.bitbucket.aicode.core.DiffPositionResolver;
 import com.example.bitbucket.aicode.core.MetricsRecorderAdapter;
 import com.example.bitbucket.aicode.core.ReviewConfigFactory;
 import com.example.bitbucket.aicode.model.ReviewConfig;
@@ -150,8 +151,9 @@ public class AIReviewServiceImpl implements AIReviewService {
             List<ReviewIssue> validated = new ArrayList<>();
             int invalidIssues = 0;
             Map<String, String> fileDiffs = context.getFileDiffs();
+            Map<String, DiffPositionResolver.DiffPositionIndex> diffIndexCache = new HashMap<>();
             for (ReviewIssue issue : issues) {
-                if (isValidIssue(issue, fileDiffs)) {
+                if (isValidIssue(issue, fileDiffs, diffIndexCache)) {
                     validated.add(issue);
                 } else {
                     invalidIssues++;
@@ -1113,7 +1115,9 @@ public class AIReviewServiceImpl implements AIReviewService {
     /**
      * Validates issue compliance with rules - now leveraging per-file diffs.
      */
-    private boolean isValidIssue(@Nonnull ReviewIssue issue, @Nonnull Map<String, String> fileDiffs) {
+    private boolean isValidIssue(@Nonnull ReviewIssue issue,
+                                 @Nonnull Map<String, String> fileDiffs,
+                                 @Nonnull Map<String, DiffPositionResolver.DiffPositionIndex> diffIndexCache) {
         String path = issue.getPath();
         Integer lineStart = issue.getLineStart();
 
@@ -1137,7 +1141,11 @@ public class AIReviewServiceImpl implements AIReviewService {
             return false;
         }
 
-        if (!isLineInFileDiff(diff, anchorLine)) {
+        String canonical = canonicalPath(path);
+        DiffPositionResolver.DiffPositionIndex index = diffIndexCache.computeIfAbsent(canonical,
+                key -> DiffPositionResolver.index(diff));
+
+        if (!index.containsLine(anchorLine)) {
             log.warn("Line {} not found in diff for {}", anchorLine, path);
             return false;
         }
@@ -1161,56 +1169,6 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private String canonicalPath(String input) {
         return input == null ? "" : input.replace("\\", "/").replaceAll("^/+", "");
-    }
-
-    private boolean isLineInFileDiff(@Nonnull String diffContent, int lineNumber) {
-        String[] lines = diffContent.split("\n");
-        int currentDestLine = 0;
-        boolean inHunk = false;
-
-        for (String line : lines) {
-            if (line.startsWith("diff --git ")) {
-                inHunk = false;
-                currentDestLine = 0;
-                continue;
-            }
-
-            if (line.startsWith("@@")) {
-                try {
-                    String[] parts = line.split("\\s+");
-                    for (String part : parts) {
-                        if (part.startsWith("+")) {
-                            String numPart = part.substring(1);
-                            currentDestLine = numPart.contains(",")
-                                    ? Integer.parseInt(numPart.split(",")[0])
-                                    : Integer.parseInt(numPart);
-                            break;
-                        }
-                    }
-                    inHunk = true;
-                } catch (NumberFormatException e) {
-                    log.debug("Failed to parse hunk header: {}", line);
-                }
-                continue;
-            }
-
-            if (!inHunk) {
-                continue;
-            }
-
-            if (line.startsWith("+") && !line.startsWith("+++")) {
-                if (currentDestLine == lineNumber) {
-                    return true;
-                }
-                currentDestLine++;
-            } else if (!line.startsWith("-") && !line.startsWith("\\") && !line.startsWith("@@")) {
-                if (currentDestLine == lineNumber) {
-                    return true;
-                }
-                currentDestLine++;
-            }
-        }
-        return false;
     }
 
     /**

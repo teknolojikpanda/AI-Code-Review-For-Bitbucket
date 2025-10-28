@@ -24,8 +24,9 @@
 - Added file metadata extraction (Phase 1 / C3) to capture language, directories, churn, and test flags for each reviewed file.
 - Externalised prompt templates (Phase 1 / P1) and wired them into `OllamaAiReviewClient`, enabling configurable system/overview/chunk prompts.
 - Enriched chunk instructions with contextual metadata (Phase 1 / P2), surfacing per-file language, churn, and test indicators to the AI model.
+- Added diff position resolver (Phase 1 / F1) ensuring issue line numbers map to real hunks before comments are posted.
 
 ## Next Steps
 
-- Prioritise backlog items F1 (diff position resolver) and F2 (issue fingerprinting) for upcoming implementation spikes.
+- Prioritise backlog item F2 (issue fingerprinting) for upcoming implementation spike.
 - Define acceptance criteria and test coverage strategy for upcoming strategy variants (risk-based, security-first).
