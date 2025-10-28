@@ -32,7 +32,7 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
     private final ChunkStrategy chunkStrategy;
 
     @Inject
-    public HeuristicChunkPlanner(@Named("sizeFirstChunkStrategy") ChunkStrategy chunkStrategy) {
+    public HeuristicChunkPlanner(ChunkStrategy chunkStrategy) {
         this.chunkStrategy = Objects.requireNonNull(chunkStrategy, "chunkStrategy");
     }
 
