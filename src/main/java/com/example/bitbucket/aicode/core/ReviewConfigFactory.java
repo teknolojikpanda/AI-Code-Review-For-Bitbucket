@@ -1,6 +1,7 @@
 package com.example.bitbucket.aicode.core;
 
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
+import com.example.bitbucket.aicode.model.PromptTemplates;
 import com.example.bitbucket.aicode.model.ReviewConfig;
 import com.example.bitbucket.aicode.model.ReviewProfile;
 import com.example.bitbucket.aicode.model.SeverityLevel;
@@ -13,6 +14,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +54,7 @@ public class ReviewConfigFactory {
         builder.ignorePaths(splitToList(config.get("ignorePaths")));
 
         builder.profile(buildProfile(config));
+        builder.promptTemplates(loadPromptTemplates(config));
 
         return builder.build();
     }
@@ -128,5 +131,26 @@ public class ReviewConfigFactory {
                     .collect(Collectors.toList());
         }
         return Collections.emptyList();
+    }
+
+    private PromptTemplates loadPromptTemplates(Map<String, Object> config) {
+        PromptTemplates defaults = PromptTemplates.loadDefaults();
+        Map<String, String> overrides = new HashMap<>();
+        config.forEach((key, value) -> {
+            if (key == null || value == null) {
+                return;
+            }
+            String lower = key.toLowerCase();
+            if (!lower.startsWith("prompt")) {
+                return;
+            }
+            if (value instanceof String) {
+                overrides.put(lower, (String) value);
+            }
+        });
+        if (overrides.isEmpty()) {
+            return defaults;
+        }
+        return defaults.withOverrides(overrides);
     }
 }

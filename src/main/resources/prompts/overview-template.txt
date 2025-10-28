@@ -1,0 +1,6 @@
+Repository: %s/%s
+Pull Request: %d
+Title: %s
+Total files: %d
+Total additions: %d, deletions: %d
+Files:

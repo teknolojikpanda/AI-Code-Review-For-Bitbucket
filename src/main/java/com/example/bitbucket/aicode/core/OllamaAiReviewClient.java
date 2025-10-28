@@ -6,6 +6,7 @@ import com.example.bitbucket.aicode.api.MetricsRecorder;
 import com.example.bitbucket.aicode.model.ChunkReviewResult;
 import com.example.bitbucket.aicode.model.IssueCategory;
 import com.example.bitbucket.aicode.model.LineRange;
+import com.example.bitbucket.aicode.model.PromptTemplates;
 import com.example.bitbucket.aicode.model.ReviewChunk;
 import com.example.bitbucket.aicode.model.ReviewConfig;
 import com.example.bitbucket.aicode.model.ReviewContext;
@@ -64,24 +65,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
     @Nonnull
     @Override
     public String generateOverview(@Nonnull ReviewPreparation preparation, @Nonnull MetricsRecorder metrics) {
-        ReviewConfig config = preparation.getContext().getConfig();
-        StringBuilder builder = new StringBuilder();
-        builder.append("Repository: ")
-                .append(preparation.getContext().getPullRequest().getToRef().getRepository().getProject().getKey())
-                .append("/")
-                .append(preparation.getContext().getPullRequest().getToRef().getRepository().getSlug())
-                .append("\n");
-        builder.append("Pull Request: ").append(preparation.getContext().getPullRequest().getId()).append("\n");
-        builder.append("Total files: ").append(preparation.getOverview().getTotalFiles()).append("\n");
-        builder.append("Total additions: ").append(preparation.getOverview().getTotalAdditions())
-                .append(", deletions: ").append(preparation.getOverview().getTotalDeletions()).append("\n");
-        builder.append("Files:\n");
-        preparation.getOverview().getFileStats().forEach((path, stats) -> builder
-                .append("- ").append(path)
-                .append(" (+").append(stats.getAdditions())
-                .append("/-").append(stats.getDeletions()).append(")\n"));
-        builder.append("Min severity: ").append(config.getProfile().getMinSeverity()).append("\n");
-        return builder.toString();
+        PromptTemplates templates = preparation.getContext().getConfig().getPromptTemplates();
+        return PromptRenderer.renderOverview(preparation, templates);
     }
 
     @Nonnull
@@ -244,43 +229,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
             diffContent = "";
         }
         String annotatedDiff = annotateWithLineNumbers(diffContent);
-        StringBuilder userPrompt = new StringBuilder();
-        userPrompt.append("You are reviewing a pull request. Overview:\n")
-                .append(overview)
-                .append("\n\nAnalyze this diff chunk. Only report issues where added lines include [Line N] markers.")
-                .append("\n\nCRITICAL ANALYSIS AREAS:\n")
-                .append("🔴 SECURITY: SQL injection, XSS, CSRF, authentication/authorization flaws, input validation, data exposure, cryptography\n")
-                .append("🔴 BUGS & LOGIC: Null dereferences, array bounds, race conditions, deadlocks, infinite loops, incorrect algorithms, edge cases\n")
-                .append("🔴 PERFORMANCE: Memory leaks, inefficient queries, quadratic or worse algorithms, redundant computation, resource exhaustion\n")
-                .append("🔴 RELIABILITY: Error handling gaps, exception swallowing, transactional integrity, data consistency, retries/backoff\n")
-                .append("🔴 MAINTAINABILITY: Excessive complexity, duplication, tight coupling, missing docs, obscure naming\n")
-                .append("🔴 TESTING: Missing coverage, weak assertions, brittle fixtures, missing mocks/stubs\n\n")
-                .append("SEVERITY GUIDELINES:\n")
-                .append("- CRITICAL: Security vulnerabilities, data corruption, crashes, production outages\n")
-                .append("- HIGH: Logic flaws, major performance regressions, reliability risks, significant bugs\n")
-                .append("- MEDIUM: Maintainability problems, moderate performance issues, code-quality gaps\n")
-                .append("- LOW: Style inconsistencies, documentation gaps, minor optimisations\n\n")
-                .append("CRITICAL INSTRUCTIONS:\n")
-                .append("1. Hunt for subtle bugs that can trigger runtime failures in NEW code.\n")
-                .append("2. Flag any security vulnerabilities introduced on ADDED lines.\n")
-                .append("3. Evaluate performance impact of the NEW changes (algorithmic or resource usage).\n")
-                .append("4. Skip reporting if confidence is low or evidence is missing.\n")
-                .append("5. Never infer line numbers—only use explicit [Line N] tags.\n\n")
-                .append("Return JSON object { \"issues\": [ ... ] } with each issue containing:\n")
-                .append("- path: file path from this chunk.\n")
-                .append("- severity: critical/high/medium/low.\n")
-                .append("- category: security, bug, performance, reliability, maintainability, testing, style, documentation, or other.\n")
-                .append("- summary: concise title of the problem.\n")
-                .append("- details: explanation of the risk with evidence.\n")
-                .append("- fix: actionable remediation steps (can be empty string).\n")
-                .append("- problematicCode: object with fields snippet (string), lineStart (integer), lineEnd (integer).\n")
-                .append("  * snippet MUST contain the exact added diff lines including their [Line N] markers.\n")
-                .append("  * Set lineStart to the smallest [Line N] value present in snippet and lineEnd to the largest [Line N] value.\n")
-                .append("If no issue qualifies, respond with {\"issues\":[]}.\n")
-                .append(truncated
-                        ? "Diff chunk (truncated for transport limits):\n"
-                        : "Diff chunk:\n")
-                .append(annotatedDiff);
+        if (truncated) {
+            annotatedDiff = "(Diff truncated for transport limits)\n" + annotatedDiff;
+        }
+        PromptTemplates templates = context.getConfig().getPromptTemplates();
+        String userPrompt = PromptRenderer.renderChunkInstructions(
+                templates,
+                context.getConfig(),
+                overview,
+                annotatedDiff);
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
@@ -288,17 +245,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
         request.put("format", buildResponseFormat(chunk));
 
         List<Map<String, Object>> messages = new ArrayList<>();
-        messages.add(message("system",
-                "You are an AI code reviewer and your only duty is reporting issues according to rules. Follow all policy rules:\n" +
-                "- Only reference lines that include [Line N] markers from the diff.\n" +
-                "- Severity must be one of: critical, high, medium, low (see definitions in user prompt).\n" +
-                "- Categories must be one of: security, bug, performance, reliability, maintainability, testing, style, documentation, other.\n" +
-                "- Always prefer actionable, evidence-based findings. If unsure, omit the issue.\n" +
-                "- Provide concise summaries and practical fixes.\n" +
-                "- For each issue include the exact added diff lines (with [Line N] markers) in `problematicCode.snippet`. Do not paraphrase.\n" +
-                "- Set `problematicCode.lineStart` to the smallest [Line N] value in the snippet and `problematicCode.lineEnd` to the largest [Line N].\n" +
-                "- Respond ONLY with JSON that validates against the supplied schema. No extra commentary."));
-        messages.add(message("user", userPrompt.toString()));
+        messages.add(message("system", templates.getSystemPrompt()));
+        messages.add(message("user", userPrompt));
         request.put("messages", messages);
 
         try {

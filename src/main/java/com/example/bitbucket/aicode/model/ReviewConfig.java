@@ -29,6 +29,7 @@ public final class ReviewConfig {
     private final List<String> ignorePaths;
     private final int maxDiffBytes;
     private final ReviewProfile profile;
+    private final PromptTemplates promptTemplates;
 
     private ReviewConfig(Builder builder) {
         this.primaryModelEndpoint = builder.primaryModelEndpoint;
@@ -48,6 +49,7 @@ public final class ReviewConfig {
         this.ignorePaths = Collections.unmodifiableList(builder.ignorePaths);
         this.maxDiffBytes = builder.maxDiffBytes;
         this.profile = builder.profile;
+        this.promptTemplates = builder.promptTemplates;
     }
 
     @Nonnull
@@ -126,6 +128,11 @@ public final class ReviewConfig {
         return profile;
     }
 
+    @Nonnull
+    public PromptTemplates getPromptTemplates() {
+        return promptTemplates;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -148,6 +155,7 @@ public final class ReviewConfig {
         private List<String> ignorePaths = Collections.emptyList();
         private int maxDiffBytes = 10_000_000;
         private ReviewProfile profile = ReviewProfile.builder().build();
+        private PromptTemplates promptTemplates = PromptTemplates.loadDefaults();
 
         public Builder primaryModelEndpoint(@Nonnull URI uri) {
             this.primaryModelEndpoint = Objects.requireNonNull(uri, "uri");
@@ -231,6 +239,11 @@ public final class ReviewConfig {
 
         public Builder profile(@Nonnull ReviewProfile value) {
             this.profile = Objects.requireNonNull(value, "value");
+            return this;
+        }
+
+        public Builder promptTemplates(@Nonnull PromptTemplates value) {
+            this.promptTemplates = Objects.requireNonNull(value, "value");
             return this;
         }
 

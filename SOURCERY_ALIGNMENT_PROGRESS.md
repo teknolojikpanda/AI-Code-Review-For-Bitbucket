@@ -22,8 +22,9 @@
 - Introduced the `ChunkStrategy` interface (Phase 1 / C1) to decouple chunk planning heuristics from the current `HeuristicChunkPlanner`.
 - Refactored `HeuristicChunkPlanner` to delegate chunk planning to `SizeFirstChunkStrategy`, completing backlog item C2.
 - Added file metadata extraction (Phase 1 / C3) to capture language, directories, churn, and test flags for each reviewed file.
+- Externalised prompt templates (Phase 1 / P1) and wired them into `OllamaAiReviewClient`, enabling configurable system/overview/chunk prompts.
 
 ## Next Steps
 
-- Prioritise backlog items P1–P2 for implementation spikes.
+- Prioritise backlog items P2 (contextual prompt builder) and F1 (diff position resolver) for upcoming implementation spikes.
 - Define acceptance criteria and test coverage strategy for upcoming strategy variants (risk-based, security-first).
