@@ -1,5 +1,6 @@
 package com.example.bitbucket.aicode.core;
 
+import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.example.bitbucket.aicode.api.ChunkStrategy;
 import com.example.bitbucket.aicode.api.MetricsRecorder;
 import com.example.bitbucket.aicode.model.LineRange;
@@ -25,6 +26,7 @@ import java.util.regex.Pattern;
  * Default chunking strategy that preserves existing size-based behaviour.
  * Files are added to a chunk until size/file thresholds are reached.
  */
+@ExportAsService(ChunkStrategy.class)
 @Named("sizeFirstChunkStrategy")
 public class SizeFirstChunkStrategy implements ChunkStrategy {
 
