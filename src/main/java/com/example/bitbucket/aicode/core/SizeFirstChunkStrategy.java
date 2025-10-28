@@ -26,8 +26,7 @@ import java.util.regex.Pattern;
  * Default chunking strategy that preserves existing size-based behaviour.
  * Files are added to a chunk until size/file thresholds are reached.
  */
-@ExportAsService(ChunkStrategy.class)
-@Named("sizeFirstChunkStrategy")
+@Named
 public class SizeFirstChunkStrategy implements ChunkStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(SizeFirstChunkStrategy.class);
