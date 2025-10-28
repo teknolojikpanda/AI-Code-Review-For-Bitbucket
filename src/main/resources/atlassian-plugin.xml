@@ -74,6 +74,12 @@
         <interface>com.example.bitbucket.aicode.api.ChunkPlanner</interface>
     </component>
 
+    <component key="sizeFirstChunkStrategy"
+               class="com.example.bitbucket.aicode.core.SizeFirstChunkStrategy">
+        <description>Default size-based chunk strategy</description>
+        <interface>com.example.bitbucket.aicode.api.ChunkStrategy</interface>
+    </component>
+
     <component key="aiReviewClient"
                class="com.example.bitbucket.aicode.core.OllamaAiReviewClient">
         <description>Ollama-backed AI review client</description>
