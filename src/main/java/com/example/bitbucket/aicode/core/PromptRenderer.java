@@ -2,9 +2,12 @@ package com.example.bitbucket.aicode.core;
 
 import com.example.bitbucket.aicode.model.PromptTemplates;
 import com.example.bitbucket.aicode.model.ReviewConfig;
+import com.example.bitbucket.aicode.model.ReviewContext;
 import com.example.bitbucket.aicode.model.ReviewOverview;
 import com.example.bitbucket.aicode.model.ReviewPreparation;
 import com.example.bitbucket.aicode.model.ReviewProfile;
+import com.example.bitbucket.aicode.model.ReviewChunk;
+import com.example.bitbucket.aicode.model.ReviewFileMetadata;
 
 import javax.annotation.Nonnull;
 import java.util.LinkedHashMap;
@@ -40,14 +43,49 @@ final class PromptRenderer {
 
     static String renderChunkInstructions(@Nonnull PromptTemplates templates,
                                           @Nonnull ReviewConfig config,
+                                          @Nonnull ReviewContext context,
+                                          @Nonnull ReviewChunk chunk,
                                           @Nonnull String overview,
                                           @Nonnull String annotatedDiff) {
         Map<String, String> placeholders = new LinkedHashMap<>();
         placeholders.put("{{OVERVIEW}}", overview);
         ReviewProfile profile = config.getProfile();
         placeholders.put("{{MIN_SEVERITY}}", profile.getMinSeverity().name().toLowerCase());
+        placeholders.put("{{CHUNK_CONTEXT}}", buildChunkContext(context, chunk));
         placeholders.put("{{ANNOTATED_DIFF}}", annotatedDiff);
         return applyPlaceholders(templates.getChunkInstructionsTemplate(), placeholders);
+    }
+
+    private static String buildChunkContext(ReviewContext context, ReviewChunk chunk) {
+        StringBuilder builder = new StringBuilder();
+        chunk.getFiles().forEach(path -> {
+            ReviewFileMetadata meta = context.getFileMetadata().get(path);
+            builder.append("- ").append(path);
+            if (meta != null) {
+                builder.append(" (language=")
+                        .append(meta.getLanguage() != null ? meta.getLanguage() : "unknown")
+                        .append(", +")
+                        .append(meta.getAdditions())
+                        .append("/-")
+                        .append(meta.getDeletions());
+                if (meta.isTestFile()) {
+                    builder.append(", test");
+                }
+                if (meta.isBinary()) {
+                    builder.append(", binary");
+                }
+                builder.append(")");
+            }
+            if (chunk.getPrimaryRanges().containsKey(path)) {
+                builder.append(" lines ")
+                        .append(chunk.getPrimaryRanges().get(path).asDisplay());
+            }
+            builder.append('\n');
+        });
+        if (builder.length() == 0) {
+            builder.append("(no file metadata available)\n");
+        }
+        return builder.toString();
     }
 
     private static String applyPlaceholders(String template, Map<String, String> replacements) {

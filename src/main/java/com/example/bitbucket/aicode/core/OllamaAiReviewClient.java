@@ -236,6 +236,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
         String userPrompt = PromptRenderer.renderChunkInstructions(
                 templates,
                 context.getConfig(),
+                context,
+                chunk,
                 overview,
                 annotatedDiff);
 

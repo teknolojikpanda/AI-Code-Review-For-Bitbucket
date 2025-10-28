@@ -2,6 +2,9 @@
 
 Minimum severity to report: {{MIN_SEVERITY}}
 
+Chunk context:
+{{CHUNK_CONTEXT}}
+
 Analyze this diff chunk. Only report issues where added lines include [Line N] markers.
 
 CRITICAL ANALYSIS AREAS:
