@@ -8,6 +8,7 @@ import com.example.bitbucket.aicode.model.ReviewChunk;
 import com.example.bitbucket.aicode.model.ReviewContext;
 import com.example.bitbucket.aicode.model.ReviewOverview;
 import com.example.bitbucket.aicode.model.ReviewPreparation;
+import com.example.bitbucket.aicode.util.Diagnostics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
@@ -66,6 +67,13 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
         metrics.recordEnd("chunk.plan", planStart);
         metrics.recordMetric("chunks.count", result.chunks.size());
         metrics.recordMetric("chunks.truncated", result.truncated);
+        if (Diagnostics.isEnabled()) {
+            Diagnostics.log(log, () -> String.format(
+                    "Planning chunks for PR #%d with %d candidate file(s): %s",
+                    context.getPullRequest().getId(),
+                    filesToReview.size(),
+                    filesToReview));
+        }
 
         return ReviewPreparation.builder()
                 .context(context)
@@ -92,6 +100,14 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
         List<String> ignorePaths = context.getConfig().getIgnorePaths().stream()
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
+        if (Diagnostics.isEnabled()) {
+            Diagnostics.log(log, () -> String.format(
+                    "Filter setup for PR #%d -> allowedExtensions=%s, ignorePaths=%s, ignorePatterns=%d",
+                    context.getPullRequest().getId(),
+                    allowedExtensions,
+                    ignorePaths,
+                    ignorePatterns.size()));
+        }
 
         return files.stream()
                 .filter(file -> shouldReviewFile(file, allowedExtensions, ignorePatterns, ignorePaths, context))
@@ -199,6 +215,18 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
         if (log.isDebugEnabled()) {
             log.debug("Chunk planner evaluating files: {}", fileDiffs.keySet());
         }
+        if (Diagnostics.isEnabled()) {
+            Diagnostics.log(log, () -> String.format(
+                    "Extracted %d file diff(s) for PR #%d: %s",
+                    fileDiffs.size(),
+                    context.getPullRequest().getId(),
+                    fileDiffs.keySet()));
+            fileDiffs.forEach((path, fd) ->
+                    Diagnostics.log(log, () -> String.format(
+                            "File %s has %d hunk(s) captured",
+                            path,
+                            fd.hunks != null ? fd.hunks.size() : 0)));
+        }
         fileDiffs.entrySet().removeIf(entry -> {
             if (entry.getValue().hunks.isEmpty()) {
                 filesWithoutHunks.add(entry.getKey());
@@ -230,10 +258,8 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
                         || (!chunkFiles.contains(fileDiff.path) && chunkFiles.size() >= maxFiles);
 
                 if (wouldExceed && buffer.length() > 0) {
-                    builder.content(buffer.toString());
-                    builder.files(new ArrayList<>(chunkFiles));
-                    builder.primaryRanges(new LinkedHashMap<>(chunkRanges));
-                    chunks.add(builder.build());
+                    String chunkContent = buffer.toString();
+                    finalizeChunk(context, chunks, builder, chunkContent, chunkFiles, chunkRanges);
 
                     if (chunks.size() >= maxChunks) {
                         truncated = true;
@@ -269,10 +295,8 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
         }
 
         if (buffer.length() > 0 && chunks.size() < maxChunks) {
-            builder.content(buffer.toString());
-            builder.files(new ArrayList<>(chunkFiles));
-            builder.primaryRanges(new LinkedHashMap<>(chunkRanges));
-            chunks.add(builder.build());
+            String chunkContent = buffer.toString();
+            finalizeChunk(context, chunks, builder, chunkContent, chunkFiles, chunkRanges);
         }
 
         if (chunks.size() > maxChunks) {
@@ -285,6 +309,29 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
                     context.getPullRequest().getId(), chunks.size(), maxChunks);
         }
         return new ChunkPlanResult(chunks, truncated, filesWithoutHunks);
+    }
+
+    private void finalizeChunk(ReviewContext context,
+                               List<ReviewChunk> chunks,
+                               ReviewChunk.Builder builder,
+                               String content,
+                               Set<String> chunkFiles,
+                               Map<String, LineRange> chunkRanges) {
+        builder.content(content);
+        builder.files(new ArrayList<>(chunkFiles));
+        builder.primaryRanges(new LinkedHashMap<>(chunkRanges));
+        ReviewChunk chunk = builder.build();
+        chunks.add(chunk);
+        if (Diagnostics.isEnabled()) {
+            Diagnostics.log(log, () -> String.format(
+                    "Chunk %s created for PR #%d (files=%d, chars=%d): %s",
+                    chunk.getId(),
+                    context.getPullRequest().getId(),
+                    chunk.getFiles().size(),
+                    content.length(),
+                    chunk.getFiles()));
+            Diagnostics.dumpChunk(context.getPullRequest().getId(), chunk);
+        }
     }
 
     private String normalizeDiffPath(String rawPath) {
@@ -322,6 +369,9 @@ public class HeuristicChunkPlanner implements ChunkPlanner {
             Matcher diffHeader = DIFF_START.matcher(line);
             if (diffHeader.matches()) {
                 if (currentFile != null && hunks != null && filesToReview.contains(currentFile)) {
+                    if (currentHunk != null && currentRange != null) {
+                        hunks.add(new Hunk(currentHunk.toString(), currentRange));
+                    }
                     fileDiffs.put(currentFile, new FileDiff(currentFile, currentHeader.toString(), hunks));
                 }
                 String pathA = normalizeDiffPath(diffHeader.group(1));

@@ -14,6 +14,7 @@ import com.example.bitbucket.aicode.api.MetricsRecorder;
 import com.example.bitbucket.aicode.model.ReviewConfig;
 import com.example.bitbucket.aicode.model.ReviewContext;
 import com.example.bitbucket.aicode.model.ReviewOverview;
+import com.example.bitbucket.aicode.util.Diagnostics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,6 +64,7 @@ public class DefaultDiffProvider implements DiffProvider {
         Instant start = metrics.recordStart("diff.stream");
         String diffText = streamDiff(repo, pullRequest.getId());
         metrics.recordEnd("diff.stream", start);
+        Diagnostics.dumpRawDiff(pullRequest.getId(), diffText);
 
         if (diffText == null || diffText.isEmpty()) {
             log.info("No diff content for PR #{}", pullRequest.getId());
@@ -77,6 +79,13 @@ public class DefaultDiffProvider implements DiffProvider {
         }
 
         Map<String, ReviewOverview.FileStats> initialStats = computeFileStats(diffText);
+        if (Diagnostics.isEnabled()) {
+            Diagnostics.log(log, () -> String.format(
+                    "Initial file stats for PR #%d from streamed diff: %d files -> %s",
+                    pullRequest.getId(),
+                    initialStats.size(),
+                    initialStats.keySet()));
+        }
 
         Map<String, String> existingSections = splitDiffByFile(diffText);
         Map<String, String> fileDiffs = new LinkedHashMap<>();
@@ -95,6 +104,18 @@ public class DefaultDiffProvider implements DiffProvider {
             if (!chosen.endsWith("\n")) {
                 combined.append("\n");
             }
+            if (Diagnostics.isEnabled()) {
+                ReviewOverview.FileStats stats = initialStats.get(path);
+                Diagnostics.log(log, () -> String.format(
+                        "Collected diff for PR #%d file %s (chars=%d, additions=%d, deletions=%d, source=%s)",
+                        pullRequest.getId(),
+                        path,
+                        chosen.length(),
+                        stats != null ? stats.getAdditions() : -1,
+                        stats != null ? stats.getDeletions() : -1,
+                        streamed.isEmpty() ? "aggregate" : "streamed"));
+                Diagnostics.dumpFileDiff(pullRequest.getId(), path, chosen);
+            }
         }
 
         String effectiveDiff = combined.length() > 0 ? combined.toString() : diffText;
@@ -112,6 +133,19 @@ public class DefaultDiffProvider implements DiffProvider {
 
         Map<String, ReviewOverview.FileStats> finalStats = computeFileStats(effectiveDiff);
         metrics.recordMetric("diff.files", finalStats.size());
+        if (Diagnostics.isEnabled()) {
+            Diagnostics.log(log, () -> String.format(
+                    "Diff summary for PR #%d -> files=%d, bytes=%d, additions=%d, deletions=%d",
+                    pullRequest.getId(),
+                    finalStats.size(),
+                    finalBytes.length,
+                    finalStats.values().stream().mapToInt(ReviewOverview.FileStats::getAdditions).sum(),
+                    finalStats.values().stream().mapToInt(ReviewOverview.FileStats::getDeletions).sum()));
+            Diagnostics.log(log, () -> String.format(
+                    "Final file stats for PR #%d: %s",
+                    pullRequest.getId(),
+                    finalStats.keySet()));
+        }
 
         return ReviewContext.builder()
                 .pullRequest(pullRequest)
