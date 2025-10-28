@@ -19,8 +19,9 @@
 - Committed AI comment anchoring change to place feedback on the closing line when multiline ranges are reported (Bitbucket rendering improvement).
 - Drafted Phase 1 backlog (`PHASE1_BACKLOG.md`) detailing actionable tasks for chunking strategies, prompt templates, and finding validation.
 - Updated alignment plan to reference the new backlog so status can be tracked per workstream.
+- Introduced the `ChunkStrategy` interface (Phase 1 / C1) to decouple chunk planning heuristics from the current `HeuristicChunkPlanner`.
 
 ## Next Steps
 
-- Prioritise backlog items C1–C3 and P1–P2 for implementation spikes.
-- Define acceptance criteria and test coverage strategy for the new `ChunkStrategy` abstraction.
+- Prioritise backlog items C2–C3 and P1–P2 for implementation spikes.
+- Define acceptance criteria and test coverage strategy for concrete `ChunkStrategy` implementations.

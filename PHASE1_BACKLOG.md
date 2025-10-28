@@ -32,6 +32,7 @@ This backlog elaborates the Phase 1 items from the Sourcery Alignment Plan and b
 
 ### Backlog Notes
 
+- 2025-10-28: ✅ C1 complete — `ChunkStrategy` interface added to API, unblocking strategy refactor (C2).
 - Tasks tagged with schema or database updates (C5, F3) require coordination with Phase 3 observability work; we will spike designs now but defer migrations until the data model story is ready.
 - Prompt profile UI wiring (P4) is blocked on Phase 2 admin improvements but backend structures can land earlier behind feature flags.
 - We should aim to complete C1–C3 and P1–P2 before tackling duplicate suppression to ensure the AI findings we store are already validated reliably.
