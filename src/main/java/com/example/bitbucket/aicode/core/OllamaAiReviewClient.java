@@ -37,6 +37,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Ollama-based AI client performing overview and chunk analysis.
@@ -50,9 +54,12 @@ public class OllamaAiReviewClient implements AiReviewClient {
             .configure(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS.mappedFeature(), true)
             .configure(JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature(), true);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {};
+    private static final Pattern LINE_MARKER_PATTERN = Pattern.compile("\\[Line\\s+(\\d+)]");
 
     private final CircuitBreaker circuitBreaker = new CircuitBreaker("ollama-client", 5, Duration.ofMinutes(1));
     private final RateLimiter rateLimiter = new RateLimiter("ollama-client", 10, Duration.ofSeconds(1));
+    private final Set<String> unavailableModels =
+            Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     @Nonnull
     @Override
@@ -160,18 +167,40 @@ public class OllamaAiReviewClient implements AiReviewClient {
         int attempts = 0;
         int maxRetries = Math.max(1, config.getMaxRetries());
         int backoff = Math.max(500, config.getBaseRetryDelayMs());
+        Exception lastError = null;
+        boolean modelNotFound = false;
+        String modelKey = modelKey(baseUrl, model);
+
+        if (unavailableModels.contains(modelKey)) {
+            if (log.isDebugEnabled()) {
+                log.debug("Skipping model {} at {} for chunk {} because it was previously reported missing",
+                        model, baseUrl, chunk.getId());
+            }
+            return Collections.emptyList();
+        }
+
+        String originalContent = chunk.getContent() != null ? chunk.getContent() : "";
+        String diffContent = originalContent;
+        int originalLength = originalContent.length();
 
         while (attempts < maxRetries) {
             try {
                 attempts++;
                 metrics.increment("ai.chunk.attempt");
-                String payload = buildChunkRequest(chunk, overview, context, model);
+                String payload = buildChunkRequest(chunk, overview, context, model, diffContent, false);
+
                 String response = executeChat(baseUrl, payload, config);
                 return parseFindings(response, chunk);
             } catch (SocketTimeoutException ex) {
                 log.warn("Model {} timeout on attempt {}: {}", model, attempts, ex.getMessage());
+                lastError = ex;
             } catch (Exception ex) {
                 log.warn("Model {} failed on attempt {}: {}", model, attempts, ex.getMessage());
+                lastError = ex;
+                if (isModelNotFound(ex)) {
+                    modelNotFound = true;
+                    break;
+                }
             }
 
             if (attempts < maxRetries) {
@@ -179,18 +208,42 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     Thread.sleep((long) Math.pow(2, attempts - 1) * backoff);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    return Collections.emptyList();
+                    lastError = ie;
+                    break;
                 }
             }
         }
-        return null;
+        if (modelNotFound) {
+            log.error("Model {} not found at {} for chunk {}. Skipping analysis for this chunk.",
+                    model, baseUrl, chunk.getId());
+            unavailableModels.add(modelKey);
+        } else if (lastError != null) {
+            log.error("Model {} failed after {} attempt(s) for chunk {}: {}",
+                    model, attempts, chunk.getId(), lastError.getMessage());
+            log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
+        }
+        return Collections.emptyList();
+    }
+
+    private String modelKey(String baseUrl, String model) {
+        return baseUrl + "|" + model;
+    }
+
+    private boolean isModelNotFound(Exception ex) {
+        String message = ex.getMessage();
+        return message != null && message.contains("model '") && message.contains("not found");
     }
 
     private String buildChunkRequest(ReviewChunk chunk,
                                      String overview,
                                      ReviewContext context,
-                                     String model) {
-        String annotatedDiff = annotateWithLineNumbers(chunk.getContent());
+                                     String model,
+                                     String diffContent,
+                                     boolean truncated) {
+        if (diffContent == null) {
+            diffContent = "";
+        }
+        String annotatedDiff = annotateWithLineNumbers(diffContent);
         StringBuilder userPrompt = new StringBuilder();
         userPrompt.append("You are reviewing a pull request. Overview:\n")
                 .append(overview)
@@ -213,28 +266,40 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 .append("3. Evaluate performance impact of the NEW changes (algorithmic or resource usage).\n")
                 .append("4. Skip reporting if confidence is low or evidence is missing.\n")
                 .append("5. Never infer line numbers—only use explicit [Line N] tags.\n\n")
-                .append("Return JSON object { \"issues\": [ ... ] } with fields: path, lineStart, lineEnd, severity (critical/high/medium/low), ")
-                .append("category, summary, details, fix, problematicCode.\n")
-                .append("Diff chunk:\n")
+                .append("Return JSON object { \"issues\": [ ... ] } with each issue containing:\n")
+                .append("- path: file path from this chunk.\n")
+                .append("- severity: critical/high/medium/low.\n")
+                .append("- category: security, bug, performance, reliability, maintainability, testing, style, documentation, or other.\n")
+                .append("- summary: concise title of the problem.\n")
+                .append("- details: explanation of the risk with evidence.\n")
+                .append("- fix: actionable remediation steps (can be empty string).\n")
+                .append("- problematicCode: object with fields snippet (string), lineStart (integer), lineEnd (integer).\n")
+                .append("  * snippet MUST contain the exact added diff lines including their [Line N] markers.\n")
+                .append("  * Set lineStart to the smallest [Line N] value present in snippet and lineEnd to the largest [Line N] value.\n")
+                .append("If no issue qualifies, respond with {\"issues\":[]}.\n")
+                .append(truncated
+                        ? "Diff chunk (truncated for transport limits):\n"
+                        : "Diff chunk:\n")
                 .append(annotatedDiff);
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
         request.put("stream", Boolean.FALSE);
+        request.put("format", buildResponseFormat(chunk));
 
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(message("system",
-                "You are an AI code reviewer. Follow all policy rules:\n" +
+                "You are an AI code reviewer and your only duty is reporting issues according to rules. Follow all policy rules:\n" +
                 "- Only reference lines that include [Line N] markers from the diff.\n" +
                 "- Severity must be one of: critical, high, medium, low (see definitions in user prompt).\n" +
                 "- Categories must be one of: security, bug, performance, reliability, maintainability, testing, style, documentation, other.\n" +
                 "- Always prefer actionable, evidence-based findings. If unsure, omit the issue.\n" +
-                "- Provide concise summaries and practical fixes."));
+                "- Provide concise summaries and practical fixes.\n" +
+                "- For each issue include the exact added diff lines (with [Line N] markers) in `problematicCode.snippet`. Do not paraphrase.\n" +
+                "- Set `problematicCode.lineStart` to the smallest [Line N] value in the snippet and `problematicCode.lineEnd` to the largest [Line N].\n" +
+                "- Respond ONLY with JSON that validates against the supplied schema. No extra commentary."));
         messages.add(message("user", userPrompt.toString()));
         request.put("messages", messages);
-
-        // Temporary Request Debug Log
-        log.info("DEBUG: " + request);
 
         try {
             return OBJECT_MAPPER.writeValueAsString(request);
@@ -250,20 +315,110 @@ public class OllamaAiReviewClient implements AiReviewClient {
         return map;
     }
 
+    private Map<String, Object> buildResponseFormat(ReviewChunk chunk) {
+        Map<String, Object> format = new LinkedHashMap<>();
+        format.put("type", "object");
+
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("issues", buildIssuesArraySchema(chunk));
+
+        Map<String, Object> truncatedProp = new LinkedHashMap<>();
+        truncatedProp.put("type", "boolean");
+        properties.put("truncated", truncatedProp);
+
+        format.put("properties", properties);
+        format.put("required", List.of("issues"));
+        return format;
+    }
+
+    private Map<String, Object> buildIssuesArraySchema(ReviewChunk chunk) {
+        Map<String, Object> severityProp = new LinkedHashMap<>();
+        severityProp.put("type", "string");
+        severityProp.put("enum", List.of("critical", "high", "medium", "low"));
+
+        Map<String, Object> categoryProp = new LinkedHashMap<>();
+        categoryProp.put("type", "string");
+        categoryProp.put("enum", List.of(
+                "security", "bug", "performance", "reliability",
+                "maintainability", "testing", "style", "documentation", "other"
+        ));
+
+        Map<String, Object> pathProp = new LinkedHashMap<>();
+        pathProp.put("type", "string");
+        List<String> availablePaths = chunk.getFiles();
+        if (!availablePaths.isEmpty()) {
+            pathProp.put("enum", new ArrayList<>(availablePaths));
+        }
+
+        Map<String, Object> issueProperties = new LinkedHashMap<>();
+        issueProperties.put("path", pathProp);
+        issueProperties.put("severity", severityProp);
+        issueProperties.put("category", categoryProp);
+        issueProperties.put("summary", typeProperty("string"));
+        issueProperties.put("details", typeProperty("string"));
+        issueProperties.put("fix", typeProperty("string"));
+
+        Map<String, Object> problematicCodeObject = new LinkedHashMap<>();
+        problematicCodeObject.put("type", "object");
+        Map<String, Object> pcProps = new LinkedHashMap<>();
+
+        Map<String, Object> snippetProp = typeProperty("string");
+        snippetProp.put("description", "Exact added diff lines (with [Line N] markers) demonstrating the issue.");
+        pcProps.put("snippet", snippetProp);
+        Map<String, Object> lineStartProp = typeProperty("integer");
+        lineStartProp.put("description", "Smallest [Line N] value appearing in snippet.");
+        pcProps.put("lineStart", lineStartProp);
+
+        Map<String, Object> lineEndProp = typeProperty("integer");
+        lineEndProp.put("description", "Largest [Line N] value appearing in snippet.");
+        pcProps.put("lineEnd", lineEndProp);
+
+        problematicCodeObject.put("properties", pcProps);
+        problematicCodeObject.put("required", List.of("snippet", "lineStart", "lineEnd"));
+        issueProperties.put("problematicCode", problematicCodeObject);
+
+        Map<String, Object> issueObject = new LinkedHashMap<>();
+        issueObject.put("type", "object");
+        issueObject.put("properties", issueProperties);
+        issueObject.put("required", List.of("path",
+                                            "severity",
+                                            "category",
+                                            "problematicCode",
+                                            "details",
+                                            "summary"));
+
+        Map<String, Object> issuesArray = new LinkedHashMap<>();
+        issuesArray.put("type", "array");
+        issuesArray.put("items", issueObject);
+        return issuesArray;
+    }
+
+    private Map<String, Object> typeProperty(String type) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("type", type);
+        return map;
+    }
+
     private String executeChat(String baseUrl,
                                String payload,
                                ReviewConfig config) throws Exception {
         String normalized = baseUrl.endsWith("/") ? baseUrl + "api/chat" : baseUrl + "/api/chat";
         URI chatUri = URI.create(normalized);
+        byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
         HttpURLConnection connection = (HttpURLConnection) chatUri.toURL().openConnection();
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Connection", "close");
+        connection.setRequestProperty("Content-Length", Integer.toString(payloadBytes.length));
         connection.setConnectTimeout(Math.max(5_000, config.getConnectTimeoutMs()));
         connection.setReadTimeout(Math.max(30_000, config.getRequestTimeoutMs()));
         connection.setDoOutput(true);
+        connection.setDoInput(true);
+        connection.setFixedLengthStreamingMode(payloadBytes.length);
 
         try (OutputStream os = connection.getOutputStream()) {
-            os.write(payload.getBytes(StandardCharsets.UTF_8));
+            os.write(payloadBytes);
+            os.flush();
         }
 
         int status = connection.getResponseCode();
@@ -304,7 +459,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
             if (!(obj instanceof Map)) {
                 continue;
             }
-            ReviewFinding finding = toFinding((Map<?, ?>) obj);
+            ReviewFinding finding = toFinding((Map<?, ?>) obj, chunk);
             if (finding != null) {
                 findings.add(finding);
             }
@@ -312,7 +467,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
         return findings;
     }
 
-    private ReviewFinding toFinding(Map<?, ?> map) {
+    private ReviewFinding toFinding(Map<?, ?> map, ReviewChunk chunk) {
         try {
             Object pathObj = map.get("path");
             String path = pathObj != null ? pathObj.toString() : "";
@@ -320,9 +475,9 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 return null;
             }
 
-            int lineStart = parseInt(map.get("lineStart"), -1);
-            int lineEnd = parseInt(map.get("lineEnd"), lineStart);
-            if (lineStart <= 0) {
+            if (!chunk.getFiles().contains(path)) {
+                log.warn("Discarding issue for chunk {}: path '{}' not present in chunk files {}",
+                        chunk.getId(), path, chunk.getFiles());
                 return null;
             }
 
@@ -337,7 +492,61 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
             String details = optionalString(map.get("details"));
             String fix = optionalString(map.get("fix"));
-            String snippet = optionalString(map.get("problematicCode"));
+            Object problematicObj = map.get("problematicCode");
+            if (!(problematicObj instanceof Map)) {
+                log.warn("Discarding issue for chunk {}: problematicCode object missing for {}",
+                        chunk.getId(), path);
+                return null;
+            }
+            Map<?, ?> problematic = (Map<?, ?>) problematicObj;
+            String snippet = optionalString(problematic.get("snippet"));
+            if (snippet == null || snippet.trim().isEmpty()) {
+                log.warn("Discarding issue for chunk {}: missing problematicCode.snippet for {}",
+                        chunk.getId(), path);
+                return null;
+            }
+
+            int lineStart = parseInt(problematic.get("lineStart"), -1);
+            int lineEnd = parseInt(problematic.get("lineEnd"), lineStart);
+
+            if (!snippetMatchesChunk(snippet, chunk.getContent())) {
+                log.warn("Discarding issue for chunk {}: problematicCode does not match diff content for {}",
+                        chunk.getId(), path);
+                return null;
+            }
+
+            LineRange inferredRange = extractLineRange(snippet);
+            if (inferredRange != null) {
+                if (lineStart != inferredRange.getStart() || lineEnd != inferredRange.getEnd()) {
+                    String previous = (lineStart > 0 && lineEnd >= lineStart)
+                            ? LineRange.of(lineStart, lineEnd).asDisplay()
+                            : lineStart + "-" + lineEnd;
+                    log.debug("Adjusted line range for chunk {} path {} based on snippet markers ({}->{})",
+                            chunk.getId(),
+                            path,
+                            previous,
+                            inferredRange.asDisplay());
+                }
+                lineStart = inferredRange.getStart();
+                lineEnd = inferredRange.getEnd();
+            }
+
+            if (lineStart <= 0) {
+                log.warn("Discarding issue for chunk {}: invalid problematicCode.lineStart {} after adjustments for {}",
+                        chunk.getId(), lineStart, path);
+                return null;
+            }
+            if (lineEnd < lineStart) {
+                lineEnd = lineStart;
+            }
+
+            LineRange primary = chunk.getPrimaryRanges().get(path);
+            if (primary != null && (lineStart < primary.getStart() || lineStart > primary.getEnd()
+                    || lineEnd < primary.getStart() || lineEnd > primary.getEnd())) {
+                log.warn("Discarding issue for chunk {}: line range {} outside primary range {} for {}",
+                        chunk.getId(), LineRange.of(lineStart, lineEnd), primary, path);
+                return null;
+            }
 
             return ReviewFinding.builder()
                     .filePath(path)
@@ -353,6 +562,42 @@ public class OllamaAiReviewClient implements AiReviewClient {
             log.warn("Failed to parse finding from {}: {}", map, ex.getMessage());
             return null;
         }
+    }
+
+    private boolean snippetMatchesChunk(String snippet, String chunkContent) {
+        String normalizedChunk = chunkContent == null ? "" : chunkContent;
+        for (String line : snippet.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (!normalizedChunk.contains(trimmed)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private LineRange extractLineRange(String snippet) {
+        if (snippet == null || snippet.isEmpty()) {
+            return null;
+        }
+        Matcher matcher = LINE_MARKER_PATTERN.matcher(snippet);
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
+        while (matcher.find()) {
+            try {
+                int value = Integer.parseInt(matcher.group(1));
+                min = Math.min(min, value);
+                max = Math.max(max, value);
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed markers and continue scanning
+            }
+        }
+        if (min == Integer.MAX_VALUE || max == Integer.MIN_VALUE) {
+            return null;
+        }
+        return LineRange.of(min, max);
     }
 
     private int parseInt(Object value, int defaultValue) {
