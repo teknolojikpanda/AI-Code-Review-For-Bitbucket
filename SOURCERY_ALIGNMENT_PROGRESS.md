@@ -27,8 +27,9 @@
 - Added diff position resolver (Phase 1 / F1) ensuring issue line numbers map to real hunks before comments are posted.
 - Implemented issue fingerprinting (Phase 1 / F2) to deduplicate repeated AI findings by path/line/summary.
 - Documented migration plan for duplicate fingerprint store (Phase 1 / F3) in `docs/duplicate_fingerprint_migration_plan.md`.
+- Built templated summary comment renderer (Phase 2 / T1) using markdown partials for headers, tables, and per-file issue listings.
 
 ## Next Steps
 
-- Prioritise implementing F3 (duplicate suppression store) according to the prepared migration plan.
-- Define acceptance criteria and test coverage strategy for upcoming strategy variants (risk-based, security-first).
+- Prioritise remaining Phase 2 items (summary enhancements, admin review profiles, REST history endpoints).
+- Plan implementation schedule for fingerprint persistence (Phase 1 / F3) based on the documented migration approach.
