@@ -1,0 +1,1 @@
+| {{ICON}} {{LABEL}} | {{COUNT}} |

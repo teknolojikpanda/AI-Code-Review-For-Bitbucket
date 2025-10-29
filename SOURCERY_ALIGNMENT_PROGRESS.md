@@ -10,10 +10,6 @@
 - Updated Ollama client to treat repeated chat failures (timeouts, JSON parse errors, missing fallback model) as empty results instead of aborting the chunk, and log a concise root cause. This fixes the “Chunk chunk-0 failed: All model invocations failed” regression when the fallback model is absent.
 - Added resilience around Ollama `EOF` failures: chunk payloads are automatically truncated (20k chars) and retried when the server closes connections mid-stream, and repeated “model not found” responses are cached to avoid hammering unavailable models.
 
-## Next Steps
-
-- Begin designing chunk strategy abstraction and enhanced prompting pipeline.
-
 ## 2025-10-28
 
 - Committed AI comment anchoring change to place feedback on the closing line when multiline ranges are reported (Bitbucket rendering improvement).

@@ -1,0 +1,1 @@
+- ✓ `{{FILE}}:{{LOCATION}}` - {{SUMMARY}}

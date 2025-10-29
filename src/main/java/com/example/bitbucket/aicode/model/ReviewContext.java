@@ -1,7 +1,6 @@
 package com.example.bitbucket.aicode.model;
 
 import com.atlassian.bitbucket.pull.PullRequest;
-import com.example.bitbucket.aicode.model.ReviewFileMetadata;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
