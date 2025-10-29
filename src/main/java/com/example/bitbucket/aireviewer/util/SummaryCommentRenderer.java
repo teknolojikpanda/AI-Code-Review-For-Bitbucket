@@ -23,11 +23,13 @@ public final class SummaryCommentRenderer {
     private static final String SEVERITY_ROW_TEMPLATE = load("templates/summary/severity-row.md");
     private static final String FILE_ROW_TEMPLATE = load("templates/summary/file-row.md");
     private static final String ISSUE_BULLET_TEMPLATE = load("templates/summary/issue-bullet.md");
+    private static final String CATEGORY_ROW_TEMPLATE = load("templates/summary/category-row.md");
     private static final String RESOLVED_BULLET_TEMPLATE = load("templates/summary/resolved-bullet.md");
     private static final String NEW_BULLET_TEMPLATE = load("templates/summary/new-bullet.md");
     private static final String FOOTER_TEMPLATE = load("templates/summary/footer.md");
 
     private static final String SEVERITY_TABLE_HEADER = "| Severity | Count |\n|----------|-------|\n";
+    private static final String CATEGORY_TABLE_HEADER = "| Category | Count |\n|----------|-------|\n";
     private static final String FILE_TABLE_HEADER = "| File | +Added | -Deleted | Issues |\n|------|--------|----------|--------|\n";
 
     private SummaryCommentRenderer() {
@@ -48,18 +50,39 @@ public final class SummaryCommentRenderer {
         Objects.requireNonNull(newIssues, "newIssues");
         Objects.requireNonNull(aiModel, "aiModel");
 
-        long criticalCount = severityCount(issues, ReviewIssue.Severity.CRITICAL);
-        long highCount = severityCount(issues, ReviewIssue.Severity.HIGH);
-        long mediumCount = severityCount(issues, ReviewIssue.Severity.MEDIUM);
-        long lowCount = severityCount(issues, ReviewIssue.Severity.LOW);
+        SummaryInsights insights = issues.isEmpty() && resolvedIssues.isEmpty() && newIssues.isEmpty()
+                ? SummaryInsights.empty()
+                : SummaryInsights.analyze(issues, resolvedIssues, newIssues);
 
-        String statusIcon = (criticalCount + highCount) > 0 ? "🚫" : "⚠️";
-        String statusText = (criticalCount + highCount) > 0 ? "CHANGES REQUIRED" : "Review Recommended";
-        String statusMessage = (criticalCount + highCount) > 0
-                ? String.format(Locale.ENGLISH,
-                "> ⚠️ This PR has **%d critical/high severity issue(s)** that must be addressed before merging.",
-                criticalCount + highCount)
-                : "> ℹ️ This PR has only medium/low severity issues. You may merge after review, but consider addressing these improvements.";
+        Map<ReviewIssue.Severity, Long> severityCounts = insights.getSeverityCounts();
+        long criticalCount = severityCounts.getOrDefault(ReviewIssue.Severity.CRITICAL, 0L);
+        long highCount = severityCounts.getOrDefault(ReviewIssue.Severity.HIGH, 0L);
+        long mediumCount = severityCounts.getOrDefault(ReviewIssue.Severity.MEDIUM, 0L);
+        long lowCount = severityCounts.getOrDefault(ReviewIssue.Severity.LOW, 0L);
+
+        String statusIcon;
+        String statusText;
+        String statusMessage;
+        if (insights.isEmpty()) {
+            statusIcon = "✅";
+            statusText = "No findings";
+            statusMessage = "> ✅ The AI reviewer did not detect any issues in this pull request.";
+        } else if (insights.hasBlockingIssues()) {
+            long blocking = criticalCount + highCount;
+            statusIcon = "🚫";
+            statusText = "CHANGES REQUIRED";
+            statusMessage = String.format(Locale.ENGLISH,
+                    "> ⚠️ This PR has **%d critical/high severity issue(s)** that must be addressed before merging.",
+                    blocking);
+        } else if (insights.hasOnlyLowOrInfoIssues()) {
+            statusIcon = "✅";
+            statusText = "Ready after sanity check";
+            statusMessage = "> ✅ Only low or informational findings remain. Reviewers may merge after acknowledging these suggestions.";
+        } else {
+            statusIcon = "⚠️";
+            statusText = "Review Recommended";
+            statusMessage = "> ℹ️ Medium severity issues were detected. Ensure they are addressed before merge.";
+        }
 
         StringBuilder comment = new StringBuilder();
         comment.append(apply(HEADER_TEMPLATE, Map.of(
@@ -76,15 +99,17 @@ public final class SummaryCommentRenderer {
         appendSeverityRow(comment, lowCount, "🔵", "Low");
         comment.append('\n');
 
+        comment.append(renderGuidance(insights));
+        comment.append(renderTopCategories(insights));
         comment.append(renderFileTable(issues, fileChanges));
         comment.append(renderIssuesByFile(issues, iconProvider));
         comment.append(renderReReviewSection(resolvedIssues, newIssues, iconProvider));
 
-        String prStatusLine = (criticalCount + highCount) > 0
+        String prStatusLine = insights.hasBlockingIssues()
                 ? String.format(Locale.ENGLISH,
                 "**🚫 PR Status:** Changes required before merge (%d critical, %d high severity)",
                 criticalCount, highCount)
-                : "**✅ PR Status:** May merge after review (only medium/low issues)";
+                : "**✅ PR Status:** May merge after review (no blocking issues detected)";
 
         String warning = failedChunks > 0
                 ? String.format(Locale.ENGLISH,
@@ -110,6 +135,58 @@ public final class SummaryCommentRenderer {
                 "{{COUNT}}", String.valueOf(count)
         )));
         builder.append('\n');
+    }
+
+    private static String renderGuidance(SummaryInsights insights) {
+        if (insights.isEmpty()) {
+            return "";
+        }
+
+        List<String> guidance = new java.util.ArrayList<>();
+        if (insights.hasBlockingIssues()) {
+            guidance.add("🚫 Resolve all critical/high severity findings before approving this pull request.");
+        } else if (insights.hasOnlyLowOrInfoIssues()) {
+            guidance.add("✅ No blocking issues detected. Proceed once low severity suggestions are reviewed.");
+        } else {
+            guidance.add("⚠️ Medium severity findings remain. Ensure the author addresses them prior to merge.");
+        }
+
+        if (insights.getNewIssueCount() > 0) {
+            guidance.add(String.format(Locale.ENGLISH,
+                    "🆕 %d new issue(s) introduced since the last review run.", insights.getNewIssueCount()));
+        }
+        if (insights.getResolvedIssueCount() > 0) {
+            guidance.add(String.format(Locale.ENGLISH,
+                    "✅ %d previously reported issue(s) resolved in this iteration.", insights.getResolvedIssueCount()));
+        }
+        if (guidance.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder("### Review Guidance\n\n");
+        for (String message : guidance) {
+            builder.append("- ").append(message).append('\n');
+        }
+        builder.append('\n');
+        return builder.toString();
+    }
+
+    private static String renderTopCategories(SummaryInsights insights) {
+        if (insights.getTopCategories().isEmpty()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder("### Top Issue Categories\n\n")
+                .append(CATEGORY_TABLE_HEADER);
+        for (SummaryInsights.CategorySummary category : insights.getTopCategories()) {
+            builder.append(apply(CATEGORY_ROW_TEMPLATE, Map.of(
+                    "{{CATEGORY}}", category.getDisplayName(),
+                    "{{COUNT}}", String.valueOf(category.getCount())
+            )));
+            builder.append('\n');
+        }
+        builder.append('\n');
+        return builder.toString();
     }
 
     private static String renderFileTable(List<ReviewIssue> issues,
@@ -261,10 +338,6 @@ public final class SummaryCommentRenderer {
             lineInfo += " (multiline)";
         }
         return "L" + lineInfo;
-    }
-
-    private static long severityCount(List<ReviewIssue> issues, ReviewIssue.Severity severity) {
-        return issues.stream().filter(i -> i.getSeverity() == severity).count();
     }
 
     private static String summarize(String summary, int maxLen) {

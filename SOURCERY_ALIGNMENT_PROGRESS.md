@@ -30,6 +30,8 @@
 - Landed review profile presets (Balanced, Security First, Lightweight) with persisted selection and validation (Phase 2 / item 3). Configuration defaults now capture the chosen profile key and auto-approve preference.
 - Extended `/rest/ai-reviewer/1.0/config` to return profile descriptors so the admin UI can present guidance and defaults.
 - Refreshed the admin configuration UI with a profile selector, live preset summaries, and a new auto-approve toggle that mirrors the selected preset defaults while supporting manual overrides.
+- Added `SummaryInsights` aggregation (Phase 2 / item 2) to drive severity, category, and guidance messaging in the summary comment, exposing medium/high level review advice and top issue categories.
+- Reordered comment posting so inline issues land first and the summary comment is published last, improving readability in Bitbucket’s activity feed (Phase 2 / item 2 refinement).
 
 ## Next Steps
 

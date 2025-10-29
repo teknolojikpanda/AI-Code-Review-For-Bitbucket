@@ -288,13 +288,20 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (!issues.isEmpty()) {
             try {
                 long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
-                String summaryText = buildSummaryComment(issues, fileChanges, pr, elapsedSeconds, 0, 
-                    comparison.resolvedIssues, comparison.newIssues);
+                
+                commentsPosted = postIssueComments(issues, pr);
+                log.info("✓ Posted {} issue comment(s)", commentsPosted);
+
+                String summaryText = buildSummaryComment(
+                        issues,
+                        fileChanges,
+                        pr,
+                        elapsedSeconds,
+                        0,
+                        comparison.resolvedIssues,
+                        comparison.newIssues);
                 Comment summaryComment = addPRComment(pr, summaryText);
                 log.info("Posted summary comment with ID: {}", summaryComment.getId());
-                
-                commentsPosted = postIssueComments(issues, summaryComment, pr);
-                log.info("✓ Posted {} issue comment replies", commentsPosted);
             } catch (Exception e) {
                 log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
             }
@@ -678,12 +685,10 @@ public class AIReviewServiceImpl implements AIReviewService {
      * Uses AddLineCommentRequest to anchor comments to specific lines in the diff.
      *
      * @param issues all issues to post
-     * @param summaryComment the summary comment (not used for line comments)
      * @param pullRequest the pull request
      * @return number of comments successfully posted
      */
     private int postIssueComments(@Nonnull List<ReviewIssue> issues,
-                                   @Nonnull Comment summaryComment,
                                    @Nonnull PullRequest pullRequest) {
         // Pre-fetch pull request data to avoid lazy loading issues in AddLineCommentRequest.Builder
         // Force initialization of pull request properties that might be lazy-loaded
@@ -763,33 +768,33 @@ public class AIReviewServiceImpl implements AIReviewService {
                     continue;
                 }
 
-            // Map issue severity to comment severity
-            CommentSeverity commentSeverity = mapToCommentSeverity(issue.getSeverity());
+                // Map issue severity to comment severity
+                CommentSeverity commentSeverity = mapToCommentSeverity(issue.getSeverity());
 
-            log.info("Creating line comment request for '{}:{}' with severity '{}'",
-                    filePath, anchorLine, commentSeverity);
+                log.info("Creating line comment request for '{}:{}' with severity '{}'",
+                        filePath, anchorLine, commentSeverity);
 
-            // Create multiline-aware comment request for Bitbucket 9.6.5
-            AddLineCommentRequest request = createMultilineCommentRequest(
-                    pullRequest, 
-                    commentText, 
-                    filePath, 
-                    issue, 
-                    commentSeverity,
-                    anchorLine
-            );
+                // Create multiline-aware comment request for Bitbucket 9.6.5
+                AddLineCommentRequest request = createMultilineCommentRequest(
+                        pullRequest,
+                        commentText,
+                        filePath,
+                        issue,
+                        commentSeverity,
+                        anchorLine
+                );
 
-            log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
-            Comment comment = commentService.addComment(request);
-            // Log with multiline information
-            String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart())) 
-                ? "multiline comment" : "line comment";
-            String lineInfo = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
-                ? issue.getLineStart() + "-" + issue.getLineEnd() : String.valueOf(anchorLine);
-                    
-            log.info("✓ Posted {} {} at {}:{} with ID {} (severity: {})",
-                     commentType, i + 1, filePath, lineInfo, comment.getId(), commentSeverity);
-            commentsCreated++;
+                log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
+                Comment comment = commentService.addComment(request);
+                // Log with multiline information
+                String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
+                        ? "multiline comment" : "line comment";
+                String lineInfo = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
+                        ? issue.getLineStart() + "-" + issue.getLineEnd() : String.valueOf(anchorLine);
+
+                log.info("✓ Posted {} {} at {}:{} with ID {} (severity: {})",
+                        commentType, i + 1, filePath, lineInfo, comment.getId(), commentSeverity);
+                commentsCreated++;
 
                 // Rate limiting delay
                 if (i < issuesToPost.size() - 1 && apiDelayMs > 0) {
