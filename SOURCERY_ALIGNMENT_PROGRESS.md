@@ -35,7 +35,7 @@
 - Exposed `/rest/ai-reviewer/1.0/history` with filtering and delivered a lightweight `ReviewHistoryService` so admins can query recent reviews (Phase 2 / item 4).
 - Added `/rest/ai-reviewer/1.0/config/auto-approve` to toggle the auto-approval flag without resubmitting the full configuration payload (Phase 2 / item 4).
 - Registered the history service in OSGi and marked it singleton so REST injection succeeds (fix for `/rest/ai-reviewer/1.0/history` startup failure).
-- Moved review history into its own admin page backed by the new REST endpoints and added an inline auto-approve toggle on the config screen (Phase 2 / item 4 UI integration).
+- Moved review history into its own admin page backed by the new REST endpoints, added basic filtering, and kept an inline auto-approve toggle on the config screen (Phase 2 / item 4 UI integration).
 
 ## Next Steps
 

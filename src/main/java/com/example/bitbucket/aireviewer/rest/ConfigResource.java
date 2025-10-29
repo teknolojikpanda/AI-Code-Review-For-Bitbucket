@@ -17,6 +17,7 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -179,6 +180,61 @@ public class ConfigResource {
     }
 
     /**
+     * Toggle the global auto-approve setting.
+     *
+     * POST /rest/ai-reviewer/1.0/config/auto-approve
+     */
+    @POST
+    @Path("/auto-approve")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response toggleAutoApprove(Map<String, Object> payload,
+                                      @Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        if (payload == null || !payload.containsKey("enabled")) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Request must include 'enabled' boolean value"))
+                    .build();
+        }
+
+        Object rawValue = payload.get("enabled");
+        Boolean enabled = parseBoolean(rawValue);
+        if (enabled == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Unable to parse 'enabled' value as boolean"))
+                    .build();
+        }
+
+        try {
+            Map<String, Object> update = new HashMap<>();
+            update.put("autoApprove", enabled);
+            configService.updateConfiguration(update);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", enabled
+                    ? "Auto-approve enabled"
+                    : "Auto-approve disabled");
+            response.put("autoApprove", enabled);
+            return Response.ok(response).build();
+        } catch (IllegalArgumentException ex) {
+            log.warn("Invalid auto-approve toggle request: {}", ex.getMessage());
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid configuration: " + ex.getMessage()))
+                    .build();
+        } catch (Exception ex) {
+            log.error("Failed to toggle auto-approve", ex);
+            return Response.serverError()
+                    .entity(error("Failed to update auto-approve setting: " + ex.getMessage()))
+                    .build();
+        }
+    }
+
+    /**
      * Validates Ollama URL to prevent SSRF attacks
      */
     private boolean isValidOllamaUrl(String url) {
@@ -228,5 +284,21 @@ public class ConfigResource {
             normalized.remove("apiDelay");
         }
         return normalized;
+    }
+
+    private Boolean parseBoolean(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            String str = ((String) value).trim().toLowerCase(Locale.ENGLISH);
+            if ("true".equals(str) || "false".equals(str)) {
+                return Boolean.parseBoolean(str);
+            }
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        return null;
     }
 }

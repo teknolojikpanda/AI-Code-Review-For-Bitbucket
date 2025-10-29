@@ -25,12 +25,18 @@
                 <div class="aui-toolbar2">
                     <div class="aui-toolbar2-inner">
                         <div class="aui-toolbar2-primary">
+                            <label class="filter-label" for="filter-project">Project</label>
+                            <input class="text filter-input" type="text" id="filter-project" placeholder="e.g. PROJ">
+                            <label class="filter-label" for="filter-repo">Repository</label>
+                            <input class="text filter-input" type="text" id="filter-repo" placeholder="slug">
+                            <label class="filter-label" for="filter-pr">PR</label>
+                            <input class="text filter-input" type="number" id="filter-pr" min="1" placeholder="#">
                             <button type="button" class="aui-button" id="refresh-history-btn">
                                 <span class="aui-icon aui-icon-small aui-iconfont-refresh"></span> Refresh
                             </button>
                         </div>
                         <div class="aui-toolbar2-secondary">
-                            <span class="history-hint">Showing the most recent reviews across all repositories.</span>
+                            <span class="history-hint">Filters are optional; blank values show everything.</span>
                         </div>
                     </div>
                 </div>

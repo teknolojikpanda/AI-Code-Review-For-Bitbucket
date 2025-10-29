@@ -14,10 +14,27 @@
 
     function loadHistory() {
         setHistoryMessage('info', 'Loading review history...', true);
+
+        var projectKey = $('#filter-project').val();
+        var repositorySlug = $('#filter-repo').val();
+        var pullRequestId = $('#filter-pr').val();
+
+        var params = { limit: 50 };
+        if (projectKey) {
+            params.projectKey = projectKey;
+        }
+        if (repositorySlug) {
+            params.repositorySlug = repositorySlug;
+        }
+        if (pullRequestId) {
+            params.pullRequestId = pullRequestId;
+        }
+
         $.ajax({
-            url: historyUrl + '?limit=50',
+            url: historyUrl,
             type: 'GET',
-            dataType: 'json'
+            dataType: 'json',
+            data: params
         }).done(function(response) {
             var entries = response && Array.isArray(response.entries) ? response.entries : [];
             renderHistory(entries);
