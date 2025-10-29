@@ -1359,26 +1359,27 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private String escapeJson(String input) {
         StringBuilder sb = new StringBuilder(input.length() + 16);
-        for (char c : input.toCharArray()) {
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
             switch (c) {
-                case '\\\\':
-                    sb.append(\"\\\\\\\\\");
+                case '\\':
+                    sb.append("\\\\");
                     break;
-                case '\\\"':
-                    sb.append(\"\\\\\\\"\");
+                case '"':
+                    sb.append("\\\"");
                     break;
-                case '\\n':
-                    sb.append(\"\\\\n\");
+                case '\n':
+                    sb.append("\\n");
                     break;
-                case '\\r':
-                    sb.append(\"\\\\r\");
+                case '\r':
+                    sb.append("\\r");
                     break;
-                case '\\t':
-                    sb.append(\"\\\\t\");
+                case '\t':
+                    sb.append("\\t");
                     break;
                 default:
                     if (c < 0x20) {
-                        sb.append(String.format(\"\\\\u%04x\", (int) c));
+                        sb.append(String.format("\\u%04x", (int) c));
                     } else {
                         sb.append(c);
                     }
