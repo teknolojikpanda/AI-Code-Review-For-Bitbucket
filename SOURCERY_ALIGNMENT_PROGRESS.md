@@ -39,5 +39,6 @@
 
 ## Next Steps
 
-- Prioritise remaining Phase 2 items (summary enhancements, admin review profiles, REST history endpoints).
+- Design the remaining Phase 3 observability dashboard to surface metrics over time (history charts, retry controls).
+- Harden configuration validation for prompt/profile fields and expose clear errors (Phase 3 / item 3).
 - Plan implementation schedule for fingerprint persistence (Phase 1 / F3) based on the documented migration approach.

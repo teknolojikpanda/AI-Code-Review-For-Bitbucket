@@ -103,19 +103,28 @@ public class AIReviewServiceImpl implements AIReviewService {
         MetricsCollector metrics = new MetricsCollector("pr-" + pullRequestId);
         MetricsRecorderAdapter recorder = new MetricsRecorderAdapter(metrics);
         Instant overallStart = recorder.recordStart("overall");
+        metrics.setGauge("review.startEpochMs", overallStart.toEpochMilli());
+        metrics.setGauge("autoApprove.applied", 0);
+        metrics.setGauge("autoApprove.failed", 0);
 
         try {
             logPullRequestInfo(pullRequest);
 
             Map<String, Object> configMap = configService.getConfigurationAsMap();
             ReviewConfig reviewConfig = configFactory.from(configMap);
-            recorder.recordMetric("config.parallelThreads", reviewConfig.getParallelThreads());
-            recorder.recordMetric("config.maxChunks", reviewConfig.getMaxChunks());
+            metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());
+            metrics.setGauge("config.maxChunks", reviewConfig.getMaxChunks());
 
             ReviewContext context = diffProvider.collect(pullRequest, reviewConfig, recorder);
             String rawDiff = context.getRawDiff();
+            if (rawDiff != null) {
+                metrics.setGauge("diff.sizeBytes", rawDiff.getBytes(StandardCharsets.UTF_8).length);
+                long lineCount = rawDiff.chars().filter(ch -> ch == '\n').count();
+                metrics.setGauge("diff.lineCount", lineCount);
+            }
             if (rawDiff == null || rawDiff.trim().isEmpty()) {
-                return buildSkippedResult(pullRequestId, "No changes to review", metrics);
+                Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
+                return buildSkippedResult(pullRequestId, "No changes to review", metricsSnapshot);
             }
 
             ReviewPreparation preparation = chunkPlanner.prepare(context, recorder);
@@ -130,19 +139,20 @@ public class AIReviewServiceImpl implements AIReviewService {
                         preparation.getOverview().getFileStats().keySet(),
                         preparation.getSkippedFiles());
                 log.warn("AI Review: filter breakdown for PR #{} -> {}", pullRequestId, reasons);
+                Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
                 return buildSuccessResult(pullRequestId, "No reviewable files found (all filtered)",
-                        0, fileChanges.size(), metrics);
+                        0, fileChanges.size(), metricsSnapshot);
             }
 
-            recorder.recordMetric("totalFiles", fileChanges.size());
-            recorder.recordMetric("filesToReview", preparation.getOverview().getTotalFiles());
-            recorder.recordMetric("chunks", preparation.getChunks().size());
-            recorder.recordMetric("chunks.truncated", preparation.isTruncated());
+            metrics.setGauge("files.total", fileChanges.size());
+            metrics.setGauge("files.reviewable", preparation.getOverview().getTotalFiles());
+            metrics.setGauge("chunks.planned", preparation.getChunks().size());
+            metrics.setGauge("chunks.truncated", preparation.isTruncated());
             log.debug("AI Review: {} chunk(s) prepared (truncated={})", preparation.getChunks().size(), preparation.isTruncated());
 
             ReviewSummary summary = reviewOrchestrator.runReview(preparation, recorder);
             List<ReviewIssue> issues = convertFindings(summary.getFindings());
-            recorder.recordMetric("issues.truncated", summary.isTruncated());
+            metrics.setGauge("issues.truncated", summary.isTruncated());
             if (summary.totalCount() == 0) {
                 log.info("AI Review: no findings returned from AI for PR #{}", pullRequestId);
             } else {
@@ -167,9 +177,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                     overallStart, comparison, metrics);
 
             boolean approved = handleAutoApproval(validated, pullRequest, metrics);
+            Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
             ReviewResult result = buildFinalResult(pullRequestId, validated,
                     preparation.getOverview().getTotalFiles(),
-                    fileChanges.size(), commentsPosted, approved, metrics);
+                    fileChanges.size(), commentsPosted, approved, metricsSnapshot);
             log.info("AI Review: completed PR #{} with {} validated issue(s); comments posted={} approved={}",
                     pullRequestId, validated.size(), commentsPosted, approved);
 
@@ -177,7 +188,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             return result;
 
         } catch (Exception e) {
-            return handleReviewException(pullRequestId, e, metrics);
+            return handleReviewException(pullRequestId, e, metrics, overallStart);
         } finally {
             metrics.recordEnd("overall", overallStart);
             metrics.logMetrics();
@@ -193,18 +204,18 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
     
     private void recordIssueMetrics(@Nonnull List<ReviewIssue> issues, int invalidIssues, @Nonnull MetricsCollector metrics) {
-        metrics.recordMetric("totalIssues", issues.size());
-        metrics.recordMetric("invalidIssues", invalidIssues);
+        metrics.setGauge("issues.total", issues.size());
+        metrics.setGauge("issues.invalid", invalidIssues);
 
         long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
         long highCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.HIGH).count();
         long mediumCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.MEDIUM).count();
         long lowCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.LOW).count();
-        
-        metrics.recordMetric("criticalIssues", criticalCount);
-        metrics.recordMetric("highIssues", highCount);
-        metrics.recordMetric("mediumIssues", mediumCount);
-        metrics.recordMetric("lowIssues", lowCount);
+
+        metrics.setGauge("issues.critical", criticalCount);
+        metrics.setGauge("issues.high", highCount);
+        metrics.setGauge("issues.medium", mediumCount);
+        metrics.setGauge("issues.low", lowCount);
         
         log.info("Analysis complete: {} valid issues found ({} invalid filtered)", issues.size(), invalidIssues);
         log.info("Issue breakdown - Critical: {}, High: {}, Medium: {}, Low: {}",
@@ -271,8 +282,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             newIssues = findNewIssues(previousIssues, issues);
             log.info("Re-review comparison: {} resolved, {} new out of {} previous and {} current issues",
                     resolvedIssues.size(), newIssues.size(), previousIssues.size(), issues.size());
-            metrics.recordMetric("resolvedIssues", resolvedIssues.size());
-            metrics.recordMetric("newIssues", newIssues.size());
+            metrics.setGauge("issues.resolved", resolvedIssues.size());
+            metrics.setGauge("issues.new", newIssues.size());
         } else {
             log.info("No previous review found - first review for this PR");
         }
@@ -310,7 +321,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
         
         metrics.recordEnd("postComments", commentStart);
-        metrics.recordMetric("commentsPosted", commentsPosted);
+        metrics.setGauge("comments.posted", commentsPosted);
         return commentsPosted;
     }
     
@@ -323,34 +334,47 @@ public class AIReviewServiceImpl implements AIReviewService {
             approved = approvePR(pr);
             if (approved) {
                 log.info("✅ PR #{} auto-approved - no critical/high issues found", pr.getId());
-                metrics.recordMetric("autoApproved", 1);
+                metrics.setGauge("autoApprove.applied", 1);
             } else {
                 log.warn("Failed to auto-approve PR #{}", pr.getId());
-                metrics.recordMetric("autoApproveFailed", 1);
+                metrics.setGauge("autoApprove.failed", 1);
             }
         } else {
             log.info("PR #{} not auto-approved - critical/high issues present or auto-approve disabled", pr.getId());
-            metrics.recordMetric("autoApproved", 0);
+            metrics.setGauge("autoApprove.applied", 0);
         }
         
         return approved;
     }
     
-    private ReviewResult buildFinalResult(long pullRequestId, @Nonnull List<ReviewIssue> issues, int filesReviewed, 
-            int totalFiles, int commentsPosted, boolean approved, @Nonnull MetricsCollector metrics) {
+    private Map<String, Object> finalizeMetricsSnapshot(@Nonnull MetricsCollector metrics, @Nonnull Instant overallStart) {
+        long startMillis = overallStart.toEpochMilli();
+        Object existingStart = metrics.getGauge("review.startEpochMs");
+        if (existingStart instanceof Number) {
+            startMillis = ((Number) existingStart).longValue();
+        }
+        long endMillis = Instant.now().toEpochMilli();
+        metrics.setGauge("review.startEpochMs", startMillis);
+        metrics.setGauge("review.endEpochMs", endMillis);
+        metrics.setGauge("review.durationMs", Math.max(0, endMillis - startMillis));
+        return metrics.getMetrics();
+    }
+
+    private ReviewResult buildFinalResult(long pullRequestId, @Nonnull List<ReviewIssue> issues, int filesReviewed,
+            int totalFiles, int commentsPosted, boolean approved, @Nonnull Map<String, Object> metricsSnapshot) {
         long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
         long highCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.HIGH).count();
         long mediumCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.MEDIUM).count();
         long lowCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.LOW).count();
-        
+
         ReviewResult.Status status = criticalCount > 0 || highCount > 0
                 ? ReviewResult.Status.PARTIAL
                 : ReviewResult.Status.SUCCESS;
-        
+
         String approvalStatus = approved ? " (auto-approved)" : "";
         String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
                 issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted + (issues.isEmpty() ? 0 : 1), approvalStatus);
-        
+
         return ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(status)
@@ -358,54 +382,55 @@ public class AIReviewServiceImpl implements AIReviewService {
                 .issues(issues)
                 .filesReviewed(filesReviewed)
                 .filesSkipped(totalFiles - filesReviewed)
-                .metrics(metrics.getMetrics())
+                .metrics(metricsSnapshot)
                 .build();
     }
-    
-    private ReviewResult buildSkippedResult(long pullRequestId, @Nonnull String message, @Nonnull MetricsCollector metrics) {
+
+    private ReviewResult buildSkippedResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {
         return ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.SKIPPED)
                 .message(message)
                 .filesReviewed(0)
                 .filesSkipped(0)
-                .metrics(metrics.getMetrics())
+                .metrics(metricsSnapshot)
                 .build();
     }
-    
-    private ReviewResult buildFailedResult(long pullRequestId, @Nonnull String message, @Nonnull MetricsCollector metrics) {
+
+    private ReviewResult buildFailedResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {
         return ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.FAILED)
                 .message(message)
                 .filesReviewed(0)
                 .filesSkipped(0)
-                .metrics(metrics.getMetrics())
+                .metrics(metricsSnapshot)
                 .build();
     }
-    
-    private ReviewResult buildSuccessResult(long pullRequestId, @Nonnull String message, int filesReviewed, 
-            int filesSkipped, @Nonnull MetricsCollector metrics) {
+
+    private ReviewResult buildSuccessResult(long pullRequestId, @Nonnull String message, int filesReviewed,
+            int filesSkipped, @Nonnull Map<String, Object> metricsSnapshot) {
         return ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.SUCCESS)
                 .message(message)
                 .filesReviewed(filesReviewed)
                 .filesSkipped(filesSkipped)
-                .metrics(metrics.getMetrics())
+                .metrics(metricsSnapshot)
                 .build();
     }
-    
-    private ReviewResult handleReviewException(long pullRequestId, @Nonnull Exception e, @Nonnull MetricsCollector metrics) {
+
+    private ReviewResult handleReviewException(long pullRequestId, @Nonnull Exception e, @Nonnull MetricsCollector metrics, @Nonnull Instant overallStart) {
         log.error("Failed to review pull request: {}", pullRequestId, e);
         metrics.setGauge("error", e.getMessage());
+        Map<String, Object> snapshot = finalizeMetricsSnapshot(metrics, overallStart);
         return ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.FAILED)
                 .message("Review failed: " + e.getMessage())
                 .filesReviewed(0)
                 .filesSkipped(0)
-                .metrics(metrics.getMetrics())
+                .metrics(snapshot)
                 .build();
     }
     
@@ -1133,7 +1158,11 @@ public class AIReviewServiceImpl implements AIReviewService {
         try {
             Map<String, Object> config = configService.getConfigurationAsMap();
             String model = (String) config.get("ollamaModel");
-            long currentTime = System.currentTimeMillis();
+            Map<String, Object> metricsMap = result.getMetrics();
+            long defaultTimestamp = System.currentTimeMillis();
+            long startTime = extractLongMetric(metricsMap, "review.startEpochMs", defaultTimestamp);
+            long endTime = extractLongMetric(metricsMap, "review.endEpochMs", startTime);
+            long durationMs = extractLongMetric(metricsMap, "review.durationMs", Math.max(0, endTime - startTime));
 
             ao.executeInTransaction(() -> {
                 // Create entity with all required fields in a single map
@@ -1143,14 +1172,15 @@ public class AIReviewServiceImpl implements AIReviewService {
                 params.put("PULL_REQUEST_ID", pullRequest.getId());
                 params.put("PROJECT_KEY", pullRequest.getToRef().getRepository().getProject().getKey());
                 params.put("REPOSITORY_SLUG", pullRequest.getToRef().getRepository().getSlug());
-                params.put("REVIEW_START_TIME", currentTime);
+                params.put("REVIEW_START_TIME", startTime);
                 params.put("REVIEW_STATUS", result.getStatus().name());
                 
                 AIReviewHistory history = ao.create(AIReviewHistory.class, params);
 
                 // Set additional optional fields
-                history.setReviewEndTime(currentTime);
+                history.setReviewEndTime(endTime);
                 history.setModelUsed(model);
+                history.setAnalysisTimeSeconds(durationMs / 1000.0);
 
                 // Issue counts
                 long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
@@ -1164,12 +1194,29 @@ public class AIReviewServiceImpl implements AIReviewService {
                 history.setMediumIssues((int) mediumCount);
                 history.setLowIssues((int) lowCount);
 
+                history.setResolvedIssuesCount((int) extractLongMetric(metricsMap, "issues.resolved", 0));
+                history.setNewIssuesCount((int) extractLongMetric(metricsMap, "issues.new", 0));
+
                 // Files reviewed
                 history.setFilesReviewed(result.getFilesReviewed());
                 history.setTotalFiles(result.getFilesReviewed() + result.getFilesSkipped());
 
-                // Store metrics as simple string (JSON parsing removed)
-                history.setMetricsJson(result.getMetrics().toString());
+                history.setDiffSize(extractLongMetric(metricsMap, "diff.sizeBytes", 0));
+                history.setLineCount((int) extractLongMetric(metricsMap, "diff.lineCount", 0));
+
+                int plannedChunks = (int) extractLongMetric(metricsMap, "chunks.planned", 0);
+                int succeededChunks = (int) extractLongMetric(metricsMap, "chunks.succeeded", plannedChunks);
+                int failedChunks = (int) extractLongMetric(metricsMap, "chunks.failed", 0);
+                history.setTotalChunks(plannedChunks);
+                history.setSuccessfulChunks(succeededChunks);
+                history.setFailedChunks(failedChunks);
+
+                history.setCommentsPosted((int) extractLongMetric(metricsMap, "comments.posted", 0));
+                history.setReviewOutcome(determineOutcome(result, metricsMap));
+                history.setUpdateReview(extractLongMetric(metricsMap, "issues.resolved", 0) > 0);
+
+                // Store metrics snapshot as JSON string
+                history.setMetricsJson(serializeMetrics(metricsMap));
 
                 history.save();
                 log.info("Saved review history for PR #{} (ID: {})", pullRequest.getId(), history.getID());
@@ -1179,6 +1226,165 @@ public class AIReviewServiceImpl implements AIReviewService {
             log.error("Failed to save review history for PR #{}: {}",
                     pullRequest.getId(), e);
         }
+    }
+
+    private long extractLongMetric(Map<String, Object> metrics, String key, long defaultValue) {
+        if (metrics == null) {
+            return defaultValue;
+        }
+        Object value = metrics.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Long.parseLong(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (value instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            Object total = map.get("totalMs");
+            if (total instanceof Number) {
+                return ((Number) total).longValue();
+            }
+            Object avg = map.get("avgMs");
+            if (avg instanceof Number) {
+                return ((Number) avg).longValue();
+            }
+        }
+        return defaultValue;
+    }
+
+    private boolean extractBooleanMetric(Map<String, Object> metrics, String key, boolean defaultValue) {
+        if (metrics == null) {
+            return defaultValue;
+        }
+        Object value = metrics.get(key);
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue() != 0;
+        }
+        if (value instanceof String) {
+            String str = ((String) value).trim();
+            if ("true".equalsIgnoreCase(str) || "false".equalsIgnoreCase(str)) {
+                return Boolean.parseBoolean(str);
+            }
+            try {
+                return Long.parseLong(str) != 0;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private String determineOutcome(ReviewResult result, Map<String, Object> metrics) {
+        if (result.getStatus() == ReviewResult.Status.FAILED) {
+            return "FAILED";
+        }
+        if (result.getStatus() == ReviewResult.Status.SKIPPED) {
+            return "SKIPPED";
+        }
+        if (extractBooleanMetric(metrics, "autoApprove.applied", false)) {
+            return "APPROVED";
+        }
+        if (result.hasCriticalIssues()) {
+            return "CHANGES_REQUESTED";
+        }
+        return "REVIEWED";
+    }
+
+    private String serializeMetrics(Map<String, Object> metrics) {
+        StringBuilder sb = new StringBuilder();
+        appendJsonValue(sb, metrics);
+        return sb.toString();
+    }
+
+    private void appendJsonValue(StringBuilder sb, Object value) {
+        if (value == null) {
+            sb.append("null");
+            return;
+        }
+        if (value instanceof Map) {
+            sb.append('{');
+            Map<?, ?> map = (Map<?, ?>) value;
+            boolean first = true;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (!(entry.getKey() instanceof String)) {
+                    continue;
+                }
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                sb.append('\"').append(escapeJson((String) entry.getKey())).append('\"').append(':');
+                appendJsonValue(sb, entry.getValue());
+            }
+            sb.append('}');
+            return;
+        }
+        if (value instanceof Iterable) {
+            sb.append('[');
+            boolean first = true;
+            for (Object element : (Iterable<?>) value) {
+                if (!first) {
+                    sb.append(',');
+                }
+                first = false;
+                appendJsonValue(sb, element);
+            }
+            sb.append(']');
+            return;
+        }
+        if (value.getClass().isArray()) {
+            sb.append('[');
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                if (i > 0) {
+                    sb.append(',');
+                }
+                appendJsonValue(sb, java.lang.reflect.Array.get(value, i));
+            }
+            sb.append(']');
+            return;
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            sb.append(value.toString());
+            return;
+        }
+        sb.append('\"').append(escapeJson(String.valueOf(value))).append('\"');
+    }
+
+    private String escapeJson(String input) {
+        StringBuilder sb = new StringBuilder(input.length() + 16);
+        for (char c : input.toCharArray()) {
+            switch (c) {
+                case '\\\\':
+                    sb.append(\"\\\\\\\\\");
+                    break;
+                case '\\\"':
+                    sb.append(\"\\\\\\\"\");
+                    break;
+                case '\\n':
+                    sb.append(\"\\\\n\");
+                    break;
+                case '\\r':
+                    sb.append(\"\\\\r\");
+                    break;
+                case '\\t':
+                    sb.append(\"\\\\t\");
+                    break;
+                default:
+                    if (c < 0x20) {
+                        sb.append(String.format(\"\\\\u%04x\", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+            }
+        }
+        return sb.toString();
     }
 
     /**

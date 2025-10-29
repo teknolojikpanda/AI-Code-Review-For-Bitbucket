@@ -138,6 +138,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                         chunk.getFiles().size(),
                         chunk.getContent() != null ? chunk.getContent().length() : 0);
             }
+            metrics.increment("chunks.started");
             Instant start = metrics.recordStart("ai.chunk." + index);
             try {
                 ChunkReviewResult result = aiClient.reviewChunk(
@@ -148,12 +149,14 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 metrics.recordEnd("ai.chunk." + index, start);
                 if (log.isInfoEnabled()) {
                     if (result.isSuccess()) {
+                        metrics.increment("chunks.succeeded");
                         log.info("Chunk {}/{} [{}] completed with {} finding(s)",
                                 index + 1,
                                 total,
                                 chunk.getId(),
                                 result.getFindings().size());
                     } else {
+                        metrics.increment("chunks.failed");
                         log.warn("Chunk {}/{} [{}] returned failure: {}",
                                 index + 1,
                                 total,
@@ -164,6 +167,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 return result;
             } catch (Exception ex) {
                 metrics.recordEnd("ai.chunk." + index, start);
+                metrics.increment("chunks.failed");
                 log.error("Chunk {}/{} [{}] failed: {}",
                         index + 1,
                         total,
