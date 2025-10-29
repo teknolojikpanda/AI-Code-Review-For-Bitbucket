@@ -116,7 +116,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 config,
                 metrics);
 
-        if (findings == null || findings.isEmpty()) {
+        if (findings == null) {
             findings = invokeModelWithRetry(
                     chunk,
                     overview,
@@ -161,7 +161,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 log.debug("Skipping model {} at {} for chunk {} because it was previously reported missing",
                         model, baseUrl, chunk.getId());
             }
-            return Collections.emptyList();
+            return null;
         }
 
         String originalContent = chunk.getContent() != null ? chunk.getContent() : "";
@@ -202,12 +202,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
             log.error("Model {} not found at {} for chunk {}. Skipping analysis for this chunk.",
                     model, baseUrl, chunk.getId());
             unavailableModels.add(modelKey);
-        } else if (lastError != null) {
+            return null;
+        }
+        if (lastError != null) {
             log.error("Model {} failed after {} attempt(s) for chunk {}: {}",
                     model, attempts, chunk.getId(), lastError.getMessage());
             log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
+            return null;
         }
-        return Collections.emptyList();
+        return null;
     }
 
     private String modelKey(String baseUrl, String model) {
