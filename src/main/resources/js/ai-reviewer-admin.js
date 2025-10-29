@@ -14,6 +14,8 @@
     console.log('Base URL:', baseUrl);
 
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
+    var profilePresets = {};
+    var suppressProfileChange = false;
 
     /**
      * Initialize the admin configuration page
@@ -25,6 +27,7 @@
         $('#ai-reviewer-config-form').on('submit', handleFormSubmit);
         $('#test-connection-btn').on('click', testOllamaConnection);
         $('#reset-config-btn').on('click', resetToDefaults);
+        $('#review-profile').on('change', handleProfileChange);
 
         // Load current configuration
         loadConfiguration();
@@ -59,6 +62,9 @@
      * Populate form with configuration data
      */
     function populateForm(config) {
+        profilePresets = buildProfilePresetMap(config.profilePresets);
+        populateProfileOptions(config.profilePresets, config.reviewProfile);
+
         // Text fields
         $('#ollama-url').val(config.ollamaUrl || '');
         $('#ollama-model').val(config.ollamaModel || '');
@@ -81,12 +87,137 @@
         $('#review-extensions').val(config.reviewExtensions || '');
         $('#ignore-patterns').val(config.ignorePatterns || '');
         $('#ignore-paths').val(config.ignorePaths || '');
+        $('#auto-approve').prop('checked', config.autoApprove === true);
 
         // Checkboxes
         $('#enabled').prop('checked', config.enabled !== false);
         $('#review-draft-prs').prop('checked', config.reviewDraftPRs === true);
         $('#skip-generated-files').prop('checked', config.skipGeneratedFiles !== false);
         $('#skip-tests').prop('checked', config.skipTests === true);
+
+        updateProfileDetails($('#review-profile').val());
+    }
+
+    function buildProfilePresetMap(presets) {
+        var map = {};
+        if (Array.isArray(presets)) {
+            presets.forEach(function(preset) {
+                if (preset && preset.key) {
+                    map[preset.key] = preset;
+                }
+            });
+        }
+        return map;
+    }
+
+    function populateProfileOptions(presets, selectedKey) {
+        var $select = $('#review-profile');
+        suppressProfileChange = true;
+        $select.find('option').not('[value="custom"]').remove();
+
+        if (Array.isArray(presets) && presets.length) {
+            presets.forEach(function(preset) {
+                if (!preset || !preset.key) {
+                    return;
+                }
+                var $option = $('<option>')
+                    .attr('value', preset.key)
+                    .attr('data-preset', 'true')
+                    .text(preset.name || preset.key);
+                $select.append($option);
+            });
+        }
+
+        var key = selectedKey;
+        if (!key || key === '' || (key !== 'custom' && !profilePresets[key])) {
+            if (key === 'custom') {
+                // keep as custom if explicitly set
+            } else if (Array.isArray(presets) && presets.length) {
+                key = presets[0].key;
+            } else {
+                key = 'custom';
+            }
+        }
+        $select.val(key);
+        suppressProfileChange = false;
+        updateProfileDetails(key);
+    }
+
+    function handleProfileChange() {
+        if (suppressProfileChange) {
+            return;
+        }
+        var key = $('#review-profile').val();
+        updateProfileDetails(key);
+        if (key && key !== 'custom') {
+            applyPresetDefaults(key);
+            var preset = profilePresets[key];
+            if (preset) {
+                showMessage('info', 'Applied "' + (preset.name || key) + '" preset defaults. Review changes and save to persist.');
+            }
+        }
+    }
+
+    function applyPresetDefaults(key) {
+        var preset = profilePresets[key];
+        if (!preset || !preset.defaults) {
+            return;
+        }
+        var defaults = preset.defaults;
+        if (defaults.minSeverity) {
+            $('#min-severity').val(defaults.minSeverity);
+        }
+        if (typeof defaults.requireApprovalFor !== 'undefined') {
+            $('#require-approval-for').val(defaults.requireApprovalFor);
+        }
+        if (typeof defaults.skipGeneratedFiles === 'boolean') {
+            $('#skip-generated-files').prop('checked', defaults.skipGeneratedFiles);
+        }
+        if (typeof defaults.skipTests === 'boolean') {
+            $('#skip-tests').prop('checked', defaults.skipTests);
+        }
+        if (typeof defaults.maxIssuesPerFile !== 'undefined') {
+            $('#max-issues-per-file').val(defaults.maxIssuesPerFile);
+        }
+        if (typeof defaults.autoApprove === 'boolean') {
+            $('#auto-approve').prop('checked', defaults.autoApprove);
+        }
+    }
+
+    function updateProfileDetails(key) {
+        var descriptor = (key && key !== 'custom') ? profilePresets[key] : null;
+        var $description = $('#profile-description-text');
+        if (descriptor) {
+            $description.text(descriptor.description || '');
+        } else {
+            $description.text('Select a profile to see recommended defaults, or choose Custom to control each setting manually.');
+        }
+        renderProfileDefaults(descriptor);
+    }
+
+    function renderProfileDefaults(descriptor) {
+        var $list = $('#profile-defaults-list');
+        $list.empty();
+
+        if (!descriptor || !descriptor.defaults) {
+            $list.append('<li>Custom profile: adjust thresholds and approvals below.</li>');
+            return;
+        }
+
+        var defaults = descriptor.defaults;
+        var items = [
+            { label: 'Minimum severity', value: defaults.minSeverity },
+            { label: 'Require approval for', value: defaults.requireApprovalFor },
+            { label: 'Skip generated files', value: typeof defaults.skipGeneratedFiles === 'boolean' ? (defaults.skipGeneratedFiles ? 'Yes' : 'No') : '—' },
+            { label: 'Skip tests', value: typeof defaults.skipTests === 'boolean' ? (defaults.skipTests ? 'Yes' : 'No') : '—' },
+            { label: 'Max issues per file', value: defaults.maxIssuesPerFile },
+            { label: 'Auto-approve clean runs', value: typeof defaults.autoApprove === 'boolean' ? (defaults.autoApprove ? 'Yes' : 'No') : '—' }
+        ];
+
+        items.forEach(function(item) {
+            var text = item.value !== undefined && item.value !== null ? item.value : '—';
+            $list.append('<li><strong>' + item.label + ':</strong> ' + text + '</li>');
+        });
     }
 
     /**
@@ -183,10 +314,12 @@
             reviewExtensions: $('#review-extensions').val().trim(),
             ignorePatterns: $('#ignore-patterns').val().trim(),
             ignorePaths: $('#ignore-paths').val().trim(),
+            reviewProfile: $('#review-profile').val(),
             enabled: $('#enabled').is(':checked'),
             reviewDraftPRs: $('#review-draft-prs').is(':checked'),
             skipGeneratedFiles: $('#skip-generated-files').is(':checked'),
-            skipTests: $('#skip-tests').is(':checked')
+            skipTests: $('#skip-tests').is(':checked'),
+            autoApprove: $('#auto-approve').is(':checked')
         };
     }
 
@@ -294,11 +427,15 @@
             reviewExtensions: 'java,groovy,js,ts,tsx,jsx,py,go,rs,cpp,c,cs,php,rb,kt,swift,scala',
             ignorePatterns: '*.min.js,*.generated.*,package-lock.json,yarn.lock,*.map',
             ignorePaths: 'node_modules/,vendor/,build/,dist/,.git/',
+            reviewProfile: 'balanced',
             enabled: true,
             reviewDraftPRs: false,
             skipGeneratedFiles: true,
-            skipTests: false
+            skipTests: false,
+            autoApprove: false
         };
+
+        defaults.profilePresets = Object.values(profilePresets);
 
         populateForm(defaults);
         showMessage('info', 'Form reset to default values. Click "Save Configuration" to apply.');

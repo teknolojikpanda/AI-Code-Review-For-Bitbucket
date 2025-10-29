@@ -157,6 +157,47 @@
                         <!-- Review Profile -->
                         <h2>Review Profile</h2>
                         <div class="field-group">
+                            <label for="review-profile">Profile Preset</label>
+                            <select id="review-profile" name="reviewProfile" class="select">
+                                <option value="custom"#if($selectedProfile == "custom") selected#end>Custom (manual)</option>
+                                #if($profileOptions)
+                                    #foreach($profile in $profileOptions)
+                                        <option value="$profile.key"#if($profile.key == $selectedProfile) selected#end>$profile.name</option>
+                                    #end
+                                #end
+                            </select>
+                            <div class="description">Choose a preset to auto-populate severity thresholds and filters.</div>
+                        </div>
+
+                        <div class="field-group">
+                            <div id="profile-summary" class="profile-summary aui-message info">
+                                #set($profileDescription = "")
+                                #if($profileOptions)
+                                    #foreach($profile in $profileOptions)
+                                        #if($profile.key == $selectedProfile)
+                                            #set($profileDescription = $profile.description)
+                                        #end
+                                    #end
+                                #end
+                                <p><strong>Preset guidance:</strong> <span id="profile-description-text">#if($profileDescription)$profileDescription#elseSelect a profile to see recommended defaults.#end</span></p>
+                                <ul id="profile-defaults-list">
+                                    #if($profileOptions)
+                                        #foreach($profile in $profileOptions)
+                                            #if($profile.key == $selectedProfile)
+                                                <li>Minimum severity: $profile.defaults.minSeverity</li>
+                                                <li>Require approval for: $profile.defaults.requireApprovalFor</li>
+                                                <li>Skip generated files: $profile.defaults.skipGeneratedFiles</li>
+                                                <li>Skip tests: $profile.defaults.skipTests</li>
+                                                <li>Max issues per file: $profile.defaults.maxIssuesPerFile</li>
+                                                <li>Auto-approve clean runs: $profile.defaults.autoApprove</li>
+                                            #end
+                                        #end
+                                    #end
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
                             <label for="min-severity">Minimum Severity</label>
                             <select id="min-severity" name="minSeverity" class="select">
                                 <option value="low" #if($minSeverity == "low")selected#end>Low</option>
@@ -233,6 +274,15 @@
                                 <label for="skip-tests">Skip Test Files</label>
                             </div>
                             <div class="description">Skip analysis of test files</div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="auto-approve" name="autoApprove"
+                                       #if($autoApprove)checked#end>
+                                <label for="auto-approve">Auto-approve when only low severity issues remain</label>
+                            </div>
+                            <div class="description">When enabled, the reviewer bot will approve PRs automatically if only low severity findings are reported.</div>
                         </div>
 
                         <!-- Submit Buttons -->

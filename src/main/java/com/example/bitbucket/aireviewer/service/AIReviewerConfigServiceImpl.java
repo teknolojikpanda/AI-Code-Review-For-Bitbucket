@@ -3,6 +3,7 @@ package com.example.bitbucket.aireviewer.service;
 import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.example.bitbucket.aireviewer.util.HttpClientUtil;
 import net.java.ao.DBParam;
@@ -53,6 +54,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final String DEFAULT_REVIEW_EXTENSIONS = "java,groovy,js,ts,tsx,jsx,py,go,rs,cpp,c,cs,php,rb,kt,swift,scala";
     private static final String DEFAULT_IGNORE_PATTERNS = "*.min.js,*.generated.*,package-lock.json,yarn.lock,*.map";
     private static final String DEFAULT_IGNORE_PATHS = "node_modules/,vendor/,build/,dist/,.git/";
+    private static final String DEFAULT_REVIEW_PROFILE_KEY = ReviewProfilePreset.BALANCED.getKey();
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_REVIEW_DRAFT_PRS = false;
     private static final boolean DEFAULT_SKIP_GENERATED = true;
@@ -140,6 +142,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (minSeverity != null && !isValidSeverity(minSeverity)) {
             throw new IllegalArgumentException("Invalid severity: " + minSeverity + ". Must be one of: low, medium, high, critical");
         }
+
+        String profileKey = (String) configMap.get("reviewProfile");
+        if (profileKey != null && ReviewProfilePreset.fromKey(profileKey).isEmpty()) {
+            throw new IllegalArgumentException("Unknown review profile: " + profileKey);
+        }
     }
 
     @Nonnull
@@ -208,6 +215,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("reviewExtensions", DEFAULT_REVIEW_EXTENSIONS);
         defaults.put("ignorePatterns", DEFAULT_IGNORE_PATTERNS);
         defaults.put("ignorePaths", DEFAULT_IGNORE_PATHS);
+        defaults.put("reviewProfile", DEFAULT_REVIEW_PROFILE_KEY);
         defaults.put("enabled", DEFAULT_ENABLED);
         defaults.put("reviewDraftPRs", DEFAULT_REVIEW_DRAFT_PRS);
         defaults.put("skipGeneratedFiles", DEFAULT_SKIP_GENERATED);
@@ -256,6 +264,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setReviewExtensions(DEFAULT_REVIEW_EXTENSIONS);
         config.setIgnorePatterns(DEFAULT_IGNORE_PATTERNS);
         config.setIgnorePaths(DEFAULT_IGNORE_PATHS);
+        config.setReviewProfileKey(DEFAULT_REVIEW_PROFILE_KEY);
         config.setEnabled(DEFAULT_ENABLED);
         config.setReviewDraftPRs(DEFAULT_REVIEW_DRAFT_PRS);
         config.setSkipGeneratedFiles(DEFAULT_SKIP_GENERATED);
@@ -333,6 +342,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("ignorePaths")) {
             config.setIgnorePaths((String) configMap.get("ignorePaths"));
+        }
+        if (configMap.containsKey("reviewProfile")) {
+            String key = (String) configMap.get("reviewProfile");
+            config.setReviewProfileKey(defaultString(key, DEFAULT_REVIEW_PROFILE_KEY));
         }
         if (configMap.containsKey("enabled")) {
             config.setEnabled(getBooleanValue(configMap, "enabled"));
@@ -458,6 +471,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             config.setRequireApprovalFor(DEFAULT_REQUIRE_APPROVAL_FOR);
             updated = true;
         }
+        if (isBlank(config.getReviewProfileKey())) {
+            config.setReviewProfileKey(DEFAULT_REVIEW_PROFILE_KEY);
+            updated = true;
+        }
 
         if (config.getCreatedDate() == 0L) {
             config.setCreatedDate(timestamp);
@@ -494,6 +511,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("reviewExtensions", defaultString(config.getReviewExtensions(), DEFAULT_REVIEW_EXTENSIONS));
         map.put("ignorePatterns", defaultString(config.getIgnorePatterns(), DEFAULT_IGNORE_PATTERNS));
         map.put("ignorePaths", defaultString(config.getIgnorePaths(), DEFAULT_IGNORE_PATHS));
+        map.put("reviewProfile", defaultString(config.getReviewProfileKey(), DEFAULT_REVIEW_PROFILE_KEY));
         map.put("enabled", defaultBoolean(config.isEnabled(), DEFAULT_ENABLED));
         map.put("reviewDraftPRs", defaultBoolean(config.isReviewDraftPRs(), DEFAULT_REVIEW_DRAFT_PRS));
         map.put("skipGeneratedFiles", defaultBoolean(config.isSkipGeneratedFiles(), DEFAULT_SKIP_GENERATED));

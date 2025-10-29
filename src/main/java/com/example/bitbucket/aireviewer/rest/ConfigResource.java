@@ -4,6 +4,7 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
+import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ public class ConfigResource {
             Map<String, Object> defaults = configService.getDefaultConfiguration();
             Object defaultApiDelay = defaults.get("apiDelayMs");
             config.putIfAbsent("apiDelay", config.getOrDefault("apiDelayMs", defaultApiDelay));
+            config.put("profilePresets", ReviewProfilePreset.descriptors());
             return Response.ok(config).build();
         } catch (Exception e) {
             log.error("Error getting configuration", e);

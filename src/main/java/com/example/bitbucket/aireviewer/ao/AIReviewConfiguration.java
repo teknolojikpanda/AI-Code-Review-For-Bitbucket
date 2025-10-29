@@ -80,6 +80,10 @@ public interface AIReviewConfiguration extends Entity {
     String getRequireApprovalFor();
     void setRequireApprovalFor(String severities);
 
+    @StringLength(50)
+    String getReviewProfileKey();
+    void setReviewProfileKey(String profileKey);
+
     boolean isSkipGeneratedFiles();
     void setSkipGeneratedFiles(boolean skip);
 

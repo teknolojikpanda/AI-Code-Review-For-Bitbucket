@@ -25,6 +25,12 @@
 - Documented migration plan for duplicate fingerprint store (Phase 1 / F3) in `docs/duplicate_fingerprint_migration_plan.md`.
 - Built templated summary comment renderer (Phase 2 / T1) using markdown partials for headers, tables, and per-file issue listings.
 
+## 2025-10-29
+
+- Landed review profile presets (Balanced, Security First, Lightweight) with persisted selection and validation (Phase 2 / item 3). Configuration defaults now capture the chosen profile key and auto-approve preference.
+- Extended `/rest/ai-reviewer/1.0/config` to return profile descriptors so the admin UI can present guidance and defaults.
+- Refreshed the admin configuration UI with a profile selector, live preset summaries, and a new auto-approve toggle that mirrors the selected preset defaults while supporting manual overrides.
+
 ## Next Steps
 
 - Prioritise remaining Phase 2 items (summary enhancements, admin review profiles, REST history endpoints).

@@ -6,6 +6,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.templaterenderer.TemplateRenderer;
+import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,6 +116,8 @@ public class AdminConfigServlet extends HttpServlet {
         context.put("reviewExtensions", configValues.get("reviewExtensions"));
         context.put("ignorePatterns", configValues.get("ignorePatterns"));
         context.put("ignorePaths", configValues.get("ignorePaths"));
+        context.put("profileOptions", ReviewProfilePreset.descriptors());
+        context.put("selectedProfile", configValues.getOrDefault("reviewProfile", defaults.get("reviewProfile")));
         context.put("enabled", configValues.get("enabled"));
         context.put("reviewDraftPRs", configValues.get("reviewDraftPRs"));
         context.put("skipGeneratedFiles", configValues.get("skipGeneratedFiles"));
