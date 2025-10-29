@@ -32,6 +32,10 @@
 - Refreshed the admin configuration UI with a profile selector, live preset summaries, and a new auto-approve toggle that mirrors the selected preset defaults while supporting manual overrides.
 - Added `SummaryInsights` aggregation (Phase 2 / item 2) to drive severity, category, and guidance messaging in the summary comment, exposing medium/high level review advice and top issue categories.
 - Reordered comment posting so inline issues land first and the summary comment is published last, improving readability in Bitbucket’s activity feed (Phase 2 / item 2 refinement).
+- Exposed `/rest/ai-reviewer/1.0/history` with filtering and delivered a lightweight `ReviewHistoryService` so admins can query recent reviews (Phase 2 / item 4).
+- Added `/rest/ai-reviewer/1.0/config/auto-approve` to toggle the auto-approval flag without resubmitting the full configuration payload (Phase 2 / item 4).
+- Registered the history service in OSGi and marked it singleton so REST injection succeeds (fix for `/rest/ai-reviewer/1.0/history` startup failure).
+- Moved review history into its own admin page backed by the new REST endpoints and added an inline auto-approve toggle on the config screen (Phase 2 / item 4 UI integration).
 
 ## Next Steps
 

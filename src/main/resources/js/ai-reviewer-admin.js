@@ -28,6 +28,7 @@
         $('#test-connection-btn').on('click', testOllamaConnection);
         $('#reset-config-btn').on('click', resetToDefaults);
         $('#review-profile').on('change', handleProfileChange);
+        $('#auto-approve-apply-btn').on('click', applyAutoApproveToggle);
 
         // Load current configuration
         loadConfiguration();
@@ -513,6 +514,38 @@
     function clearValidationErrors() {
         $('.field-group').removeClass('error success');
         $('.error-message').remove();
+    }
+
+    function applyAutoApproveToggle() {
+        var enabled = $('#auto-approve').is(':checked');
+        var $status = $('#auto-approve-status');
+        $status.removeClass('error success').text('Applying...');
+
+        $.ajax({
+            url: apiUrl + '/auto-approve',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ enabled: enabled }),
+            success: function(response) {
+                var message = response && response.message ? response.message : 'Auto-approve updated.';
+                $status.addClass('success').text(message);
+                setTimeout(function() {
+                    $status.fadeOut(function() {
+                        $(this).removeClass('success').text('').show();
+                    });
+                }, 4000);
+            },
+            error: function(xhr, status, error) {
+                console.error('Failed to toggle auto-approve:', error);
+                var message = 'Failed to update auto-approve';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    message = xhr.responseJSON.error;
+                } else if (error) {
+                    message += ': ' + error;
+                }
+                $status.addClass('error').text(message);
+            }
+        });
     }
 
     // Initialize when DOM is ready

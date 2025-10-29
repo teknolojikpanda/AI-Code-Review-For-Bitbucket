@@ -282,7 +282,11 @@
                                        #if($autoApprove)checked#end>
                                 <label for="auto-approve">Auto-approve when only low severity issues remain</label>
                             </div>
-                            <div class="description">When enabled, the reviewer bot will approve PRs automatically if only low severity findings are reported.</div>
+                            <div class="description">
+                                When enabled, the reviewer bot will approve PRs automatically if only low severity findings are reported.
+                                <button type="button" class="aui-button aui-button-link" id="auto-approve-apply-btn">Apply immediately</button>
+                                <span id="auto-approve-status" class="inline-status"></span>
+                            </div>
                         </div>
 
                         <!-- Submit Buttons -->

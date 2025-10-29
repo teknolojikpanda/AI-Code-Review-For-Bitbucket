@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Code Reviewer - History</title>
+    <meta name="decorator" content="atl.admin">
+    <meta name="application-base-url" content="$baseUrl">
+    $webResourceManager.requireResource("com.example.bitbucket.ai-code-reviewer:ai-reviewer-history-resources")
+</head>
+<body>
+<header class="aui-page-header">
+    <div class="aui-page-header-inner">
+        <div class="aui-page-header-main">
+            <h1>AI Code Reviewer History</h1>
+        </div>
+        <div class="aui-page-header-actions">
+            <a class="aui-button" href="$baseUrl/plugins/servlet/ai-reviewer/admin">Back to Configuration</a>
+        </div>
+    </div>
+</header>
+
+<div class="aui-page-panel">
+    <div class="aui-page-panel-inner">
+        <section class="aui-page-panel-content">
+            <div id="ai-reviewer-history-container">
+                <div class="aui-toolbar2">
+                    <div class="aui-toolbar2-inner">
+                        <div class="aui-toolbar2-primary">
+                            <button type="button" class="aui-button" id="refresh-history-btn">
+                                <span class="aui-icon aui-icon-small aui-iconfont-refresh"></span> Refresh
+                            </button>
+                        </div>
+                        <div class="aui-toolbar2-secondary">
+                            <span class="history-hint">Showing the most recent reviews across all repositories.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="history-message" class="aui-message info" style="display:none;"></div>
+
+                <table class="aui aui-table aui-table-rowhover" id="review-history-table">
+                    <thead>
+                    <tr>
+                        <th>Start Time</th>
+                        <th>Repository / PR</th>
+                        <th>Status</th>
+                        <th>Issues</th>
+                        <th>Model</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr class="history-empty">
+                        <td colspan="5">Loading history...</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+</body>
+</html>

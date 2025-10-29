@@ -97,6 +97,11 @@
         <description>Factory for building review configuration snapshots</description>
     </component>
 
+    <component key="reviewHistoryService"
+               class="com.example.bitbucket.aireviewer.service.ReviewHistoryService">
+        <description>Provides access to stored AI review history</description>
+    </component>
+
     <!-- REST API for Configuration -->
     <rest key="aiReviewerRestEndpoints"
           path="/ai-reviewer"
@@ -115,12 +120,28 @@
         <link>/plugins/servlet/ai-reviewer/admin</link>
     </web-item>
 
+    <web-item key="ai-reviewer-history-link"
+              name="AI Review History"
+              section="atl.admin/admin-plugins-section"
+              weight="201">
+        <description>Link to AI Code Reviewer history</description>
+        <label key="ai.reviewer.history.link"/>
+        <link>/plugins/servlet/ai-reviewer/history</link>
+    </web-item>
+
     <!-- Admin Configuration Servlet -->
     <servlet key="ai-reviewer-admin-servlet"
              name="AI Reviewer Admin Servlet"
              class="com.example.bitbucket.aireviewer.servlet.AdminConfigServlet">
         <description>Admin configuration page for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/admin</url-pattern>
+    </servlet>
+
+    <servlet key="ai-reviewer-history-servlet"
+             name="AI Reviewer History Servlet"
+             class="com.example.bitbucket.aireviewer.servlet.ReviewHistoryServlet">
+        <description>Admin history page for AI Code Reviewer</description>
+        <url-pattern>/ai-reviewer/history</url-pattern>
     </servlet>
 
     <!-- Web Resources -->
@@ -134,5 +155,14 @@
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
         <resource type="download" name="ai-reviewer-admin.js" location="/js/ai-reviewer-admin.js"/>
         <context>ai-reviewer-admin</context>
+    </web-resource>
+
+    <web-resource key="ai-reviewer-history-resources" name="AI Reviewer History Resources">
+        <description>Resources for the AI review history page</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
+        <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-history.js" location="/js/ai-reviewer-history.js"/>
+        <context>ai-reviewer-history</context>
     </web-resource>
 </atlassian-plugin>
