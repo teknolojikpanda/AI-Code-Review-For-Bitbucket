@@ -6,6 +6,7 @@ import com.example.bitbucket.aicode.api.MetricsRecorder;
 import com.example.bitbucket.aicode.api.ReviewOrchestrator;
 import com.example.bitbucket.aicode.model.ChunkReviewResult;
 import com.example.bitbucket.aicode.model.ReviewFinding;
+import com.example.bitbucket.aicode.model.ReviewChunk;
 import com.example.bitbucket.aicode.model.ReviewPreparation;
 import com.example.bitbucket.aicode.model.ReviewSummary;
 import com.example.bitbucket.aicode.model.SeverityLevel;
@@ -58,16 +59,20 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
         String overview = aiClient.generateOverview(preparation, metrics);
         metrics.recordEnd("ai.overview", overviewStart);
 
+        int totalChunks = preparation.getChunks().size();
         int parallelism = Math.max(1, Math.min(
                 preparation.getContext().getConfig().getParallelThreads(),
-                preparation.getChunks().size()));
+                totalChunks));
+        if (log.isInfoEnabled()) {
+            log.info("Starting AI review with {} chunk(s) (parallelism = {})", totalChunks, parallelism);
+        }
         ExecutorService executor = Executors.newFixedThreadPool(parallelism);
 
         List<Future<ChunkReviewResult>> futures = new ArrayList<>();
         try {
             for (int i = 0; i < preparation.getChunks().size(); i++) {
                 final int index = i;
-                futures.add(executor.submit(new ChunkTask(index, preparation, overview, metrics)));
+                futures.add(executor.submit(new ChunkTask(index, totalChunks, preparation, overview, metrics)));
             }
 
             List<ReviewFinding> findings = new ArrayList<>();
@@ -105,15 +110,18 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
 
     private final class ChunkTask implements Callable<ChunkReviewResult> {
         private final int index;
+        private final int total;
         private final ReviewPreparation preparation;
         private final String overview;
         private final MetricsRecorder metrics;
 
         private ChunkTask(int index,
+                          int total,
                           ReviewPreparation preparation,
                           String overview,
                           MetricsRecorder metrics) {
             this.index = index;
+            this.total = total;
             this.preparation = preparation;
             this.overview = overview;
             this.metrics = metrics;
@@ -121,20 +129,49 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
 
         @Override
         public ChunkReviewResult call() {
+            ReviewChunk chunk = preparation.getChunks().get(index);
+            if (log.isInfoEnabled()) {
+                log.info("Chunk {}/{} [{}] started (files={}, chars={})",
+                        index + 1,
+                        total,
+                        chunk.getId(),
+                        chunk.getFiles().size(),
+                        chunk.getContent() != null ? chunk.getContent().length() : 0);
+            }
             Instant start = metrics.recordStart("ai.chunk." + index);
             try {
                 ChunkReviewResult result = aiClient.reviewChunk(
-                        preparation.getChunks().get(index),
+                        chunk,
                         overview,
                         preparation.getContext(),
                         metrics);
                 metrics.recordEnd("ai.chunk." + index, start);
+                if (log.isInfoEnabled()) {
+                    if (result.isSuccess()) {
+                        log.info("Chunk {}/{} [{}] completed with {} finding(s)",
+                                index + 1,
+                                total,
+                                chunk.getId(),
+                                result.getFindings().size());
+                    } else {
+                        log.warn("Chunk {}/{} [{}] returned failure: {}",
+                                index + 1,
+                                total,
+                                chunk.getId(),
+                                result.getError());
+                    }
+                }
                 return result;
             } catch (Exception ex) {
                 metrics.recordEnd("ai.chunk." + index, start);
-                log.error("Chunk {} failed: {}", index, ex.getMessage(), ex);
+                log.error("Chunk {}/{} [{}] failed: {}",
+                        index + 1,
+                        total,
+                        chunk.getId(),
+                        ex.getMessage(),
+                        ex);
                 return ChunkReviewResult.builder()
-                        .chunk(preparation.getChunks().get(index))
+                        .chunk(chunk)
                         .success(false)
                         .error(ex.getMessage())
                         .build();
