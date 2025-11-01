@@ -103,6 +103,9 @@
         <description>Provides access to stored AI review history</description>
     </component>
 
+    <component key="aireview-upgrade-task-001"
+               class="com.example.bitbucket.aireviewer.ao.UpgradeTask001AddChunkTelemetry"/>
+
     <!-- REST API for Configuration -->
     <rest key="aiReviewerRestEndpoints"
           path="/ai-reviewer"

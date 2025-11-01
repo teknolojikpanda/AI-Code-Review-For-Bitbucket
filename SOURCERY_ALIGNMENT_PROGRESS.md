@@ -52,6 +52,7 @@
 - Added a daily activity sparkline to the metrics section for quick visual trend scanning.
 - Exposed primary/fallback success rates in the summary metrics card to highlight model reliability trends.
 - Instrumented chunk telemetry with request/response sizes, HTTP status codes, and timeout flags, persisting them to `AIReviewChunk` for richer observability.
+- Added AO upgrade task `UpgradeTask001AddChunkTelemetry` to apply new telemetry columns automatically on install/upgrade.
 
 ## Next Steps
 
