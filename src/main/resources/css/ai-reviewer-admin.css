@@ -327,6 +327,17 @@
     opacity: 0.5;
 }
 
+.filter-label {
+    margin-right: 6px;
+    font-weight: 600;
+    color: #172b4d;
+}
+
+#page-size-select {
+    width: auto;
+    min-width: 80px;
+}
+
 #review-history-table tbody tr.is-selected {
     background-color: #e9f2ff;
 }

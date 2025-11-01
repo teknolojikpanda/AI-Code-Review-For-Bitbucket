@@ -56,8 +56,9 @@ public class ReviewHistoryService {
                                                 Long until,
                                                 int limit,
                                                 int offset) {
-        final int pageSize = Math.min(Math.max(limit, 1), 100);
-        final int start = Math.max(offset, 0);
+        final boolean fetchAll = limit <= 0;
+        final int pageSize = fetchAll ? Integer.MAX_VALUE : Math.min(Math.max(limit, 1), 100);
+        final int start = fetchAll ? 0 : Math.max(offset, 0);
 
         return ao.executeInTransaction(() -> {
             Query baseQuery = Query.select()
@@ -92,16 +93,19 @@ public class ReviewHistoryService {
                 baseQuery = baseQuery.where(whereClause, params.toArray());
             }
 
-            int total = ao.count(AIReviewHistory.class, baseQuery);
-            Query pagedQuery = baseQuery.limit(pageSize).offset(start);
-            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, pagedQuery);
-            log.debug("Fetched {} review history entries (limit={}, offset={}, filters applied={})",
-                    histories.length, pageSize, start, !clauses.isEmpty());
+            int total = fetchAll ? 0 : ao.count(AIReviewHistory.class, baseQuery);
+            Query dataQuery = fetchAll ? baseQuery : baseQuery.limit(pageSize).offset(start);
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, dataQuery);
+            if (fetchAll) {
+                total = histories.length;
+            }
+            log.debug("Fetched {} review history entries (limit={}, offset={}, filters applied={}, all={})",
+                    histories.length, fetchAll ? -1 : pageSize, fetchAll ? 0 : start, !clauses.isEmpty(), fetchAll);
 
             List<Map<String, Object>> data = Arrays.stream(histories)
                     .map(this::toMap)
                     .collect(Collectors.toList());
-            return new Page<>(data, total, pageSize, start);
+            return new Page<>(data, total, fetchAll ? 0 : pageSize, start);
         });
     }
 

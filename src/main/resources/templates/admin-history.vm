@@ -41,6 +41,13 @@
                         </div>
                         <div class="aui-toolbar2-secondary">
                             <span class="history-hint">Filters are optional; blank values show everything.</span>
+                            <label class="filter-label" for="page-size-select">Page Size</label>
+                            <select id="page-size-select" class="filter-input">
+                                <option value="10">10</option>
+                                <option value="100" selected>100</option>
+                                <option value="1000">1000</option>
+                                <option value="ALL">All</option>
+                            </select>
                         </div>
                     </div>
                 </div>

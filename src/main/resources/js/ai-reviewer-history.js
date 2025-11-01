@@ -9,14 +9,20 @@
     var selectedHistoryId = null;
 
     function init() {
-        $('#refresh-history-btn').on('click', loadHistory);
+        $('#refresh-history-btn').on('click', function() {
+            loadHistory(0);
+        });
+        $('#page-size-select').on('change', function() {
+            loadHistory(0);
+        });
         loadHistory();
     }
 
     var pagination = {
         offset: 0,
-        limit: 50,
-        total: 0
+        limit: 100,
+        total: 0,
+        all: false
     };
 
     function loadHistory(newOffset) {
@@ -26,16 +32,27 @@
             pagination.offset = Math.max(newOffset, 0);
         }
 
+        var selectedSize = $('#page-size-select').val();
+        pagination.all = selectedSize === 'ALL';
+        pagination.limit = pagination.all ? 1000 : parseInt(selectedSize || '100', 10);
+        if (pagination.all) {
+            pagination.offset = 0;
+        }
+
         var projectKey = $('#filter-project').val();
         var repositorySlug = $('#filter-repo').val();
         var pullRequestId = $('#filter-pr').val();
         var sinceValue = parseDateTime($('#filter-since').val());
         var untilValue = parseDateTime($('#filter-until').val());
 
-        var params = {
-            limit: pagination.limit,
-            offset: pagination.offset
-        };
+        var params = {};
+        if (pagination.all) {
+            params.limit = 0;
+            params.offset = 0;
+        } else {
+            params.limit = pagination.limit;
+            params.offset = pagination.offset;
+        }
         if (projectKey) {
             params.projectKey = projectKey;
         }
@@ -77,11 +94,18 @@
             data: params
         }).done(function(response) {
             var entries = response && Array.isArray(response.entries) ? response.entries : [];
-            pagination.total = response && typeof response.total === 'number' ? response.total : entries.length;
-            pagination.limit = response && typeof response.limit === 'number' ? response.limit : pagination.limit;
-            pagination.offset = response && typeof response.offset === 'number' ? response.offset : pagination.offset;
-            pagination.nextOffset = response && typeof response.nextOffset === 'number' ? response.nextOffset : null;
-            pagination.prevOffset = response && typeof response.prevOffset === 'number' ? response.prevOffset : null;
+            if (pagination.all) {
+                pagination.total = entries.length;
+                pagination.offset = 0;
+                pagination.nextOffset = null;
+                pagination.prevOffset = null;
+            } else {
+                pagination.total = response && typeof response.total === 'number' ? response.total : entries.length;
+                pagination.limit = response && typeof response.limit === 'number' ? response.limit : pagination.limit;
+                pagination.offset = response && typeof response.offset === 'number' ? response.offset : pagination.offset;
+                pagination.nextOffset = response && typeof response.nextOffset === 'number' ? response.nextOffset : null;
+                pagination.prevOffset = response && typeof response.prevOffset === 'number' ? response.prevOffset : null;
+            }
 
             renderHistory(entries);
             renderPagination();
@@ -101,10 +125,19 @@
         showMetricsSection();
         setMetricsMessage('info', 'Loading metrics...', true);
 
-        var data = $.extend({
-            limit: pagination.limit,
-            offset: pagination.offset
-        }, filters || {});
+        var metricsBase = filters || {};
+        if (pagination.all) {
+            metricsBase = $.extend({
+                limit: 0,
+                offset: 0
+            }, metricsBase);
+        } else {
+            metricsBase = $.extend({
+                limit: pagination.limit,
+                offset: pagination.offset
+            }, metricsBase);
+        }
+        var data = metricsBase;
 
         $.ajax({
             url: historyUrl + '/metrics',
@@ -595,6 +628,11 @@
         if (!$links.length) {
             return;
         }
+        if (pagination.all) {
+            $links.hide();
+            return;
+        }
+        $links.show();
         var hasPrev = typeof pagination.prevOffset === 'number';
         var hasNext = typeof pagination.nextOffset === 'number';
 

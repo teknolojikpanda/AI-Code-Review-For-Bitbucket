@@ -3,6 +3,7 @@ package com.example.bitbucket.aireviewer.rest;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
+import com.example.bitbucket.aireviewer.service.Page;
 import com.example.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
