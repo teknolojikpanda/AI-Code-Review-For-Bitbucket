@@ -50,6 +50,7 @@
 - Added configurable page size options (10/100/1000/All) with corresponding server-side pagination so large history result sets load incrementally without blocking the UI.
 - Surfaced daily trend metrics via `/history/metrics/daily` and rendered a daily activity table on the admin dashboard for quick review cadence monitoring.
 - Added a daily activity sparkline to the metrics section for quick visual trend scanning.
+- Exposed primary/fallback success rates in the summary metrics card to highlight model reliability trends.
 
 ## Next Steps
 

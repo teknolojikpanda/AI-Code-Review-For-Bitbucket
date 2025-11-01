@@ -214,10 +214,14 @@
 
         var fallbackRate = totalReviews > 0 ? (fallback.triggered || 0) / totalReviews : null;
         $('#metric-fallback-rate').text(formatPercent(fallbackRate));
+        var fallbackPrimaryRate = fallback.primarySuccessRate;
+        var fallbackSecondaryRate = fallback.fallbackSuccessRate;
         var fallbackDetailParts = [
             'Triggered ' + (fallback.triggered || 0),
-            'Primary fail ' + (fallback.primaryFailures || 0),
-            'Fallback success ' + (fallback.fallbackSuccesses || 0)
+            'Primary success ' + formatPercent(fallbackPrimaryRate) +
+                ' (' + (fallback.primarySuccesses || 0) + '/' + (fallback.primaryInvocations || 0) + ')',
+            'Fallback success ' + formatPercent(fallbackSecondaryRate) +
+                ' (' + (fallback.fallbackSuccesses || 0) + '/' + (fallback.fallbackInvocations || 0) + ')'
         ];
         if (chunkTotals && chunkTotals.successRate != null) {
             fallbackDetailParts.push('Chunk success ' + formatPercent(chunkTotals.successRate));
