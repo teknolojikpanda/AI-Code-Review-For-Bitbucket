@@ -410,6 +410,20 @@
     font-size: 12px;
 }
 
+.metrics-trend {
+    margin-top: 20px;
+}
+
+.metrics-trend h3 {
+    margin-bottom: 8px;
+    color: #253858;
+}
+
+#metrics-daily-table tbody tr.daily-empty td {
+    text-align: center;
+    color: #6b778c;
+}
+
 @media (max-width: 768px) {
     .history-detail-grid {
         flex-direction: column;

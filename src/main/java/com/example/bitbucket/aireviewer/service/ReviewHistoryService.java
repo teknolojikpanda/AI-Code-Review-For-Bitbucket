@@ -11,6 +11,9 @@ import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.inject.Named;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,6 +36,7 @@ public class ReviewHistoryService {
     private static final Logger log = LoggerFactory.getLogger(ReviewHistoryService.class);
 
     private final ActiveObjects ao;
+    private final ZoneId zoneId = ZoneId.systemDefault();
 
     @Inject
     public ReviewHistoryService(@ComponentImport ActiveObjects ao) {
@@ -107,6 +111,86 @@ public class ReviewHistoryService {
                     .map(this::toMap)
                     .collect(Collectors.toList());
             return new Page<>(data, total, fetchAll ? 0 : pageSize, start);
+        });
+    }
+
+    @Nonnull
+    public List<Map<String, Object>> getDailySummary(String projectKey,
+                                                     String repositorySlug,
+                                                     Long pullRequestId,
+                                                     Long since,
+                                                     Long until,
+                                                     int limit) {
+        final int maxDays = Math.max(limit, 1);
+        return ao.executeInTransaction(() -> {
+            Query query = Query.select().order("REVIEW_START_TIME DESC");
+            List<String> clauses = new ArrayList<>();
+            List<Object> params = new ArrayList<>();
+
+            if (projectKey != null && !projectKey.trim().isEmpty()) {
+                clauses.add("PROJECT_KEY = ?");
+                params.add(projectKey.trim());
+            }
+            if (repositorySlug != null && !repositorySlug.trim().isEmpty()) {
+                clauses.add("REPOSITORY_SLUG = ?");
+                params.add(repositorySlug.trim());
+            }
+            if (pullRequestId != null && pullRequestId > 0) {
+                clauses.add("PULL_REQUEST_ID = ?");
+                params.add(pullRequestId);
+            }
+            if (since != null && since > 0) {
+                clauses.add("REVIEW_START_TIME >= ?");
+                params.add(since);
+            }
+            if (until != null && until > 0) {
+                clauses.add("REVIEW_START_TIME <= ?");
+                params.add(until);
+            }
+            if (!clauses.isEmpty()) {
+                query = query.where(String.join(" AND ", clauses), params.toArray());
+            }
+
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, query);
+            Map<LocalDate, DailyStats> daily = new HashMap<>();
+            for (AIReviewHistory history : histories) {
+                long start = history.getReviewStartTime();
+                if (start <= 0) {
+                    continue;
+                }
+                LocalDate date = Instant.ofEpochMilli(start)
+                        .atZone(zoneId)
+                        .toLocalDate();
+                DailyStats stats = daily.computeIfAbsent(date, d -> new DailyStats());
+                stats.reviews++;
+                stats.totalDurationSeconds += Math.max(0d, resolveDurationSeconds(history));
+                stats.totalIssues += Math.max(0, history.getTotalIssuesFound());
+                stats.critical += Math.max(0, history.getCriticalIssues());
+                stats.high += Math.max(0, history.getHighIssues());
+                stats.medium += Math.max(0, history.getMediumIssues());
+                stats.low += Math.max(0, history.getLowIssues());
+            }
+
+            return daily.entrySet().stream()
+                    .sorted(Map.Entry.<LocalDate, DailyStats>comparingByKey().reversed())
+                    .limit(maxDays)
+                    .map(entry -> {
+                        LocalDate date = entry.getKey();
+                        DailyStats stats = entry.getValue();
+                        Map<String, Object> map = new LinkedHashMap<>();
+                        map.put("date", date.toString());
+                        map.put("reviewCount", stats.reviews);
+                        map.put("totalIssues", stats.totalIssues);
+                        map.put("criticalIssues", stats.critical);
+                        map.put("highIssues", stats.high);
+                        map.put("mediumIssues", stats.medium);
+                        map.put("lowIssues", stats.low);
+                        map.put("avgDurationSeconds", stats.reviews > 0
+                                ? stats.totalDurationSeconds / stats.reviews
+                                : 0d);
+                        return map;
+                    })
+                    .collect(Collectors.toList());
         });
     }
 
@@ -523,6 +607,16 @@ public class ReviewHistoryService {
             return (end - start) / 1000.0;
         }
         return -1d;
+    }
+
+    private static final class DailyStats {
+        int reviews;
+        double totalDurationSeconds;
+        long totalIssues;
+        long critical;
+        long high;
+        long medium;
+        long low;
     }
 
     private String truncate(String value, int max) {

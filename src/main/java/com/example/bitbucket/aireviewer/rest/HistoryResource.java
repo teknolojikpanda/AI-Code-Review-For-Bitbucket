@@ -125,6 +125,45 @@ public class HistoryResource {
         }
     }
 
+    @GET
+    @Path("/metrics/daily")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getMetricsDaily(@Context HttpServletRequest request,
+                                    @QueryParam("projectKey") String projectKey,
+                                    @QueryParam("repositorySlug") String repositorySlug,
+                                    @QueryParam("pullRequestId") Long pullRequestId,
+                                    @QueryParam("since") Long sinceParam,
+                                    @QueryParam("until") Long untilParam,
+                                    @QueryParam("limit") Integer limitParam) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        Long since = sanitizeEpoch(sinceParam);
+        Long until = sanitizeEpoch(untilParam);
+        int limit = (limitParam == null || limitParam <= 0) ? 30 : limitParam;
+
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("days", historyService.getDailySummary(
+                    projectKey,
+                    repositorySlug,
+                    pullRequestId,
+                    since,
+                    until,
+                    limit));
+            return Response.ok(payload).build();
+        } catch (Exception ex) {
+            log.error("Failed to compute daily AI review metrics", ex);
+            return Response.serverError()
+                    .entity(error("Failed to compute daily metrics: " + ex.getMessage()))
+                    .build();
+        }
+    }
+
     private boolean isSystemAdmin(UserProfile profile) {
         return profile != null && userManager.isSystemAdmin(profile.getUserKey());
     }

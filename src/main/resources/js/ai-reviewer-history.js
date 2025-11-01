@@ -86,6 +86,7 @@
             metricsFilters.until = untilValue;
         }
         loadMetrics(metricsFilters);
+        loadDailyMetrics(metricsFilters);
 
         $.ajax({
             url: historyUrl,
@@ -153,6 +154,22 @@
         });
     }
 
+    function loadDailyMetrics(filters) {
+        var data = $.extend({ limit: 30 }, filters || {});
+        $.ajax({
+            url: historyUrl + '/metrics/daily',
+            type: 'GET',
+            dataType: 'json',
+            data: data
+        }).done(function(response) {
+            var rows = response && Array.isArray(response.days) ? response.days : [];
+            renderDailyMetrics(rows);
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to fetch daily metrics:', status, error);
+            renderDailyMetrics(null, error || status);
+        });
+    }
+
     function showMetricsSection() {
         $('#metrics-section').show();
     }
@@ -215,6 +232,33 @@
         } else {
             clearMetricsMessage();
         }
+    }
+
+    function renderDailyMetrics(rows, error) {
+        var $tbody = $('#metrics-daily-table tbody');
+        $tbody.empty();
+        if (error) {
+            $tbody.append('<tr class="daily-empty"><td colspan="4">' + escapeHtml('Failed: ' + error) + '</td></tr>');
+            return;
+        }
+        if (!rows || !rows.length) {
+            $tbody.append('<tr class="daily-empty"><td colspan="4">No data for selected filters.</td></tr>');
+            return;
+        }
+        rows.forEach(function(row) {
+            var duration = formatDuration(row.avgDurationSeconds);
+            var tr = '<tr>' +
+                '<td>' + escapeHtml(row.date) + '</td>' +
+                '<td>' + escapeHtml(row.reviewCount) + '</td>' +
+                '<td>' + escapeHtml(row.totalIssues) + ' (C' +
+                    escapeHtml(row.criticalIssues || 0) + '/H' +
+                    escapeHtml(row.highIssues || 0) + '/M' +
+                    escapeHtml(row.mediumIssues || 0) + '/L' +
+                    escapeHtml(row.lowIssues || 0) + ')' + '</td>' +
+                '<td>' + escapeHtml(duration) + '</td>' +
+                '</tr>';
+            $tbody.append(tr);
+        });
     }
 
     function buildMetricsSubtitle(filter) {
