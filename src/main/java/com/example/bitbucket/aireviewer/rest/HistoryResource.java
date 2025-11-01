@@ -50,7 +50,8 @@ public class HistoryResource {
                                 @QueryParam("pullRequestId") Long pullRequestId,
                                 @QueryParam("since") Long sinceParam,
                                 @QueryParam("until") Long untilParam,
-                                @QueryParam("limit") Integer limitParam) {
+                                @QueryParam("limit") Integer limitParam,
+                                @QueryParam("offset") Integer offsetParam) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (!isSystemAdmin(profile)) {
             return Response.status(Response.Status.FORBIDDEN)
@@ -59,19 +60,26 @@ public class HistoryResource {
         }
 
         int limit = (limitParam == null) ? 20 : limitParam;
+        int offset = (offsetParam == null) ? 0 : offsetParam;
         Long since = sanitizeEpoch(sinceParam);
         Long until = sanitizeEpoch(untilParam);
         try {
-            List<Map<String, Object>> entries = historyService.getHistory(
+            Page<Map<String, Object>> page = historyService.getHistory(
                     projectKey,
                     repositorySlug,
                     pullRequestId,
                     since,
                     until,
-                    limit);
+                    limit,
+                    offset);
             Map<String, Object> payload = new HashMap<>();
-            payload.put("entries", entries);
-            payload.put("count", entries.size());
+            payload.put("entries", page.getValues());
+            payload.put("count", page.getValues().size());
+            payload.put("total", page.getTotal());
+            payload.put("limit", page.getLimit());
+            payload.put("offset", page.getOffset());
+            payload.put("nextOffset", computeNextOffset(page));
+            payload.put("prevOffset", computePrevOffset(page));
             return Response.ok(payload).build();
         } catch (Exception ex) {
             log.error("Failed to fetch AI review history", ex);
@@ -122,6 +130,22 @@ public class HistoryResource {
 
     private Long sanitizeEpoch(Long value) {
         return (value == null || value <= 0) ? null : value;
+    }
+
+    private Integer computeNextOffset(Page<?> page) {
+        if (page.getValues().isEmpty()) {
+            return null;
+        }
+        int next = page.getOffset() + page.getValues().size();
+        return next >= page.getTotal() ? null : next;
+    }
+
+    private Integer computePrevOffset(Page<?> page) {
+        if (page.getOffset() <= 0) {
+            return null;
+        }
+        int prev = Math.max(page.getOffset() - page.getLimit(), 0);
+        return prev == page.getOffset() ? null : prev;
     }
 
     private Map<String, String> error(String message) {
