@@ -53,4 +53,16 @@ public interface AIReviewChunk extends Entity {
     @StringLength(StringLength.UNLIMITED)
     String getLastError();
     void setLastError(String lastError);
+
+    long getRequestBytes();
+    void setRequestBytes(long bytes);
+
+    long getResponseBytes();
+    void setResponseBytes(long bytes);
+
+    int getStatusCode();
+    void setStatusCode(int statusCode);
+
+    boolean isTimeout();
+    void setTimeout(boolean timeout);
 }

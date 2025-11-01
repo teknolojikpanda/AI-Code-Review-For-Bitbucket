@@ -1255,6 +1255,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                         chunkEntity.setDurationMs(extractLong(entry.get("durationMs"), 0));
                         chunkEntity.setSuccess(extractBoolean(entry.get("success"), false));
                         chunkEntity.setModelNotFound(extractBoolean(entry.get("modelNotFound"), false));
+                        chunkEntity.setRequestBytes(extractLong(entry.get("requestBytes"), 0));
+                        chunkEntity.setResponseBytes(extractLong(entry.get("responseBytes"), 0));
+                        chunkEntity.setStatusCode(safeLongToInt(extractLong(entry.get("statusCode"), 0)));
+                        chunkEntity.setTimeout(extractBoolean(entry.get("timeout"), false));
                         chunkEntity.setLastError(extractString(entry.get("lastError"), 4096));
                         chunkEntity.save();
                     }
