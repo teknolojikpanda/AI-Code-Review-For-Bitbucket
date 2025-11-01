@@ -51,7 +51,7 @@
 - Surfaced daily trend metrics via `/history/metrics/daily` and rendered a daily activity table on the admin dashboard for quick review cadence monitoring.
 - Added a daily activity sparkline to the metrics section for quick visual trend scanning.
 - Exposed primary/fallback success rates in the summary metrics card to highlight model reliability trends.
-- Instrumented chunk telemetry with request/response sizes, HTTP status codes, and timeout flags, persisting them to `AIReviewChunk` for richer observability.
+- Instrumented chunk telemetry with request/response sizes, HTTP status codes, and timeout flags, persisting them to `AIReviewChunk` and surfacing the data in the admin chunk detail view.
 - Ensure new telemetry columns are created on startup by migrating `AIReviewChunk` within the service constructor.
 
 ## Next Steps

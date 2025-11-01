@@ -432,6 +432,10 @@ public class ReviewHistoryService {
         map.put("durationMs", chunk.getDurationMs());
         map.put("success", chunk.isSuccess());
         map.put("modelNotFound", chunk.isModelNotFound());
+        map.put("requestBytes", chunk.getRequestBytes());
+        map.put("responseBytes", chunk.getResponseBytes());
+        map.put("statusCode", chunk.getStatusCode());
+        map.put("timeout", chunk.isTimeout());
         String lastError = chunk.getLastError();
         if (lastError != null && !lastError.trim().isEmpty()) {
             map.put("lastError", truncate(lastError, 2048));

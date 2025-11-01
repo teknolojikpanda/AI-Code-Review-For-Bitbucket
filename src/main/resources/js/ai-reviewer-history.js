@@ -670,14 +670,24 @@
         var rows = chunks.map(function(chunk, index) {
             var status = chunk.success ? 'Success' : (chunk.modelNotFound ? 'Model Missing' : 'Failed');
             var errorHtml = chunk.lastError ? '<br><span class="chunk-error">' + escapeHtml(chunk.lastError) + '</span>' : '';
+            var sizeHtml = escapeHtml((chunk.requestBytes || 0) + ' / ' + (chunk.responseBytes || 0) + ' bytes');
+            var statusDetail = [];
+            if (chunk.statusCode != null && chunk.statusCode !== 0) {
+                statusDetail.push('HTTP ' + chunk.statusCode);
+            }
+            if (chunk.timeout) {
+                statusDetail.push('timeout');
+            }
+            var statusMeta = statusDetail.length ? '<br><span class="chunk-meta">' + escapeHtml(statusDetail.join(' • ')) + '</span>' : '';
             return '<tr>' +
                 '<td>' + (index + 1) + '</td>' +
                 '<td>' + escapeHtml(chunk.chunkId || '—') + '</td>' +
                 '<td>' + escapeHtml(chunk.role || '—') + '</td>' +
                 '<td>' + escapeHtml(chunk.model || '—') + '</td>' +
                 '<td>' + formatAttempts(chunk.attempts, chunk.retries) + '</td>' +
+                '<td>' + sizeHtml + '</td>' +
                 '<td>' + formatDurationMs(chunk.durationMs) + '</td>' +
-                '<td>' + escapeHtml(status) + errorHtml + '</td>' +
+                '<td>' + escapeHtml(status) + statusMeta + errorHtml + '</td>' +
             '</tr>';
         }).join('');
 
@@ -688,6 +698,7 @@
                 '<th>Role</th>' +
                 '<th>Model</th>' +
                 '<th>Attempts</th>' +
+                '<th>Request/Response</th>' +
                 '<th>Duration</th>' +
                 '<th>Status</th>' +
             '</tr></thead>' +

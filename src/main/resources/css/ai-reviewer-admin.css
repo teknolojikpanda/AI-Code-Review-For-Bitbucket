@@ -310,6 +310,11 @@
     color: #6b778c;
 }
 
+.chunk-meta {
+    color: #6b778c;
+    font-size: 12px;
+}
+
 .history-pagination {
     display: flex;
     align-items: center;
