@@ -186,3 +186,86 @@
     font-size: 10px;
     margin-left: 2px;
 }
+
+/* History Detail Panel */
+#history-detail-panel {
+    margin-top: 30px;
+    padding: 20px;
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    background-color: #fafbfc;
+}
+
+.history-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 15px;
+}
+
+.history-detail-header h2 {
+    margin: 0;
+    font-size: 20px;
+    color: #172b4d;
+}
+
+.history-detail-header .detail-subtitle {
+    color: #6b778c;
+    font-size: 13px;
+}
+
+.history-detail-grid {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+.history-detail-grid .detail-block {
+    flex: 1 1 220px;
+    min-width: 200px;
+}
+
+.history-detail-grid h3 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+    color: #253858;
+}
+
+.detail-list {
+    margin: 0;
+}
+
+.detail-list dt {
+    font-weight: 600;
+    color: #172b4d;
+    margin-top: 6px;
+}
+
+.detail-list dd {
+    margin: 0 0 6px 0;
+    color: #42526e;
+}
+
+.history-detail-chunks h3 {
+    margin: 10px 0;
+    color: #253858;
+}
+
+.chunk-error {
+    display: block;
+    color: #de350b;
+    font-size: 12px;
+    margin-top: 2px;
+    word-break: break-word;
+}
+
+#review-history-table tbody tr.is-selected {
+    background-color: #e9f2ff;
+}
+
+@media (max-width: 768px) {
+    .history-detail-grid {
+        flex-direction: column;
+    }
+}

@@ -45,6 +45,7 @@
 - Added `AIReviewChunk` AO entity, expanded `AIReviewHistory` with profile and model counter fields, and updated `AIReviewServiceImpl` to persist per-chunk invocation metadata alongside fallback statistics (Phase 3 observability groundwork).
 - Exposed detailed history endpoints: `ReviewHistoryService` now returns per-entry chunk metadata, and `HistoryResource` serves `/history/{id}` plus `/history/{id}/chunks`, enabling the admin UI to query chunk timelines.
 - Hardened configuration validation (Phase 3 / item 3): introduced structured `ConfigurationValidationException`, tightened numeric range checks, validated prompt overrides, and updated REST responses to surface field-level errors.
+- Refreshed admin history UI to consume new observability data: table rows load detailed review metadata, model statistics, and chunk invocation timelines via the new REST endpoints, with a responsive summary panel.
 
 ## Next Steps
 
