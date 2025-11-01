@@ -84,6 +84,7 @@
                     </div>
                     <div class="metrics-trend">
                         <h3>Daily Activity</h3>
+                        <svg id="metrics-daily-sparkline" class="metrics-sparkline" viewBox="0 0 400 80" preserveAspectRatio="none"></svg>
                         <table class="aui aui-table aui-table-rowhover" id="metrics-daily-table">
                             <thead>
                             <tr>

@@ -419,6 +419,25 @@
     color: #253858;
 }
 
+.metrics-sparkline {
+    width: 100%;
+    height: 80px;
+    background: #f4f5f7;
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.metrics-sparkline path.sparkline-line {
+    fill: none;
+    stroke: #0052cc;
+    stroke-width: 2;
+}
+
+.metrics-sparkline path.sparkline-fill {
+    fill: rgba(0, 82, 204, 0.15);
+    stroke: none;
+}
+
 #metrics-daily-table tbody tr.daily-empty td {
     text-align: center;
     color: #6b778c;

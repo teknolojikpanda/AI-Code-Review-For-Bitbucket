@@ -239,10 +239,12 @@
         $tbody.empty();
         if (error) {
             $tbody.append('<tr class="daily-empty"><td colspan="4">' + escapeHtml('Failed: ' + error) + '</td></tr>');
+            renderDailySparkline([]);
             return;
         }
         if (!rows || !rows.length) {
             $tbody.append('<tr class="daily-empty"><td colspan="4">No data for selected filters.</td></tr>');
+            renderDailySparkline([]);
             return;
         }
         rows.forEach(function(row) {
@@ -259,6 +261,45 @@
                 '</tr>';
             $tbody.append(tr);
         });
+        renderDailySparkline(rows);
+    }
+
+    function renderDailySparkline(rows) {
+        var $svg = $('#metrics-daily-sparkline');
+        if (!$svg.length) {
+            return;
+        }
+        if (!rows || !rows.length) {
+            $svg.empty();
+            return;
+        }
+        var rect = $svg[0].getBoundingClientRect();
+        var width = rect.width || 400;
+        var height = rect.height || 80;
+        var points = rows.slice().reverse();
+        var values = points.map(function(row) { return Number(row.reviewCount || 0); });
+        var min = Math.min.apply(null, values);
+        var max = Math.max.apply(null, values);
+        if (min === max) {
+            if (max === 0) {
+                max = 1;
+            } else {
+                min = 0;
+            }
+        }
+        var range = max - min;
+        var step = points.length > 1 ? width / (points.length - 1) : width;
+        var path = '';
+        var fillPath = '';
+        points.forEach(function(row, idx) {
+            var value = Number(row.reviewCount || 0);
+            var x = idx * step;
+            var y = height - ((value - min) / range) * height;
+            var command = idx === 0 ? 'M' : 'L';
+            path += command + x.toFixed(2) + ' ' + y.toFixed(2);
+        });
+        fillPath = path + ' L ' + ((points.length - 1) * step).toFixed(2) + ' ' + height + ' L 0 ' + height + ' Z';
+        $svg.html('<path class="sparkline-fill" d="' + fillPath + '"></path><path class="sparkline-line" d="' + path + '"></path>');
     }
 
     function buildMetricsSubtitle(filter) {
