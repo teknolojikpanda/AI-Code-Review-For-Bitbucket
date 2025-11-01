@@ -265,6 +265,7 @@
         $('#review-history-table tbody tr.history-row').removeClass('is-selected');
         $row.addClass('is-selected');
         selectedHistoryId = historyId;
+        scrollToDetailPanel();
     }
 
     function loadHistoryDetail(historyId) {
@@ -292,6 +293,7 @@
             var chunkPayload = chunksResp[0] || {};
             renderDetail(entry, chunkPayload);
             clearDetailMessage();
+            scrollToDetailPanel();
         }).fail(function(xhr, status, error) {
             console.error('Failed to fetch history detail:', status, error);
             renderDetail({}, { chunks: [] });
@@ -422,6 +424,15 @@
     function hideDetailPanel() {
         $('#history-detail-panel').hide();
         selectedHistoryId = null;
+    }
+
+    function scrollToDetailPanel() {
+        var $panel = $('#history-detail-panel');
+        if (!$panel.is(':visible')) {
+            return;
+        }
+        var top = $panel.offset().top - 80;
+        $('html, body').animate({ scrollTop: top }, 250);
     }
 
     function setDetailMessage(type, message, showSpinner) {
