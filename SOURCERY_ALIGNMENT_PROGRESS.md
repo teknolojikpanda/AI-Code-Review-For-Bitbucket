@@ -37,8 +37,15 @@
 - Registered the history service in OSGi and marked it singleton so REST injection succeeds (fix for `/rest/ai-reviewer/1.0/history` startup failure).
 - Moved review history into its own admin page backed by the new REST endpoints, added basic filtering, and kept an inline auto-approve toggle on the config screen (Phase 2 / item 4 UI integration).
 
+## 2025-10-30
+
+- Authored `docs/observability_dashboard_design.md`, detailing data model migrations, REST endpoints, and UI layout required for the Phase 3 observability dashboard (Next Steps item 1).
+- Defined implementation plan covering metrics instrumentation, AO migrations for chunk-level data, administrative REST APIs, and admin UI enhancements to chart review performance.
+- Extended runtime instrumentation: `MetricsCollector` now captures list-based chunk invocation entries, and `OllamaAiReviewClient` records per-model success/failure counters plus fallback triggers for dashboard consumption.
+- Added `AIReviewChunk` AO entity, expanded `AIReviewHistory` with profile and model counter fields, and updated `AIReviewServiceImpl` to persist per-chunk invocation metadata alongside fallback statistics (Phase 3 observability groundwork).
+
 ## Next Steps
 
-- Design the remaining Phase 3 observability dashboard to surface metrics over time (history charts, retry controls).
+- Implement metrics capture enhancements and persistence migrations outlined in the observability dashboard design.
 - Harden configuration validation for prompt/profile fields and expose clear errors (Phase 3 / item 3).
 - Plan implementation schedule for fingerprint persistence (Phase 1 / F3) based on the documented migration approach.

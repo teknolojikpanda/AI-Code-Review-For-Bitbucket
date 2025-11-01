@@ -46,6 +46,11 @@ public final class MetricsRecorderAdapter implements MetricsRecorder {
         }
     }
 
+    @Override
+    public void addListEntry(@Nonnull String key, @Nonnull Map<String, Object> value) {
+        delegate.appendListEntry(Objects.requireNonNull(key, "key"), new java.util.LinkedHashMap<>(Objects.requireNonNull(value, "value")));
+    }
+
     @Nonnull
     @Override
     public Map<String, Object> snapshot() {

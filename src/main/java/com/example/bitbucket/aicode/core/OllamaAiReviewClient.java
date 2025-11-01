@@ -114,9 +114,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 config.getPrimaryModelEndpoint().toString(),
                 config.getPrimaryModel(),
                 config,
+                "primary",
                 metrics);
 
         if (findings == null) {
+            metrics.increment("ai.model.fallback.triggered");
             findings = invokeModelWithRetry(
                     chunk,
                     overview,
@@ -124,6 +126,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     config.getFallbackModelEndpoint().toString(),
                     config.getFallbackModel(),
                     config,
+                    "fallback",
                     metrics);
         }
 
@@ -148,6 +151,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                                                      String baseUrl,
                                                      String model,
                                                      ReviewConfig config,
+                                                     String modelRole,
                                                      MetricsRecorder metrics) {
         int attempts = 0;
         int maxRetries = Math.max(1, config.getMaxRetries());
@@ -155,6 +159,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
         Exception lastError = null;
         boolean modelNotFound = false;
         String modelKey = modelKey(baseUrl, model);
+        Instant invocationStart = Instant.now();
+        metrics.increment("ai.model." + modelRole + ".invocations");
 
         if (unavailableModels.contains(modelKey)) {
             if (log.isDebugEnabled()) {
@@ -167,6 +173,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
         String originalContent = chunk.getContent() != null ? chunk.getContent() : "";
         String diffContent = originalContent;
         int originalLength = originalContent.length();
+        String lastErrorMessage = null;
 
         while (attempts < maxRetries) {
             try {
@@ -175,13 +182,27 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 String payload = buildChunkRequest(chunk, overview, context, model, diffContent, false);
 
                 String response = executeChat(baseUrl, payload, config);
-                return parseFindings(response, chunk);
+                List<ReviewFinding> parsed = parseFindings(response, chunk);
+                metrics.increment("ai.model." + modelRole + ".success");
+                recordChunkInvocation(metrics,
+                        chunk,
+                        model,
+                        baseUrl,
+                        modelRole,
+                        attempts,
+                        invocationStart,
+                        true,
+                        modelNotFound,
+                        lastErrorMessage);
+                return parsed;
             } catch (SocketTimeoutException ex) {
                 log.warn("Model {} timeout on attempt {}: {}", model, attempts, ex.getMessage());
                 lastError = ex;
+                lastErrorMessage = ex.getMessage();
             } catch (Exception ex) {
                 log.warn("Model {} failed on attempt {}: {}", model, attempts, ex.getMessage());
                 lastError = ex;
+                lastErrorMessage = ex.getMessage();
                 if (isModelNotFound(ex)) {
                     modelNotFound = true;
                     break;
@@ -202,15 +223,87 @@ public class OllamaAiReviewClient implements AiReviewClient {
             log.error("Model {} not found at {} for chunk {}. Skipping analysis for this chunk.",
                     model, baseUrl, chunk.getId());
             unavailableModels.add(modelKey);
+            metrics.increment("ai.model." + modelRole + ".failures");
+            recordChunkInvocation(metrics,
+                    chunk,
+                    model,
+                    baseUrl,
+                    modelRole,
+                    attempts,
+                    invocationStart,
+                    false,
+                    true,
+                    lastErrorMessage != null ? lastErrorMessage : "model not found");
             return null;
         }
         if (lastError != null) {
             log.error("Model {} failed after {} attempt(s) for chunk {}: {}",
                     model, attempts, chunk.getId(), lastError.getMessage());
             log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
+            metrics.increment("ai.model." + modelRole + ".failures");
+            recordChunkInvocation(metrics,
+                    chunk,
+                    model,
+                    baseUrl,
+                    modelRole,
+                    attempts,
+                    invocationStart,
+                    false,
+                    modelNotFound,
+                    lastErrorMessage);
             return null;
         }
+        metrics.increment("ai.model." + modelRole + ".failures");
+        recordChunkInvocation(metrics,
+                chunk,
+                model,
+                baseUrl,
+                modelRole,
+                attempts,
+                invocationStart,
+                false,
+                modelNotFound,
+                lastErrorMessage);
         return null;
+    }
+
+    private void recordChunkInvocation(MetricsRecorder metrics,
+                                       ReviewChunk chunk,
+                                       String model,
+                                       String baseUrl,
+                                       String modelRole,
+                                       int attempts,
+                                       Instant invocationStart,
+                                       boolean success,
+                                       boolean modelNotFound,
+                                       String lastErrorMessage) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("chunkId", chunk.getId());
+        entry.put("role", modelRole);
+        entry.put("model", model);
+        entry.put("endpoint", baseUrl);
+        entry.put("attempts", attempts);
+        entry.put("retries", Math.max(0, attempts - 1));
+        entry.put("durationMs", Math.max(0, Duration.between(invocationStart, Instant.now()).toMillis()));
+        entry.put("success", success);
+        if (modelNotFound) {
+            entry.put("modelNotFound", Boolean.TRUE);
+        }
+        if (lastErrorMessage != null && !lastErrorMessage.trim().isEmpty()) {
+            entry.put("lastError", abbreviate(lastErrorMessage, 512));
+        }
+        metrics.addListEntry("ai.chunk.invocations", entry);
+    }
+
+    private String abbreviate(String value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+        return trimmed.substring(0, Math.max(0, maxLength));
     }
 
     private String modelKey(String baseUrl, String model) {

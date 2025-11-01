@@ -4,6 +4,7 @@ import net.java.ao.Entity;
 import net.java.ao.Preload;
 import net.java.ao.schema.Indexed;
 import net.java.ao.schema.NotNull;
+import net.java.ao.OneToMany;
 import net.java.ao.schema.StringLength;
 import net.java.ao.schema.Table;
 
@@ -98,6 +99,34 @@ public interface AIReviewHistory extends Entity {
     int getCommentsPosted();
     void setCommentsPosted(int count);
 
+    @StringLength(64)
+    String getProfileKey();
+    void setProfileKey(String profileKey);
+
+    boolean isAutoApproveEnabled();
+    void setAutoApproveEnabled(boolean enabled);
+
+    int getPrimaryModelInvocations();
+    void setPrimaryModelInvocations(int invocations);
+
+    int getPrimaryModelSuccesses();
+    void setPrimaryModelSuccesses(int successes);
+
+    int getPrimaryModelFailures();
+    void setPrimaryModelFailures(int failures);
+
+    int getFallbackModelInvocations();
+    void setFallbackModelInvocations(int invocations);
+
+    int getFallbackModelSuccesses();
+    void setFallbackModelSuccesses(int successes);
+
+    int getFallbackModelFailures();
+    void setFallbackModelFailures(int failures);
+
+    int getFallbackTriggered();
+    void setFallbackTriggered(int triggered);
+
     // Review Outcome
     @StringLength(50)
     String getReviewOutcome();
@@ -132,4 +161,7 @@ public interface AIReviewHistory extends Entity {
     @StringLength(StringLength.UNLIMITED)
     String getConfigurationSnapshot();
     void setConfigurationSnapshot(String config);
+
+    @OneToMany
+    AIReviewChunk[] getChunks();
 }

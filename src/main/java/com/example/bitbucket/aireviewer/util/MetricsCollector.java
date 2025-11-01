@@ -6,9 +6,12 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Collects and aggregates metrics for AI code review operations.
@@ -136,6 +139,31 @@ public class MetricsCollector {
      */
     public Object getGauge(@Nonnull String gaugeName) {
         return gauges.get(gaugeName);
+    }
+
+    /**
+     * Appends an entry to a list-valued gauge, creating the list if necessary.
+     *
+     * @param gaugeName name of the list gauge
+     * @param value entry to append
+     */
+    @SuppressWarnings("unchecked")
+    public void appendListEntry(@Nonnull String gaugeName, @Nonnull Map<String, Object> value) {
+        gauges.compute(gaugeName, (key, existing) -> {
+            CopyOnWriteArrayList<Map<String, Object>> list;
+            if (existing instanceof CopyOnWriteArrayList) {
+                list = (CopyOnWriteArrayList<Map<String, Object>>) existing;
+            } else if (existing instanceof List) {
+                list = new CopyOnWriteArrayList<>((List<Map<String, Object>>) existing);
+            } else if (existing == null) {
+                list = new CopyOnWriteArrayList<>();
+            } else {
+                list = new CopyOnWriteArrayList<>();
+                list.add(new LinkedHashMap<>(Map.of("previousValue", existing)));
+            }
+            list.add(new LinkedHashMap<>(value));
+            return list;
+        });
     }
 
     /**

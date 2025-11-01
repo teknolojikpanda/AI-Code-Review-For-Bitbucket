@@ -18,6 +18,7 @@
         <description>Active Objects module for AI Code Reviewer</description>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewConfiguration</entity>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewHistory</entity>
+        <entity>com.example.bitbucket.aireviewer.ao.AIReviewChunk</entity>
     </ao>
 
     <!--

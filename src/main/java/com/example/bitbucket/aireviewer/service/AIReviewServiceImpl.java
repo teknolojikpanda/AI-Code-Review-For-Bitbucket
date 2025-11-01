@@ -13,6 +13,7 @@ import com.atlassian.bitbucket.pull.PullRequest;
 import com.atlassian.bitbucket.pull.PullRequestService;
 import com.atlassian.bitbucket.server.ApplicationPropertiesService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.example.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.example.bitbucket.aireviewer.dto.ReviewIssue;
 import com.example.bitbucket.aireviewer.dto.ReviewResult;
@@ -42,6 +43,8 @@ import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import net.java.ao.DBParam;
 
 /**
  * Implementation of AI code review service.
@@ -1202,16 +1205,25 @@ public class AIReviewServiceImpl implements AIReviewService {
                 history.setTotalFiles(result.getFilesReviewed() + result.getFilesSkipped());
 
                 history.setDiffSize(extractLongMetric(metricsMap, "diff.sizeBytes", 0));
-                history.setLineCount((int) extractLongMetric(metricsMap, "diff.lineCount", 0));
+                history.setLineCount(safeLongToInt(extractLongMetric(metricsMap, "diff.lineCount", 0)));
 
-                int plannedChunks = (int) extractLongMetric(metricsMap, "chunks.planned", 0);
-                int succeededChunks = (int) extractLongMetric(metricsMap, "chunks.succeeded", plannedChunks);
-                int failedChunks = (int) extractLongMetric(metricsMap, "chunks.failed", 0);
+                int plannedChunks = safeLongToInt(extractLongMetric(metricsMap, "chunks.planned", 0));
+                int succeededChunks = safeLongToInt(extractLongMetric(metricsMap, "chunks.succeeded", plannedChunks));
+                int failedChunks = safeLongToInt(extractLongMetric(metricsMap, "chunks.failed", 0));
                 history.setTotalChunks(plannedChunks);
                 history.setSuccessfulChunks(succeededChunks);
                 history.setFailedChunks(failedChunks);
 
-                history.setCommentsPosted((int) extractLongMetric(metricsMap, "comments.posted", 0));
+                history.setCommentsPosted(safeLongToInt(extractLongMetric(metricsMap, "comments.posted", 0)));
+                history.setProfileKey(extractString(config.get("reviewProfile"), 64));
+                history.setAutoApproveEnabled(Boolean.TRUE.equals(config.get("autoApprove")));
+                history.setPrimaryModelInvocations(safeLongToInt(extractLongMetric(metricsMap, "ai.model.primary.invocations", 0)));
+                history.setPrimaryModelSuccesses(safeLongToInt(extractLongMetric(metricsMap, "ai.model.primary.success", 0)));
+                history.setPrimaryModelFailures(safeLongToInt(extractLongMetric(metricsMap, "ai.model.primary.failures", 0)));
+                history.setFallbackModelInvocations(safeLongToInt(extractLongMetric(metricsMap, "ai.model.fallback.invocations", 0)));
+                history.setFallbackModelSuccesses(safeLongToInt(extractLongMetric(metricsMap, "ai.model.fallback.success", 0)));
+                history.setFallbackModelFailures(safeLongToInt(extractLongMetric(metricsMap, "ai.model.fallback.failures", 0)));
+                history.setFallbackTriggered(safeLongToInt(extractLongMetric(metricsMap, "ai.model.fallback.triggered", 0)));
                 history.setReviewOutcome(determineOutcome(result, metricsMap));
                 history.setUpdateReview(extractLongMetric(metricsMap, "issues.resolved", 0) > 0);
 
@@ -1219,6 +1231,34 @@ public class AIReviewServiceImpl implements AIReviewService {
                 history.setMetricsJson(serializeMetrics(metricsMap));
 
                 history.save();
+
+                List<Map<String, Object>> chunkEntries = extractChunkInvocationEntries(metricsMap);
+                if (!chunkEntries.isEmpty()) {
+                    int sequence = 0;
+                    for (Map<String, Object> entry : chunkEntries) {
+                        String chunkId = extractString(entry.get("chunkId"), 191);
+                        if (chunkId == null || chunkId.isEmpty()) {
+                            continue;
+                        }
+                        AIReviewChunk chunkEntity = ao.create(
+                                AIReviewChunk.class,
+                                new DBParam("HISTORY_ID", history.getID()),
+                                new DBParam("CHUNK_ID", chunkId));
+                        chunkEntity.setHistory(history);
+                        chunkEntity.setChunkId(chunkId);
+                        chunkEntity.setRole(extractString(entry.get("role"), 64));
+                        chunkEntity.setModel(extractString(entry.get("model"), 255));
+                        chunkEntity.setEndpoint(extractString(entry.get("endpoint"), 255));
+                        chunkEntity.setSequence(sequence++);
+                        chunkEntity.setAttempts(safeLongToInt(extractLong(entry.get("attempts"), 0)));
+                        chunkEntity.setRetries(safeLongToInt(extractLong(entry.get("retries"), 0)));
+                        chunkEntity.setDurationMs(extractLong(entry.get("durationMs"), 0));
+                        chunkEntity.setSuccess(extractBoolean(entry.get("success"), false));
+                        chunkEntity.setModelNotFound(extractBoolean(entry.get("modelNotFound"), false));
+                        chunkEntity.setLastError(extractString(entry.get("lastError"), 4096));
+                        chunkEntity.save();
+                    }
+                }
                 log.info("Saved review history for PR #{} (ID: {})", pullRequest.getId(), history.getID());
                 return null;
             });
@@ -1278,6 +1318,97 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
         return defaultValue;
+    }
+
+    private int safeLongToInt(long value) {
+        if (value > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        if (value < Integer.MIN_VALUE) {
+            return Integer.MIN_VALUE;
+        }
+        return (int) value;
+    }
+
+    private long extractLong(Object value, long defaultValue) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Long.parseLong(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (value instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) value;
+            Object total = map.get("totalMs");
+            if (total instanceof Number) {
+                return ((Number) total).longValue();
+            }
+        }
+        return defaultValue;
+    }
+
+    private String extractString(Object value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String stringValue = String.valueOf(value).trim();
+        if (stringValue.isEmpty()) {
+            return null;
+        }
+        return truncate(stringValue, maxLength);
+    }
+
+    private boolean extractBoolean(Object value, boolean defaultValue) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue() != 0;
+        }
+        if (value instanceof String) {
+            String trimmed = ((String) value).trim();
+            if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+                return Boolean.parseBoolean(trimmed);
+            }
+            try {
+                return Long.parseLong(trimmed) != 0;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private List<Map<String, Object>> extractChunkInvocationEntries(Map<String, Object> metrics) {
+        if (metrics == null) {
+            return Collections.emptyList();
+        }
+        Object value = metrics.get("ai.chunk.invocations");
+        if (!(value instanceof Iterable)) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object element : (Iterable<?>) value) {
+            if (element instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> entry = new LinkedHashMap<>((Map<String, Object>) element);
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+        return trimmed.substring(0, Math.max(0, maxLength));
     }
 
     private String determineOutcome(ReviewResult result, Map<String, Object> metrics) {

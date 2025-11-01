@@ -19,6 +19,8 @@ public interface MetricsRecorder {
 
     void recordMetric(@Nonnull String key, @Nullable Object value);
 
+    void addListEntry(@Nonnull String key, @Nonnull Map<String, Object> value);
+
     @Nonnull
     Map<String, Object> snapshot();
 }

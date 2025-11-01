@@ -114,6 +114,15 @@ public class ReviewHistoryService {
         map.put("failedChunks", history.getFailedChunks());
         map.put("successfulChunks", history.getSuccessfulChunks());
         map.put("totalChunks", history.getTotalChunks());
+        map.put("profileKey", history.getProfileKey());
+        map.put("autoApproveEnabled", history.isAutoApproveEnabled());
+        map.put("primaryModelInvocations", history.getPrimaryModelInvocations());
+        map.put("primaryModelSuccesses", history.getPrimaryModelSuccesses());
+        map.put("primaryModelFailures", history.getPrimaryModelFailures());
+        map.put("fallbackModelInvocations", history.getFallbackModelInvocations());
+        map.put("fallbackModelSuccesses", history.getFallbackModelSuccesses());
+        map.put("fallbackModelFailures", history.getFallbackModelFailures());
+        map.put("fallbackTriggered", history.getFallbackTriggered());
         map.put("metricsSnapshot", safeMetrics(history.getMetricsJson()));
 
         long start = history.getReviewStartTime();
