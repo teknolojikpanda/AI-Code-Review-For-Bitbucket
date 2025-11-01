@@ -264,6 +264,10 @@
     background-color: #e9f2ff;
 }
 
+.filter-input[type="datetime-local"] {
+    width: 210px;
+}
+
 .metrics-section {
     margin-top: 30px;
     padding: 20px;

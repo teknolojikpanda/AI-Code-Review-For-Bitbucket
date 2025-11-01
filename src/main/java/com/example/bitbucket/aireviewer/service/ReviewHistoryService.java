@@ -52,6 +52,8 @@ public class ReviewHistoryService {
     public List<Map<String, Object>> getHistory(String projectKey,
                                                 String repositorySlug,
                                                 Long pullRequestId,
+                                                Long since,
+                                                Long until,
                                                 int limit) {
         final int fetchLimit = Math.min(Math.max(limit, 1), 100);
 
@@ -74,6 +76,14 @@ public class ReviewHistoryService {
             if (pullRequestId != null && pullRequestId > 0) {
                 clauses.add("PULL_REQUEST_ID = ?");
                 params.add(pullRequestId);
+            }
+            if (since != null && since > 0) {
+                clauses.add("REVIEW_START_TIME >= ?");
+                params.add(since);
+            }
+            if (until != null && until > 0) {
+                clauses.add("REVIEW_START_TIME <= ?");
+                params.add(until);
             }
 
             if (!clauses.isEmpty()) {

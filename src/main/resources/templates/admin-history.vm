@@ -31,6 +31,10 @@
                             <input class="text filter-input" type="text" id="filter-repo" placeholder="slug">
                             <label class="filter-label" for="filter-pr">PR</label>
                             <input class="text filter-input" type="number" id="filter-pr" min="1" placeholder="#">
+                            <label class="filter-label" for="filter-since">From</label>
+                            <input class="text filter-input" type="datetime-local" id="filter-since">
+                            <label class="filter-label" for="filter-until">To</label>
+                            <input class="text filter-input" type="datetime-local" id="filter-until">
                             <button type="button" class="aui-button" id="refresh-history-btn">
                                 <span class="aui-icon aui-icon-small aui-iconfont-refresh"></span> Refresh
                             </button>

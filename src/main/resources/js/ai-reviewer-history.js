@@ -19,6 +19,8 @@
         var projectKey = $('#filter-project').val();
         var repositorySlug = $('#filter-repo').val();
         var pullRequestId = $('#filter-pr').val();
+        var sinceValue = parseDateTime($('#filter-since').val());
+        var untilValue = parseDateTime($('#filter-until').val());
 
         var params = { limit: 50 };
         if (projectKey) {
@@ -30,6 +32,12 @@
         if (pullRequestId) {
             params.pullRequestId = pullRequestId;
         }
+        if (sinceValue != null) {
+            params.since = sinceValue;
+        }
+        if (untilValue != null) {
+            params.until = untilValue;
+        }
 
         var metricsFilters = {};
         if (projectKey) {
@@ -40,6 +48,12 @@
         }
         if (pullRequestId) {
             metricsFilters.pullRequestId = pullRequestId;
+        }
+        if (sinceValue != null) {
+            metricsFilters.since = sinceValue;
+        }
+        if (untilValue != null) {
+            metricsFilters.until = untilValue;
         }
         loadMetrics(metricsFilters);
 
@@ -473,6 +487,15 @@
         var value = Number(ratio);
         var digits = (decimals === 0 || decimals) ? decimals : 1;
         return (value * 100).toFixed(digits) + '%';
+    }
+
+    function parseDateTime(value) {
+        if (!value) {
+            return null;
+        }
+        var date = new Date(value);
+        var time = date.getTime();
+        return isNaN(time) ? null : time;
     }
 
     function setHistoryMessage(type, message, showSpinner) {

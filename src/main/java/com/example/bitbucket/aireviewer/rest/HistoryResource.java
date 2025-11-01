@@ -48,6 +48,8 @@ public class HistoryResource {
                                 @QueryParam("projectKey") String projectKey,
                                 @QueryParam("repositorySlug") String repositorySlug,
                                 @QueryParam("pullRequestId") Long pullRequestId,
+                                @QueryParam("since") Long sinceParam,
+                                @QueryParam("until") Long untilParam,
                                 @QueryParam("limit") Integer limitParam) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (!isSystemAdmin(profile)) {
@@ -57,11 +59,15 @@ public class HistoryResource {
         }
 
         int limit = (limitParam == null) ? 20 : limitParam;
+        Long since = sanitizeEpoch(sinceParam);
+        Long until = sanitizeEpoch(untilParam);
         try {
             List<Map<String, Object>> entries = historyService.getHistory(
                     projectKey,
                     repositorySlug,
                     pullRequestId,
+                    since,
+                    until,
                     limit);
             Map<String, Object> payload = new HashMap<>();
             payload.put("entries", entries);
