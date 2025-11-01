@@ -313,6 +313,12 @@ public class ReviewHistoryService {
             long fallbackFailures = 0;
             long fallbackTriggered = 0;
 
+            long totalRequestBytes = 0;
+            long totalResponseBytes = 0;
+            long totalTimeouts = 0;
+            long totalChunkRecords = 0;
+            Map<Integer, Long> httpStatusCounts = new LinkedHashMap<>();
+
             List<Double> durations = new ArrayList<>();
 
             for (AIReviewHistory history : histories) {
@@ -341,6 +347,22 @@ public class ReviewHistoryService {
                 if (durationSeconds > 0) {
                     durations.add(durationSeconds);
                 }
+
+                AIReviewChunk[] chunkEntities = history.getChunks();
+                if (chunkEntities != null) {
+                    totalChunkRecords += chunkEntities.length;
+                    for (AIReviewChunk chunk : chunkEntities) {
+                        totalRequestBytes += Math.max(0, chunk.getRequestBytes());
+                        totalResponseBytes += Math.max(0, chunk.getResponseBytes());
+                        if (chunk.isTimeout()) {
+                            totalTimeouts++;
+                        }
+                        int statusCode = chunk.getStatusCode();
+                        if (statusCode > 0) {
+                            httpStatusCounts.merge(statusCode, 1L, Long::sum);
+                        }
+                    }
+                }
             }
 
             summary.put("statusCounts", statusCounts);
@@ -350,6 +372,7 @@ public class ReviewHistoryService {
                     primaryInvocations, primarySuccesses, primaryFailures,
                     fallbackInvocations, fallbackSuccesses, fallbackFailures));
             summary.put("chunkTotals", buildChunkTotals(totalChunks, successfulChunks, failedChunks));
+            summary.put("ioTotals", buildIoTotals(totalRequestBytes, totalResponseBytes, totalChunkRecords, totalTimeouts, httpStatusCounts));
 
             return summary;
         });
@@ -558,6 +581,22 @@ public class ReviewHistoryService {
         map.put("successfulChunks", successfulChunks);
         map.put("failedChunks", failedChunks);
         map.put("successRate", computeRate(successfulChunks, totalChunks));
+        return map;
+    }
+
+    private Map<String, Object> buildIoTotals(long requestBytes,
+                                              long responseBytes,
+                                              long chunkRecords,
+                                              long timeoutCount,
+                                              Map<Integer, Long> statusCounts) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("requestBytes", requestBytes);
+        map.put("responseBytes", responseBytes);
+        map.put("chunkCount", chunkRecords);
+        map.put("timeoutCount", timeoutCount);
+        map.put("avgRequestBytes", chunkRecords > 0 ? (double) requestBytes / chunkRecords : 0d);
+        map.put("avgResponseBytes", chunkRecords > 0 ? (double) responseBytes / chunkRecords : 0d);
+        map.put("statusCounts", statusCounts);
         return map;
     }
 

@@ -226,6 +226,13 @@
         if (chunkTotals && chunkTotals.successRate != null) {
             fallbackDetailParts.push('Chunk success ' + formatPercent(chunkTotals.successRate));
         }
+        var ioTotals = data.ioTotals || {};
+        if (ioTotals.timeoutCount) {
+            fallbackDetailParts.push('Timeouts ' + ioTotals.timeoutCount);
+        }
+        if (ioTotals.requestBytes || ioTotals.responseBytes) {
+            fallbackDetailParts.push('Bytes ' + formatBytes(ioTotals.requestBytes || 0) + ' / ' + formatBytes(ioTotals.responseBytes || 0));
+        }
         $('#metric-fallback-detail').text(fallbackDetailParts.join(' • '));
 
         var subtitle = buildMetricsSubtitle(data.filter || {});
@@ -477,6 +484,20 @@
         var value = Number(ratio);
         var digits = (decimals === 0 || decimals) ? decimals : 1;
         return (value * 100).toFixed(digits) + '%';
+    }
+
+    function formatBytes(bytes) {
+        var size = Number(bytes || 0);
+        if (!isFinite(size) || size < 0) {
+            return '—';
+        }
+        if (size < 1024) {
+            return size + ' B';
+        }
+        if (size < (1024 * 1024)) {
+            return (size / 1024).toFixed(1) + ' KB';
+        }
+        return (size / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
     function collapseDetails() {
