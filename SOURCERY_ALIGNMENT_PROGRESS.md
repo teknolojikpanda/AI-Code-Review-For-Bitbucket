@@ -49,6 +49,7 @@
 - Added `/history/metrics` aggregate endpoint and summary cards on the admin history page, surfacing total reviews, duration percentiles, issue counts, and fallback usage derived from persisted telemetry.
 - Added configurable page size options (10/100/1000/All) with corresponding server-side pagination so large history result sets load incrementally without blocking the UI.
 - Surfaced daily trend metrics via `/history/metrics/daily` and rendered a daily activity table on the admin dashboard for quick review cadence monitoring.
+- Added a daily activity sparkline to the metrics section for quick visual trend scanning.
 
 ## Next Steps
 
