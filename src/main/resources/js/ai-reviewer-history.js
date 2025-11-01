@@ -207,172 +207,6 @@
         setMetricsMessage(null, null, false);
     }
 
-    function renderHistory(entries) {
-        var $tbody = $('#review-history-table tbody');
-        $tbody.empty();
-
-        if (!entries.length) {
-            $tbody.append('<tr class="history-empty"><td colspan="5">No history entries available.</td></tr>');
-            hideDetailPanel();
-            return;
-        }
-
-        entries.forEach(function(entry, idx) {
-            var started = formatTimestamp(entry.reviewStartTime);
-            var repo = formatRepo(entry);
-            var status = formatStatus(entry);
-            var issues = formatIssues(entry);
-            var model = entry.modelUsed || '—';
-
-            var row = '<tr class="history-row" data-history-id="' + entry.id + '">' +
-                    '<td>' + started + '</td>' +
-                    '<td>' + repo + '</td>' +
-                    '<td>' + status + '</td>' +
-                    '<td>' + issues + '</td>' +
-                    '<td>' + model + '</td>' +
-                '</tr>';
-            $tbody.append(row);
-        });
-
-        $tbody.find('tr.history-row').on('click', function() {
-            var $row = $(this);
-            var historyId = $row.data('history-id');
-            if (!historyId) {
-                return;
-            }
-            selectHistoryRow($row, historyId);
-            loadHistoryDetail(historyId);
-        });
-
-        var initialSelection = selectedHistoryId;
-        if (initialSelection == null && entries.length) {
-            initialSelection = entries[0].id;
-        }
-        if (initialSelection != null) {
-            var $initialRow = $tbody.find('tr.history-row[data-history-id="' + initialSelection + '"]');
-            if ($initialRow.length) {
-                selectHistoryRow($initialRow, initialSelection);
-                loadHistoryDetail(initialSelection);
-            } else {
-                hideDetailPanel();
-            }
-        } else {
-            hideDetailPanel();
-        }
-    }
-
-    function selectHistoryRow($row, historyId) {
-        $('#review-history-table tbody tr.history-row').removeClass('is-selected');
-        $row.addClass('is-selected');
-        selectedHistoryId = historyId;
-        scrollToDetailPanel();
-    }
-
-    function loadHistoryDetail(historyId) {
-        if (!historyId) {
-            hideDetailPanel();
-            return;
-        }
-        showDetailPanel();
-        setDetailMessage('info', 'Loading details...', true);
-
-        $.when(
-            $.ajax({
-                url: historyUrl + '/' + historyId,
-                type: 'GET',
-                dataType: 'json'
-            }),
-            $.ajax({
-                url: historyUrl + '/' + historyId + '/chunks',
-                type: 'GET',
-                dataType: 'json',
-                data: { limit: 200 }
-            })
-        ).done(function(historyResp, chunksResp) {
-            var entry = historyResp[0] || {};
-            var chunkPayload = chunksResp[0] || {};
-            renderDetail(entry, chunkPayload);
-            clearDetailMessage();
-            scrollToDetailPanel();
-        }).fail(function(xhr, status, error) {
-            console.error('Failed to fetch history detail:', status, error);
-            renderDetail({}, { chunks: [] });
-            setDetailMessage('error', 'Failed to load detail: ' + (error || status), false);
-        });
-    }
-
-    function renderDetail(entry, chunkPayload) {
-        var subtitle = entry.projectKey && entry.repositorySlug
-            ? (entry.projectKey + '/' + entry.repositorySlug + (entry.pullRequestId ? (' #' + entry.pullRequestId) : ''))
-            : (entry.pullRequestId ? ('PR #' + entry.pullRequestId) : '');
-        $('#history-detail-subtitle').text(subtitle || '');
-
-        renderDetailList('#detail-overview', [
-            { label: 'Status', value: formatStatus(entry) },
-            { label: 'Duration', value: formatDuration(entry.durationSeconds) },
-            { label: 'Start', value: formatTimestamp(entry.reviewStartTime) },
-            { label: 'End', value: formatTimestamp(entry.reviewEndTime) },
-            { label: 'Profile', value: entry.profileKey || '—' },
-            { label: 'Auto Approve', value: entry.autoApproveEnabled ? 'Enabled' : 'Disabled' }
-        ]);
-
-        renderDetailList('#detail-findings', [
-            { label: 'Total Issues', value: entry.totalIssuesFound != null ? entry.totalIssuesFound : '0' },
-            { label: 'Critical', value: entry.criticalIssues || 0 },
-            { label: 'High', value: entry.highIssues || 0 },
-            { label: 'Medium', value: entry.mediumIssues || 0 },
-            { label: 'Low', value: entry.lowIssues || 0 },
-            { label: 'Comments Posted', value: entry.commentsPosted || 0 }
-        ]);
-
-        renderDetailList('#detail-model', [
-            { label: 'Primary Invocations', value: entry.primaryModelInvocations || 0 },
-            { label: 'Primary Successes', value: entry.primaryModelSuccesses || 0 },
-            { label: 'Primary Failures', value: entry.primaryModelFailures || 0 },
-            { label: 'Fallback Invocations', value: entry.fallbackModelInvocations || 0 },
-            { label: 'Fallback Successes', value: entry.fallbackModelSuccesses || 0 },
-            { label: 'Fallback Failures', value: entry.fallbackModelFailures || 0 },
-            { label: 'Fallback Triggered', value: entry.fallbackTriggered || 0 }
-        ]);
-
-        renderChunkTable(chunkPayload && Array.isArray(chunkPayload.chunks) ? chunkPayload.chunks : []);
-    }
-
-    function renderDetailList(selector, items) {
-        var $dl = $(selector);
-        if (!$dl.length) {
-            return;
-        }
-        var html = '';
-        items.forEach(function(item) {
-            html += '<dt>' + escapeHtml(item.label) + '</dt>' +
-                    '<dd>' + escapeHtml(item.value != null ? item.value : '—') + '</dd>';
-        });
-        $dl.html(html);
-    }
-
-    function renderChunkTable(chunks) {
-        var $tbody = $('#chunk-table tbody');
-        $tbody.empty();
-        if (!chunks.length) {
-            $tbody.append('<tr class="chunk-empty"><td colspan="7">No chunk records available for this review.</td></tr>');
-            return;
-        }
-        chunks.forEach(function(chunk, index) {
-            var status = chunk.success ? 'Success' : (chunk.modelNotFound ? 'Model Missing' : 'Failed');
-            var row = '<tr>' +
-                '<td>' + (index + 1) + '</td>' +
-                '<td>' + escapeHtml(chunk.chunkId || '—') + '</td>' +
-                '<td>' + escapeHtml(chunk.role || '—') + '</td>' +
-                '<td>' + escapeHtml(chunk.model || '—') + '</td>' +
-                '<td>' + formatAttempts(chunk.attempts, chunk.retries) + '</td>' +
-                '<td>' + formatDurationMs(chunk.durationMs) + '</td>' +
-                '<td>' + escapeHtml(status) + (chunk.lastError ? '<br><span class="chunk-error">' + escapeHtml(chunk.lastError) + '</span>' : '') + '</td>' +
-                '</tr>';
-            $tbody.append(row);
-        });
-    }
-
     function formatAttempts(attempts, retries) {
         var result = (attempts != null ? attempts : '—');
         if (retries != null && retries > 0) {
@@ -498,6 +332,230 @@
         var value = Number(ratio);
         var digits = (decimals === 0 || decimals) ? decimals : 1;
         return (value * 100).toFixed(digits) + '%';
+    }
+
+    function collapseDetails() {
+        $('#review-history-table tbody tr.history-row').removeClass('is-selected is-expanded');
+        $('#review-history-table tbody tr.history-detail-row').remove();
+    }
+
+    function expandRow($row, suppressScroll) {
+        collapseDetails();
+        var historyId = $row.data('history-id');
+        if (!historyId) {
+            return;
+        }
+        selectedHistoryId = historyId;
+        $row.addClass('is-selected is-expanded');
+        var $detailRow = $('<tr class="history-detail-row"><td colspan="5"><div class="history-detail-card detail-loading"><span class="aui-icon aui-icon-wait"></span> Loading details...</div></td></tr>');
+        $row.after($detailRow);
+        loadHistoryDetail(historyId, $detailRow, suppressScroll);
+        if (!suppressScroll) {
+            scrollToRow($row);
+        }
+    }
+
+    function renderHistory(entries) {
+        var $tbody = $('#review-history-table tbody');
+        $tbody.empty();
+        collapseDetails();
+
+        if (!entries.length) {
+            $tbody.append('<tr class="history-empty"><td colspan="5">No history entries available.</td></tr>');
+            selectedHistoryId = null;
+            return;
+        }
+
+        entries.forEach(function(entry) {
+            var started = formatTimestamp(entry.reviewStartTime);
+            var repo = formatRepo(entry);
+            var status = formatStatus(entry);
+            var issues = formatIssues(entry);
+            var model = entry.modelUsed || '—';
+
+            var row = '<tr class="history-row" data-history-id="' + entry.id + '">' +
+                    '<td>' + started + '</td>' +
+                    '<td>' + repo + '</td>' +
+                    '<td>' + status + '</td>' +
+                    '<td>' + issues + '</td>' +
+                    '<td>' + model + '</td>' +
+                '</tr>';
+            $tbody.append(row);
+        });
+
+        $tbody.find('tr.history-row').on('click', function() {
+            var $row = $(this);
+            var historyId = $row.data('history-id');
+            if (!historyId) {
+                return;
+            }
+            if ($row.hasClass('is-expanded')) {
+                collapseDetails();
+                selectedHistoryId = null;
+                return;
+            }
+            expandRow($row, false);
+        });
+
+        if (selectedHistoryId != null) {
+            var $initialRow = $tbody.find('tr.history-row[data-history-id="' + selectedHistoryId + '"]');
+            if ($initialRow.length) {
+                expandRow($initialRow, true);
+            } else {
+                selectedHistoryId = null;
+            }
+        }
+    }
+
+    function loadHistoryDetail(historyId, $detailRow, suppressScroll) {
+        if (!historyId || !$detailRow || !$detailRow.length) {
+            return;
+        }
+
+        $.when(
+            $.ajax({
+                url: historyUrl + '/' + historyId,
+                type: 'GET',
+                dataType: 'json'
+            }),
+            $.ajax({
+                url: historyUrl + '/' + historyId + '/chunks',
+                type: 'GET',
+                dataType: 'json',
+                data: { limit: 200 }
+            })
+        ).done(function(historyResp, chunksResp) {
+            var entry = historyResp[0] || {};
+            var chunkPayload = chunksResp[0] || {};
+            renderDetail($detailRow, entry, chunkPayload, suppressScroll);
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to fetch history detail:', status, error);
+            var errorHtml = '<div class="history-detail-card detail-error"><span class="aui-icon aui-icon-error"></span> ' +
+                escapeHtml('Failed to load detail: ' + (error || status)) + '</div>';
+            $detailRow.find('td').html(errorHtml);
+        });
+    }
+
+    function renderDetail($detailRow, entry, chunkPayload, suppressScroll) {
+        var overviewItems = [
+            { label: 'Status', value: formatStatus(entry) },
+            { label: 'Duration', value: formatDuration(entry.durationSeconds) },
+            { label: 'Start', value: formatTimestamp(entry.reviewStartTime) },
+            { label: 'End', value: formatTimestamp(entry.reviewEndTime) },
+            { label: 'Profile', value: entry.profileKey || '—' },
+            { label: 'Auto Approve', value: entry.autoApproveEnabled ? 'Enabled' : 'Disabled' }
+        ];
+
+        var findingItems = [
+            { label: 'Total Issues', value: entry.totalIssuesFound != null ? entry.totalIssuesFound : 0 },
+            { label: 'Critical', value: entry.criticalIssues || 0 },
+            { label: 'High', value: entry.highIssues || 0 },
+            { label: 'Medium', value: entry.mediumIssues || 0 },
+            { label: 'Low', value: entry.lowIssues || 0 },
+            { label: 'Comments Posted', value: entry.commentsPosted || 0 }
+        ];
+
+        var modelItems = [
+            { label: 'Primary Invocations', value: entry.primaryModelInvocations || 0 },
+            { label: 'Primary Successes', value: entry.primaryModelSuccesses || 0 },
+            { label: 'Primary Failures', value: entry.primaryModelFailures || 0 },
+            { label: 'Fallback Invocations', value: entry.fallbackModelInvocations || 0 },
+            { label: 'Fallback Successes', value: entry.fallbackModelSuccesses || 0 },
+            { label: 'Fallback Failures', value: entry.fallbackModelFailures || 0 },
+            { label: 'Fallback Triggered', value: entry.fallbackTriggered || 0 }
+        ];
+
+        var chunks = chunkPayload && Array.isArray(chunkPayload.chunks) ? chunkPayload.chunks : [];
+        var subtitle = entry.projectKey && entry.repositorySlug
+            ? (entry.projectKey + '/' + entry.repositorySlug + (entry.pullRequestId ? (' #' + entry.pullRequestId) : ''))
+            : (entry.pullRequestId ? ('PR #' + entry.pullRequestId) : '');
+
+        var html = buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload);
+        $detailRow.find('td').html(html);
+
+        if (!suppressScroll) {
+            scrollToRow($detailRow.prev());
+        }
+    }
+
+    function buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload) {
+        var chunkCount = chunkPayload && typeof chunkPayload.total === 'number' ? chunkPayload.total : chunks.length;
+        var chunkSummary = chunkCount ? 'Showing ' + chunks.length + ' of ' + chunkCount + ' chunk invocations' : '';
+
+        return '<div class="history-detail-card">' +
+            '<header class="history-detail-header">' +
+                '<h3>Review Details</h3>' +
+                '<span class="detail-subtitle">' + escapeHtml(subtitle || '') + '</span>' +
+            '</header>' +
+            '<div class="history-detail-grid">' +
+                '<div class="detail-block">' +
+                    '<h4>Overview</h4>' +
+                    buildDetailListHtml(overviewItems) +
+                '</div>' +
+                '<div class="detail-block">' +
+                    '<h4>Findings</h4>' +
+                    buildDetailListHtml(findingItems) +
+                '</div>' +
+                '<div class="detail-block">' +
+                    '<h4>Model Summary</h4>' +
+                    buildDetailListHtml(modelItems) +
+                '</div>' +
+            '</div>' +
+            '<div class="history-detail-chunks">' +
+                '<div class="chunk-summary">' + escapeHtml(chunkSummary) + '</div>' +
+                buildChunkTableHtml(chunks) +
+            '</div>' +
+        '</div>';
+    }
+
+    function buildDetailListHtml(items) {
+        var html = '<dl class="detail-list">';
+        items.forEach(function(item) {
+            html += '<dt>' + escapeHtml(item.label) + '</dt>' +
+                '<dd>' + escapeHtml(item.value != null ? item.value : '—') + '</dd>';
+        });
+        html += '</dl>';
+        return html;
+    }
+
+    function buildChunkTableHtml(chunks) {
+        if (!chunks.length) {
+            return '<div class="chunk-empty">No chunk records available for this review.</div>';
+        }
+        var rows = chunks.map(function(chunk, index) {
+            var status = chunk.success ? 'Success' : (chunk.modelNotFound ? 'Model Missing' : 'Failed');
+            var errorHtml = chunk.lastError ? '<br><span class="chunk-error">' + escapeHtml(chunk.lastError) + '</span>' : '';
+            return '<tr>' +
+                '<td>' + (index + 1) + '</td>' +
+                '<td>' + escapeHtml(chunk.chunkId || '—') + '</td>' +
+                '<td>' + escapeHtml(chunk.role || '—') + '</td>' +
+                '<td>' + escapeHtml(chunk.model || '—') + '</td>' +
+                '<td>' + formatAttempts(chunk.attempts, chunk.retries) + '</td>' +
+                '<td>' + formatDurationMs(chunk.durationMs) + '</td>' +
+                '<td>' + escapeHtml(status) + errorHtml + '</td>' +
+            '</tr>';
+        }).join('');
+
+        return '<table class="aui aui-table aui-table-rowhover detail-chunk-table">' +
+            '<thead><tr>' +
+                '<th>#</th>' +
+                '<th>Chunk</th>' +
+                '<th>Role</th>' +
+                '<th>Model</th>' +
+                '<th>Attempts</th>' +
+                '<th>Duration</th>' +
+                '<th>Status</th>' +
+            '</tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+        '</table>';
+    }
+
+    function scrollToRow($row) {
+        if (!$row || !$row.length) {
+            return;
+        }
+        var top = $row.offset().top - 80;
+        $('html, body').animate({ scrollTop: top }, 200);
     }
 
     function parseDateTime(value) {

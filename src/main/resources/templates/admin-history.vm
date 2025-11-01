@@ -93,51 +93,6 @@
                     </tr>
                     </tbody>
                 </table>
-
-                <section id="history-detail-panel" class="history-detail-panel" style="display:none;">
-                    <header class="history-detail-header">
-                        <h2>Review Details</h2>
-                        <span id="history-detail-subtitle" class="detail-subtitle"></span>
-                    </header>
-                    <div id="detail-message" class="aui-message info" style="display:none;"></div>
-
-                    <div class="history-detail-grid">
-                        <div class="detail-block">
-                            <h3>Overview</h3>
-                            <dl id="detail-overview" class="detail-list"></dl>
-                        </div>
-                        <div class="detail-block">
-                            <h3>Findings</h3>
-                            <dl id="detail-findings" class="detail-list"></dl>
-                        </div>
-                        <div class="detail-block">
-                            <h3>Model Summary</h3>
-                            <dl id="detail-model" class="detail-list"></dl>
-                        </div>
-                    </div>
-
-                    <div class="history-detail-chunks">
-                        <h3>Chunk Invocations</h3>
-                        <table class="aui aui-table aui-table-rowhover" id="chunk-table">
-                            <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Chunk</th>
-                                <th>Role</th>
-                                <th>Model</th>
-                                <th>Attempts</th>
-                                <th>Duration</th>
-                                <th>Status</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            <tr class="chunk-empty">
-                                <td colspan="7">Select a review run to see chunk activity.</td>
-                            </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
             </div>
         </section>
     </div>
