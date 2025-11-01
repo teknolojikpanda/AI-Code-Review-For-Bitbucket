@@ -174,15 +174,25 @@ public class OllamaAiReviewClient implements AiReviewClient {
         String diffContent = originalContent;
         int originalLength = originalContent.length();
         String lastErrorMessage = null;
+        long lastRequestBytes = 0;
+        long lastResponseBytes = 0;
+        Integer lastStatusCode = null;
+        boolean timeoutOccurred = false;
 
         while (attempts < maxRetries) {
             try {
                 attempts++;
                 metrics.increment("ai.chunk.attempt");
                 String payload = buildChunkRequest(chunk, overview, context, model, diffContent, false);
+                byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
+                lastRequestBytes = payloadBytes.length;
 
-                String response = executeChat(baseUrl, payload, config);
-                List<ReviewFinding> parsed = parseFindings(response, chunk);
+                ChatResponse response = executeChat(baseUrl, payloadBytes, config);
+                List<ReviewFinding> parsed = parseFindings(response.body, chunk);
+                lastResponseBytes = response.responseBytes;
+                lastStatusCode = response.statusCode;
+                timeoutOccurred = false;
+                lastErrorMessage = null;
                 metrics.increment("ai.model." + modelRole + ".success");
                 recordChunkInvocation(metrics,
                         chunk,
@@ -193,19 +203,36 @@ public class OllamaAiReviewClient implements AiReviewClient {
                         invocationStart,
                         true,
                         modelNotFound,
-                        lastErrorMessage);
+                        null,
+                        lastRequestBytes,
+                        lastResponseBytes,
+                        lastStatusCode,
+                        false);
                 return parsed;
             } catch (SocketTimeoutException ex) {
                 log.warn("Model {} timeout on attempt {}: {}", model, attempts, ex.getMessage());
                 lastError = ex;
                 lastErrorMessage = ex.getMessage();
+                timeoutOccurred = true;
+                lastResponseBytes = 0;
+                lastStatusCode = null;
             } catch (Exception ex) {
                 log.warn("Model {} failed on attempt {}: {}", model, attempts, ex.getMessage());
                 lastError = ex;
                 lastErrorMessage = ex.getMessage();
+                timeoutOccurred = false;
                 if (isModelNotFound(ex)) {
                     modelNotFound = true;
                     break;
+                }
+                if (ex instanceof OllamaHttpException httpEx) {
+                    lastStatusCode = httpEx.statusCode;
+                    lastRequestBytes = httpEx.requestBytes;
+                    lastResponseBytes = httpEx.responseBytes;
+                }
+                if (!(ex instanceof OllamaHttpException) && !(ex instanceof SocketTimeoutException)) {
+                    lastStatusCode = null;
+                    lastResponseBytes = 0;
                 }
             }
 
@@ -233,7 +260,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     invocationStart,
                     false,
                     true,
-                    lastErrorMessage != null ? lastErrorMessage : "model not found");
+                    lastErrorMessage != null ? lastErrorMessage : "model not found",
+                    lastRequestBytes,
+                    lastResponseBytes,
+                    lastStatusCode,
+                    timeoutOccurred);
             return null;
         }
         if (lastError != null) {
@@ -250,7 +281,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     invocationStart,
                     false,
                     modelNotFound,
-                    lastErrorMessage);
+                    lastErrorMessage,
+                    lastRequestBytes,
+                    lastResponseBytes,
+                    lastStatusCode,
+                    timeoutOccurred);
             return null;
         }
         metrics.increment("ai.model." + modelRole + ".failures");
@@ -263,7 +298,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 invocationStart,
                 false,
                 modelNotFound,
-                lastErrorMessage);
+                lastErrorMessage,
+                lastRequestBytes,
+                lastResponseBytes,
+                lastStatusCode,
+                timeoutOccurred);
         return null;
     }
 
@@ -276,7 +315,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
                                        Instant invocationStart,
                                        boolean success,
                                        boolean modelNotFound,
-                                       String lastErrorMessage) {
+                                       String lastErrorMessage,
+                                       long requestBytes,
+                                       long responseBytes,
+                                       Integer statusCode,
+                                       boolean timeout) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("chunkId", chunk.getId());
         entry.put("role", modelRole);
@@ -286,6 +329,12 @@ public class OllamaAiReviewClient implements AiReviewClient {
         entry.put("retries", Math.max(0, attempts - 1));
         entry.put("durationMs", Math.max(0, Duration.between(invocationStart, Instant.now()).toMillis()));
         entry.put("success", success);
+        entry.put("requestBytes", Math.max(0, requestBytes));
+        entry.put("responseBytes", Math.max(0, responseBytes));
+        entry.put("timeout", timeout);
+        if (statusCode != null) {
+            entry.put("statusCode", statusCode);
+        }
         if (modelNotFound) {
             entry.put("modelNotFound", Boolean.TRUE);
         }
@@ -304,6 +353,33 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return trimmed;
         }
         return trimmed.substring(0, Math.max(0, maxLength));
+    }
+
+    private static final class ChatResponse {
+        private final String body;
+        private final int statusCode;
+        private final long requestBytes;
+        private final long responseBytes;
+
+        private ChatResponse(String body, int statusCode, long requestBytes, long responseBytes) {
+            this.body = body;
+            this.statusCode = statusCode;
+            this.requestBytes = requestBytes;
+            this.responseBytes = responseBytes;
+        }
+    }
+
+    private static final class OllamaHttpException extends RuntimeException {
+        private final int statusCode;
+        private final long requestBytes;
+        private final long responseBytes;
+
+        private OllamaHttpException(int statusCode, String message, long requestBytes, long responseBytes) {
+            super("Ollama returned HTTP " + statusCode + ": " + (message != null ? message : ""));
+            this.statusCode = statusCode;
+            this.requestBytes = requestBytes;
+            this.responseBytes = responseBytes;
+        }
     }
 
     private String modelKey(String baseUrl, String model) {
@@ -445,12 +521,11 @@ public class OllamaAiReviewClient implements AiReviewClient {
         return map;
     }
 
-    private String executeChat(String baseUrl,
-                               String payload,
-                               ReviewConfig config) throws Exception {
+    private ChatResponse executeChat(String baseUrl,
+                                     byte[] payloadBytes,
+                                     ReviewConfig config) throws Exception {
         String normalized = baseUrl.endsWith("/") ? baseUrl + "api/chat" : baseUrl + "/api/chat";
         URI chatUri = URI.create(normalized);
-        byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
         HttpURLConnection connection = (HttpURLConnection) chatUri.toURL().openConnection();
         connection.setRequestMethod("POST");
         connection.setRequestProperty("Content-Type", "application/json");
@@ -470,10 +545,13 @@ public class OllamaAiReviewClient implements AiReviewClient {
         int status = connection.getResponseCode();
         if (status >= 400) {
             String error = readStream(connection, true);
-            throw new IllegalStateException("Ollama returned HTTP " + status + ": " + error);
+            long errorBytes = error != null ? error.getBytes(StandardCharsets.UTF_8).length : 0;
+            throw new OllamaHttpException(status, error, payloadBytes.length, errorBytes);
         }
 
-        return readStream(connection, false);
+        String body = readStream(connection, false);
+        long responseBytes = body != null ? body.getBytes(StandardCharsets.UTF_8).length : 0;
+        return new ChatResponse(body, status, payloadBytes.length, responseBytes);
     }
 
     private List<ReviewFinding> parseFindings(String response, ReviewChunk chunk) throws Exception {
