@@ -52,6 +52,7 @@
 - Added a daily activity sparkline to the metrics section for quick visual trend scanning.
 - Exposed primary/fallback success rates in the summary metrics card to highlight model reliability trends.
 - Instrumented chunk telemetry with request/response sizes, HTTP status codes, and timeout flags, persisting them to `AIReviewChunk` and surfacing the data in the admin chunk detail view.
+- Added chunk-telemetry backfill endpoint and service to repopulate legacy history entries; metrics summary now aggregates total bytes/timeouts.
 - Ensure new telemetry columns are created on startup by migrating `AIReviewChunk` within the service constructor.
 
 ## Next Steps

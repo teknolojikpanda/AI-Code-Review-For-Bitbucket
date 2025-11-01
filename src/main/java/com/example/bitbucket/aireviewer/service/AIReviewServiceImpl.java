@@ -46,6 +46,8 @@ import java.util.stream.Collectors;
 
 import net.java.ao.DBParam;
 
+import com.example.bitbucket.aireviewer.util.ChunkTelemetryUtil;
+
 /**
  * Implementation of AI code review service.
  *
@@ -1233,7 +1235,7 @@ public class AIReviewServiceImpl implements AIReviewService {
 
                 history.save();
 
-                List<Map<String, Object>> chunkEntries = extractChunkInvocationEntries(metricsMap);
+                List<Map<String, Object>> chunkEntries = ChunkTelemetryUtil.extractEntries(metricsMap);
                 if (!chunkEntries.isEmpty()) {
                     int sequence = 0;
                     for (Map<String, Object> entry : chunkEntries) {
@@ -1384,25 +1386,6 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
         return defaultValue;
-    }
-
-    private List<Map<String, Object>> extractChunkInvocationEntries(Map<String, Object> metrics) {
-        if (metrics == null) {
-            return Collections.emptyList();
-        }
-        Object value = metrics.get("ai.chunk.invocations");
-        if (!(value instanceof Iterable)) {
-            return Collections.emptyList();
-        }
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Object element : (Iterable<?>) value) {
-            if (element instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> entry = new LinkedHashMap<>((Map<String, Object>) element);
-                result.add(entry);
-            }
-        }
-        return result;
     }
 
     private String truncate(String value, int maxLength) {

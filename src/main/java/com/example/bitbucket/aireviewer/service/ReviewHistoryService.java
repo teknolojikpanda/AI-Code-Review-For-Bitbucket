@@ -25,6 +25,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import net.java.ao.DBParam;
 import net.java.ao.Query;
 
 /**
@@ -379,6 +380,72 @@ public class ReviewHistoryService {
     }
 
     @Nonnull
+    public Map<String, Object> backfillChunkTelemetry(int limit) {
+        final int batchLimit = limit < 0 ? 0 : limit;
+        return ao.executeInTransaction(() -> {
+            Query query = Query.select().order("REVIEW_START_TIME DESC");
+            if (batchLimit > 0) {
+                query = query.limit(batchLimit);
+            }
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, query);
+            int scanned = histories.length;
+            int processed = 0;
+            int chunksCreated = 0;
+
+            for (AIReviewHistory history : histories) {
+                AIReviewChunk[] existing = history.getChunks();
+                if (existing != null && existing.length > 0) {
+                    continue;
+                }
+                List<Map<String, Object>> entries = ChunkTelemetryUtil.extractEntriesFromJson(history.getMetricsJson());
+                if (entries.isEmpty()) {
+                    continue;
+                }
+                int sequence = 0;
+                int createdForHistory = 0;
+                for (Map<String, Object> entry : entries) {
+                    String chunkId = limitString(entry.get("chunkId"), 191);
+                    if (chunkId == null || chunkId.isEmpty()) {
+                        continue;
+                    }
+                    AIReviewChunk chunk = ao.create(
+                            AIReviewChunk.class,
+                            new DBParam("HISTORY_ID", history.getID()),
+                            new DBParam("CHUNK_ID", chunkId));
+                    chunk.setHistory(history);
+                    chunk.setChunkId(chunkId);
+                    chunk.setRole(limitString(entry.get("role"), 64));
+                    chunk.setModel(limitString(entry.get("model"), 255));
+                    chunk.setEndpoint(limitString(entry.get("endpoint"), 255));
+                    chunk.setSequence(sequence++);
+                    chunk.setAttempts(safeLongToInt(asLong(entry.get("attempts"), 0)));
+                    chunk.setRetries(safeLongToInt(asLong(entry.get("retries"), 0)));
+                    chunk.setDurationMs(asLong(entry.get("durationMs"), 0));
+                    chunk.setSuccess(asBoolean(entry.get("success"), false));
+                    chunk.setModelNotFound(asBoolean(entry.get("modelNotFound"), false));
+                    chunk.setRequestBytes(asLong(entry.get("requestBytes"), 0));
+                    chunk.setResponseBytes(asLong(entry.get("responseBytes"), 0));
+                    chunk.setStatusCode(safeLongToInt(asLong(entry.get("statusCode"), 0)));
+                    chunk.setTimeout(asBoolean(entry.get("timeout"), false));
+                    chunk.setLastError(limitString(entry.get("lastError"), 4096));
+                    chunk.save();
+                    createdForHistory++;
+                }
+                if (createdForHistory > 0) {
+                    processed++;
+                    chunksCreated += createdForHistory;
+                }
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("historiesScanned", scanned);
+            result.put("historiesUpdated", processed);
+            result.put("chunksCreated", chunksCreated);
+            return result;
+        });
+    }
+
+    @Nonnull
     private Map<String, Object> toMap(@Nonnull AIReviewHistory history) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", history.getID());
@@ -672,5 +739,52 @@ public class ReviewHistoryService {
             return trimmed;
         }
         return trimmed.substring(0, Math.max(0, max));
+    }
+
+    private long asLong(Object value, long defaultValue) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Long.parseLong(((String) value).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private boolean asBoolean(Object value, boolean defaultValue) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue() != 0;
+        }
+        if (value instanceof String) {
+            String trimmed = ((String) value).trim();
+            if ("true".equalsIgnoreCase(trimmed) || "false".equalsIgnoreCase(trimmed)) {
+                return Boolean.parseBoolean(trimmed);
+            }
+            try {
+                return Long.parseLong(trimmed) != 0;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultValue;
+    }
+
+    private String limitString(Object value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String str = String.valueOf(value).trim();
+        if (str.isEmpty()) {
+            return null;
+        }
+        if (str.length() <= maxLength) {
+            return str;
+        }
+        return str.substring(0, Math.max(0, maxLength));
     }
 }

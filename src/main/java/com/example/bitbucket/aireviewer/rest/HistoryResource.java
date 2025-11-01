@@ -12,6 +12,7 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.PathParam;
@@ -161,6 +162,23 @@ public class HistoryResource {
                     .entity(error("Failed to compute daily metrics: " + ex.getMessage()))
                     .build();
         }
+    }
+
+    @POST
+    @Path("/backfill/chunks")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response backfillChunkTelemetry(@Context HttpServletRequest request,
+                                           @QueryParam("limit") Integer limitParam) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        int limit = (limitParam == null) ? 0 : limitParam;
+        Map<String, Object> result = historyService.backfillChunkTelemetry(limit);
+        return Response.ok(result).build();
     }
 
     private boolean isSystemAdmin(UserProfile profile) {
