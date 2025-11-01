@@ -61,9 +61,6 @@ public class ReviewHistoryService {
         final int start = fetchAll ? 0 : Math.max(offset, 0);
 
         return ao.executeInTransaction(() -> {
-            Query baseQuery = Query.select()
-                    .order("REVIEW_START_TIME DESC");
-
             List<String> clauses = new ArrayList<>();
             List<Object> params = new ArrayList<>();
 
@@ -88,14 +85,18 @@ public class ReviewHistoryService {
                 params.add(until);
             }
 
+            Query countQuery = Query.select();
+            Query dataQuery = Query.select().order("REVIEW_START_TIME DESC");
+
             if (!clauses.isEmpty()) {
-                String whereClause = clauses.stream().collect(Collectors.joining(" AND "));
-                baseQuery = baseQuery.where(whereClause, params.toArray());
+                String whereClause = String.join(" AND ", clauses);
+                countQuery = countQuery.where(whereClause, params.toArray());
+                dataQuery = dataQuery.where(whereClause, params.toArray());
             }
 
-            int total = fetchAll ? 0 : ao.count(AIReviewHistory.class, baseQuery);
-            Query dataQuery = fetchAll ? baseQuery : baseQuery.limit(pageSize).offset(start);
-            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, dataQuery);
+            int total = fetchAll ? 0 : ao.count(AIReviewHistory.class, countQuery);
+            Query pagedQuery = fetchAll ? dataQuery : dataQuery.limit(pageSize).offset(start);
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, pagedQuery);
             if (fetchAll) {
                 total = histories.length;
             }
