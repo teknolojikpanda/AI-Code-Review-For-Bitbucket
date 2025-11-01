@@ -31,6 +31,18 @@
             params.pullRequestId = pullRequestId;
         }
 
+        var metricsFilters = {};
+        if (projectKey) {
+            metricsFilters.projectKey = projectKey;
+        }
+        if (repositorySlug) {
+            metricsFilters.repositorySlug = repositorySlug;
+        }
+        if (pullRequestId) {
+            metricsFilters.pullRequestId = pullRequestId;
+        }
+        loadMetrics(metricsFilters);
+
         $.ajax({
             url: historyUrl,
             type: 'GET',
@@ -49,6 +61,136 @@
             renderHistory([]);
             setHistoryMessage('error', 'Failed to load review history: ' + (error || status), false);
         });
+    }
+
+    function loadMetrics(filters) {
+        showMetricsSection();
+        setMetricsMessage('info', 'Loading metrics...', true);
+
+        var data = $.extend({}, filters || {});
+
+        $.ajax({
+            url: historyUrl + '/metrics',
+            type: 'GET',
+            dataType: 'json',
+            data: data
+        }).done(function(response) {
+            renderMetrics(response || {});
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to fetch history metrics:', status, error);
+            renderMetrics({});
+            setMetricsMessage('error', 'Failed to load metrics: ' + (error || status), false);
+        });
+    }
+
+    function showMetricsSection() {
+        $('#metrics-section').show();
+    }
+
+    function renderMetrics(data) {
+        data = data || {};
+        showMetricsSection();
+
+        var totalReviews = Number(data.totalReviews || 0);
+        var statusCounts = data.statusCounts || {};
+        var issueTotals = data.issueTotals || {};
+        var duration = data.durationSeconds || {};
+        var fallback = data.fallback || {};
+        var chunkTotals = data.chunkTotals || {};
+
+        $('#metric-total-reviews').text(totalReviews);
+
+        var statusBreakdown = Object.keys(statusCounts).length
+            ? Object.keys(statusCounts).map(function(key) {
+                return key + ': ' + (statusCounts[key] || 0);
+            }).join(' • ')
+            : 'No reviews';
+        $('#metric-status-breakdown').text(statusBreakdown);
+
+        $('#metric-avg-duration').text(formatDuration(duration.average));
+        var durationDetailParts = [];
+        if (duration.p95 != null) {
+            durationDetailParts.push('p95 ' + formatDuration(duration.p95));
+        }
+        if (duration.max != null) {
+            durationDetailParts.push('max ' + formatDuration(duration.max));
+        }
+        $('#metric-duration-detail').text(durationDetailParts.length ? durationDetailParts.join(' • ') : '—');
+
+        var totalIssues = Number(issueTotals.totalIssues || 0);
+        $('#metric-total-issues').text(totalIssues);
+        var issueBreakdown = 'C' + (issueTotals.critical || 0) +
+            ' H' + (issueTotals.high || 0) +
+            ' M' + (issueTotals.medium || 0) +
+            ' L' + (issueTotals.low || 0);
+        $('#metric-issue-breakdown').text(issueBreakdown);
+
+        var fallbackRate = totalReviews > 0 ? (fallback.triggered || 0) / totalReviews : null;
+        $('#metric-fallback-rate').text(formatPercent(fallbackRate));
+        var fallbackDetailParts = [
+            'Triggered ' + (fallback.triggered || 0),
+            'Primary fail ' + (fallback.primaryFailures || 0),
+            'Fallback success ' + (fallback.fallbackSuccesses || 0)
+        ];
+        if (chunkTotals && chunkTotals.successRate != null) {
+            fallbackDetailParts.push('Chunk success ' + formatPercent(chunkTotals.successRate));
+        }
+        $('#metric-fallback-detail').text(fallbackDetailParts.join(' • '));
+
+        var subtitle = buildMetricsSubtitle(data.filter || {});
+        $('#metrics-subtitle').text(subtitle);
+
+        if (totalReviews === 0) {
+            setMetricsMessage('info', 'No review runs match the current filters.', false);
+        } else {
+            clearMetricsMessage();
+        }
+    }
+
+    function buildMetricsSubtitle(filter) {
+        if (!filter) {
+            return '';
+        }
+        var parts = [];
+        if (filter.projectKey && filter.repositorySlug) {
+            parts.push(filter.projectKey + '/' + filter.repositorySlug + (filter.pullRequestId ? (' #' + filter.pullRequestId) : ''));
+        } else if (filter.projectKey) {
+            parts.push(filter.projectKey);
+        } else if (filter.repositorySlug) {
+            parts.push(filter.repositorySlug);
+        }
+        if (filter.pullRequestId && !(filter.projectKey && filter.repositorySlug && filter.pullRequestId)) {
+            parts.push('PR #' + filter.pullRequestId);
+        }
+        if (filter.since || filter.until) {
+            var range = [];
+            if (filter.since) {
+                range.push('from ' + formatTimestamp(filter.since));
+            }
+            if (filter.until) {
+                range.push('to ' + formatTimestamp(filter.until));
+            }
+            parts.push(range.join(' '));
+        }
+        if (!parts.length) {
+            return 'Showing all reviews';
+        }
+        return parts.join(' • ');
+    }
+
+    function setMetricsMessage(type, message, showSpinner) {
+        var $message = $('#metrics-message');
+        if (!message) {
+            $message.hide().text('').removeClass('info error');
+            return;
+        }
+        $message.removeClass('info error').addClass(type === 'error' ? 'error' : 'info');
+        var content = showSpinner ? '<span class="aui-icon aui-icon-wait"></span> ' + escapeHtml(message) : escapeHtml(message);
+        $message.html(content).show();
+    }
+
+    function clearMetricsMessage() {
+        setMetricsMessage(null, null, false);
     }
 
     function renderHistory(entries) {
@@ -322,6 +464,15 @@
             (entry.highIssues || 0) + '/M' +
             (entry.mediumIssues || 0) + '/L' +
             (entry.lowIssues || 0) + ')';
+    }
+
+    function formatPercent(ratio, decimals) {
+        if (ratio == null || isNaN(ratio)) {
+            return '—';
+        }
+        var value = Number(ratio);
+        var digits = (decimals === 0 || decimals) ? decimals : 1;
+        return (value * 100).toFixed(digits) + '%';
     }
 
     function setHistoryMessage(type, message, showSpinner) {

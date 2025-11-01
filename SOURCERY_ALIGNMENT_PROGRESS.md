@@ -46,6 +46,7 @@
 - Exposed detailed history endpoints: `ReviewHistoryService` now returns per-entry chunk metadata, and `HistoryResource` serves `/history/{id}` plus `/history/{id}/chunks`, enabling the admin UI to query chunk timelines.
 - Hardened configuration validation (Phase 3 / item 3): introduced structured `ConfigurationValidationException`, tightened numeric range checks, validated prompt overrides, and updated REST responses to surface field-level errors.
 - Refreshed admin history UI to consume new observability data: table rows load detailed review metadata, model statistics, and chunk invocation timelines via the new REST endpoints, with a responsive summary panel.
+- Added `/history/metrics` aggregate endpoint and summary cards on the admin history page, surfacing total reviews, duration percentiles, issue counts, and fallback usage derived from persisted telemetry.
 
 ## Next Steps
 

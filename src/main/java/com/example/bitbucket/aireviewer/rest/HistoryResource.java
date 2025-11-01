@@ -75,8 +75,47 @@ public class HistoryResource {
         }
     }
 
+    @GET
+    @Path("/metrics")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getMetrics(@Context HttpServletRequest request,
+                               @QueryParam("projectKey") String projectKey,
+                               @QueryParam("repositorySlug") String repositorySlug,
+                               @QueryParam("pullRequestId") Long pullRequestId,
+                               @QueryParam("since") Long sinceParam,
+                               @QueryParam("until") Long untilParam) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        Long since = sanitizeEpoch(sinceParam);
+        Long until = sanitizeEpoch(untilParam);
+
+        try {
+            Map<String, Object> summary = historyService.getMetricsSummary(
+                    projectKey,
+                    repositorySlug,
+                    pullRequestId,
+                    since,
+                    until);
+            return Response.ok(summary).build();
+        } catch (Exception ex) {
+            log.error("Failed to compute AI review metrics", ex);
+            return Response.serverError()
+                    .entity(error("Failed to compute metrics: " + ex.getMessage()))
+                    .build();
+        }
+    }
+
     private boolean isSystemAdmin(UserProfile profile) {
         return profile != null && userManager.isSystemAdmin(profile.getUserKey());
+    }
+
+    private Long sanitizeEpoch(Long value) {
+        return (value == null || value <= 0) ? null : value;
     }
 
     private Map<String, String> error(String message) {

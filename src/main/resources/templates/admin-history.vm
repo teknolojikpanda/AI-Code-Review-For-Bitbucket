@@ -43,6 +43,36 @@
 
                 <div id="history-message" class="aui-message info" style="display:none;"></div>
 
+                <section id="metrics-section" class="metrics-section" style="display:none;">
+                    <header class="metrics-header">
+                        <h2>Summary Metrics</h2>
+                        <span id="metrics-subtitle" class="metrics-subtitle"></span>
+                    </header>
+                    <div id="metrics-message" class="aui-message info" style="display:none;"></div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-label">Total Reviews</span>
+                            <span class="metric-value" id="metric-total-reviews">—</span>
+                            <span class="metric-subtext" id="metric-status-breakdown">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Average Duration</span>
+                            <span class="metric-value" id="metric-avg-duration">—</span>
+                            <span class="metric-subtext" id="metric-duration-detail">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Issues Found</span>
+                            <span class="metric-value" id="metric-total-issues">—</span>
+                            <span class="metric-subtext" id="metric-issue-breakdown">—</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Fallback Usage</span>
+                            <span class="metric-value" id="metric-fallback-rate">—</span>
+                            <span class="metric-subtext" id="metric-fallback-detail">—</span>
+                        </div>
+                    </div>
+                </section>
+
                 <table class="aui aui-table aui-table-rowhover" id="review-history-table">
                     <thead>
                     <tr>

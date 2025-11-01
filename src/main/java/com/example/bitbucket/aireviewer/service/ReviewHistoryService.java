@@ -13,6 +13,7 @@ import javax.inject.Singleton;
 import javax.inject.Named;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -130,6 +131,127 @@ public class ReviewHistoryService {
     }
 
     @Nonnull
+    public Map<String, Object> getMetricsSummary(String projectKey,
+                                                 String repositorySlug,
+                                                 Long pullRequestId,
+                                                 Long since,
+                                                 Long until) {
+        final long generatedAt = System.currentTimeMillis();
+
+        return ao.executeInTransaction(() -> {
+            Query query = Query.select();
+            List<String> clauses = new ArrayList<>();
+            List<Object> params = new ArrayList<>();
+
+            if (projectKey != null && !projectKey.trim().isEmpty()) {
+                clauses.add("PROJECT_KEY = ?");
+                params.add(projectKey.trim());
+            }
+            if (repositorySlug != null && !repositorySlug.trim().isEmpty()) {
+                clauses.add("REPOSITORY_SLUG = ?");
+                params.add(repositorySlug.trim());
+            }
+            if (pullRequestId != null && pullRequestId > 0) {
+                clauses.add("PULL_REQUEST_ID = ?");
+                params.add(pullRequestId);
+            }
+            if (since != null && since > 0) {
+                clauses.add("REVIEW_START_TIME >= ?");
+                params.add(since);
+            }
+            if (until != null && until > 0) {
+                clauses.add("REVIEW_START_TIME <= ?");
+                params.add(until);
+            }
+
+            if (!clauses.isEmpty()) {
+                query = query.where(String.join(" AND ", clauses), params.toArray());
+            }
+
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, query);
+
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("generatedAt", generatedAt);
+            summary.put("totalReviews", histories.length);
+            summary.put("filtersApplied", !clauses.isEmpty());
+            summary.put("filter", buildFilterDescriptor(projectKey, repositorySlug, pullRequestId, since, until));
+
+            if (histories.length == 0) {
+                summary.put("statusCounts", Collections.emptyMap());
+                summary.put("issueTotals", emptyIssueTotals());
+                summary.put("durationSeconds", Collections.emptyMap());
+                summary.put("fallback", emptyFallbackTotals());
+                summary.put("chunkTotals", emptyChunkTotals());
+                return summary;
+            }
+
+            Map<String, Long> statusCounts = new LinkedHashMap<>();
+            statusCounts.put("SUCCESS", 0L);
+            statusCounts.put("PARTIAL", 0L);
+            statusCounts.put("FAILED", 0L);
+            statusCounts.put("SKIPPED", 0L);
+
+            long critical = 0;
+            long high = 0;
+            long medium = 0;
+            long low = 0;
+            long totalIssues = 0;
+
+            long totalChunks = 0;
+            long successfulChunks = 0;
+            long failedChunks = 0;
+
+            long primaryInvocations = 0;
+            long primarySuccesses = 0;
+            long primaryFailures = 0;
+            long fallbackInvocations = 0;
+            long fallbackSuccesses = 0;
+            long fallbackFailures = 0;
+            long fallbackTriggered = 0;
+
+            List<Double> durations = new ArrayList<>();
+
+            for (AIReviewHistory history : histories) {
+                String status = normalizeStatus(history.getReviewStatus());
+                statusCounts.merge(status, 1L, Long::sum);
+
+                critical += history.getCriticalIssues();
+                high += history.getHighIssues();
+                medium += history.getMediumIssues();
+                low += history.getLowIssues();
+                totalIssues += history.getTotalIssuesFound();
+
+                totalChunks += Math.max(0, history.getTotalChunks());
+                successfulChunks += Math.max(0, history.getSuccessfulChunks());
+                failedChunks += Math.max(0, history.getFailedChunks());
+
+                primaryInvocations += Math.max(0, history.getPrimaryModelInvocations());
+                primarySuccesses += Math.max(0, history.getPrimaryModelSuccesses());
+                primaryFailures += Math.max(0, history.getPrimaryModelFailures());
+                fallbackInvocations += Math.max(0, history.getFallbackModelInvocations());
+                fallbackSuccesses += Math.max(0, history.getFallbackModelSuccesses());
+                fallbackFailures += Math.max(0, history.getFallbackModelFailures());
+                fallbackTriggered += Math.max(0, history.getFallbackTriggered());
+
+                double durationSeconds = resolveDurationSeconds(history);
+                if (durationSeconds > 0) {
+                    durations.add(durationSeconds);
+                }
+            }
+
+            summary.put("statusCounts", statusCounts);
+            summary.put("issueTotals", buildIssueTotals(totalIssues, critical, high, medium, low, histories.length));
+            summary.put("durationSeconds", buildDurationSummary(durations));
+            summary.put("fallback", buildFallbackTotals(fallbackTriggered,
+                    primaryInvocations, primarySuccesses, primaryFailures,
+                    fallbackInvocations, fallbackSuccesses, fallbackFailures));
+            summary.put("chunkTotals", buildChunkTotals(totalChunks, successfulChunks, failedChunks));
+
+            return summary;
+        });
+    }
+
+    @Nonnull
     private Map<String, Object> toMap(@Nonnull AIReviewHistory history) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", history.getID());
@@ -211,6 +333,177 @@ public class ReviewHistoryService {
             map.put("lastError", truncate(lastError, 2048));
         }
         return map;
+    }
+
+    private Map<String, Object> buildFilterDescriptor(String projectKey,
+                                                      String repositorySlug,
+                                                      Long pullRequestId,
+                                                      Long since,
+                                                      Long until) {
+        Map<String, Object> filter = new LinkedHashMap<>();
+        if (projectKey != null && !projectKey.trim().isEmpty()) {
+            filter.put("projectKey", projectKey.trim());
+        }
+        if (repositorySlug != null && !repositorySlug.trim().isEmpty()) {
+            filter.put("repositorySlug", repositorySlug.trim());
+        }
+        if (pullRequestId != null && pullRequestId > 0) {
+            filter.put("pullRequestId", pullRequestId);
+        }
+        if (since != null && since > 0) {
+            filter.put("since", since);
+        }
+        if (until != null && until > 0) {
+            filter.put("until", until);
+        }
+        return filter.isEmpty() ? Collections.emptyMap() : filter;
+    }
+
+    private Map<String, Object> emptyIssueTotals() {
+        return buildIssueTotals(0, 0, 0, 0, 0, 0);
+    }
+
+    private Map<String, Object> emptyFallbackTotals() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("triggered", 0L);
+        map.put("primaryInvocations", 0L);
+        map.put("primarySuccesses", 0L);
+        map.put("primaryFailures", 0L);
+        map.put("primarySuccessRate", null);
+        map.put("fallbackInvocations", 0L);
+        map.put("fallbackSuccesses", 0L);
+        map.put("fallbackFailures", 0L);
+        map.put("fallbackSuccessRate", null);
+        return map;
+    }
+
+    private Map<String, Object> emptyChunkTotals() {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("totalChunks", 0L);
+        map.put("successfulChunks", 0L);
+        map.put("failedChunks", 0L);
+        map.put("successRate", null);
+        return map;
+    }
+
+    private Map<String, Object> buildIssueTotals(long totalIssues,
+                                                 long critical,
+                                                 long high,
+                                                 long medium,
+                                                 long low,
+                                                 int reviewCount) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("totalIssues", totalIssues);
+        map.put("critical", critical);
+        map.put("high", high);
+        map.put("medium", medium);
+        map.put("low", low);
+        map.put("avgIssuesPerReview", reviewCount > 0 ? (double) totalIssues / (double) reviewCount : 0d);
+        return map;
+    }
+
+    private Map<String, Object> buildDurationSummary(List<Double> durations) {
+        if (durations == null || durations.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Double> sorted = new ArrayList<>(durations);
+        Collections.sort(sorted);
+        double sum = 0d;
+        for (Double value : sorted) {
+            sum += value;
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("count", sorted.size());
+        map.put("average", sum / sorted.size());
+        map.put("min", sorted.get(0));
+        map.put("max", sorted.get(sorted.size() - 1));
+        map.put("p50", percentile(sorted, 0.50));
+        map.put("p95", percentile(sorted, 0.95));
+        return map;
+    }
+
+    private Map<String, Object> buildFallbackTotals(long triggered,
+                                                    long primaryInvocations,
+                                                    long primarySuccesses,
+                                                    long primaryFailures,
+                                                    long fallbackInvocations,
+                                                    long fallbackSuccesses,
+                                                    long fallbackFailures) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("triggered", triggered);
+        map.put("primaryInvocations", primaryInvocations);
+        map.put("primarySuccesses", primarySuccesses);
+        map.put("primaryFailures", primaryFailures);
+        map.put("primarySuccessRate", computeRate(primarySuccesses, primaryInvocations));
+        map.put("fallbackInvocations", fallbackInvocations);
+        map.put("fallbackSuccesses", fallbackSuccesses);
+        map.put("fallbackFailures", fallbackFailures);
+        map.put("fallbackSuccessRate", computeRate(fallbackSuccesses, fallbackInvocations));
+        return map;
+    }
+
+    private Map<String, Object> buildChunkTotals(long totalChunks,
+                                                 long successfulChunks,
+                                                 long failedChunks) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("totalChunks", totalChunks);
+        map.put("successfulChunks", successfulChunks);
+        map.put("failedChunks", failedChunks);
+        map.put("successRate", computeRate(successfulChunks, totalChunks));
+        return map;
+    }
+
+    private Double computeRate(long numerator, long denominator) {
+        if (denominator <= 0) {
+            return null;
+        }
+        return (double) numerator / (double) denominator;
+    }
+
+    private double percentile(List<Double> sortedValues, double percentile) {
+        if (sortedValues.isEmpty()) {
+            return 0d;
+        }
+        if (sortedValues.size() == 1) {
+            return sortedValues.get(0);
+        }
+        double index = percentile * (sortedValues.size() - 1);
+        int lower = (int) Math.floor(index);
+        int upper = (int) Math.ceil(index);
+        if (lower == upper) {
+            return sortedValues.get(lower);
+        }
+        double fraction = index - lower;
+        double lowerValue = sortedValues.get(lower);
+        double upperValue = sortedValues.get(upper);
+        return lowerValue + (upperValue - lowerValue) * fraction;
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.trim().isEmpty()) {
+            return "UNKNOWN";
+        }
+        String normalized = status.trim().toUpperCase();
+        if (!normalized.equals("SUCCESS") &&
+            !normalized.equals("PARTIAL") &&
+            !normalized.equals("FAILED") &&
+            !normalized.equals("SKIPPED")) {
+            return normalized;
+        }
+        return normalized;
+    }
+
+    private double resolveDurationSeconds(@Nonnull AIReviewHistory history) {
+        double recorded = history.getAnalysisTimeSeconds();
+        if (recorded > 0) {
+            return recorded;
+        }
+        long start = history.getReviewStartTime();
+        long end = history.getReviewEndTime();
+        if (start > 0 && end > start) {
+            return (end - start) / 1000.0;
+        }
+        return -1d;
     }
 
     private String truncate(String value, int max) {
