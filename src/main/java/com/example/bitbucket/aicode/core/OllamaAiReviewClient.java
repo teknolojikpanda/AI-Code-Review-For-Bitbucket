@@ -225,7 +225,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     modelNotFound = true;
                     break;
                 }
-                if (ex instanceof OllamaHttpException httpEx) {
+                if (ex instanceof OllamaHttpException) {
+                    OllamaHttpException httpEx = (OllamaHttpException) ex;
                     lastStatusCode = httpEx.statusCode;
                     lastRequestBytes = httpEx.requestBytes;
                     lastResponseBytes = httpEx.responseBytes;
