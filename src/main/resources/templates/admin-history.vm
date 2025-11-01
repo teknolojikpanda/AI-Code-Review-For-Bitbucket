@@ -93,6 +93,12 @@
                     </tr>
                     </tbody>
                 </table>
+
+                <div class="history-pagination" id="history-pagination">
+                    <a href="#" class="aui-button aui-button-subtle" id="history-prev" disabled="disabled">&laquo; Previous</a>
+                    <span class="history-range" id="history-range">0 - 0 of 0</span>
+                    <a href="#" class="aui-button aui-button-subtle" id="history-next" disabled="disabled">Next &raquo;</a>
+                </div>
             </div>
         </section>
     </div>

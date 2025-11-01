@@ -13,8 +13,18 @@
         loadHistory();
     }
 
-    function loadHistory() {
+    var pagination = {
+        offset: 0,
+        limit: 50,
+        total: 0
+    };
+
+    function loadHistory(newOffset) {
         setHistoryMessage('info', 'Loading review history...', true);
+
+        if (typeof newOffset === 'number') {
+            pagination.offset = Math.max(newOffset, 0);
+        }
 
         var projectKey = $('#filter-project').val();
         var repositorySlug = $('#filter-repo').val();
@@ -22,7 +32,10 @@
         var sinceValue = parseDateTime($('#filter-since').val());
         var untilValue = parseDateTime($('#filter-until').val());
 
-        var params = { limit: 50 };
+        var params = {
+            limit: pagination.limit,
+            offset: pagination.offset
+        };
         if (projectKey) {
             params.projectKey = projectKey;
         }
@@ -64,7 +77,14 @@
             data: params
         }).done(function(response) {
             var entries = response && Array.isArray(response.entries) ? response.entries : [];
+            pagination.total = response && typeof response.total === 'number' ? response.total : entries.length;
+            pagination.limit = response && typeof response.limit === 'number' ? response.limit : pagination.limit;
+            pagination.offset = response && typeof response.offset === 'number' ? response.offset : pagination.offset;
+            pagination.nextOffset = response && typeof response.nextOffset === 'number' ? response.nextOffset : null;
+            pagination.prevOffset = response && typeof response.prevOffset === 'number' ? response.prevOffset : null;
+
             renderHistory(entries);
+            renderPagination();
             if (!entries.length) {
                 setHistoryMessage('info', 'No review runs recorded yet.', false);
             } else {
@@ -81,7 +101,10 @@
         showMetricsSection();
         setMetricsMessage('info', 'Loading metrics...', true);
 
-        var data = $.extend({}, filters || {});
+        var data = $.extend({
+            limit: pagination.limit,
+            offset: pagination.offset
+        }, filters || {});
 
         $.ajax({
             url: historyUrl + '/metrics',
@@ -565,6 +588,43 @@
         var date = new Date(value);
         var time = date.getTime();
         return isNaN(time) ? null : time;
+    }
+
+    function renderPagination() {
+        var $links = $('#history-pagination');
+        if (!$links.length) {
+            return;
+        }
+        var hasPrev = typeof pagination.prevOffset === 'number';
+        var hasNext = typeof pagination.nextOffset === 'number';
+
+        $links.find('#history-prev')
+            .toggleClass('disabled', !hasPrev)
+            .off('click')
+            .on('click', function(e) {
+                e.preventDefault();
+                if (hasPrev) {
+                    loadHistory(pagination.prevOffset);
+                }
+            });
+
+        $links.find('#history-next')
+            .toggleClass('disabled', !hasNext)
+            .off('click')
+            .on('click', function(e) {
+                e.preventDefault();
+                if (hasNext) {
+                    loadHistory(pagination.nextOffset);
+                }
+            });
+
+        var start = pagination.offset + 1;
+        var end = Math.min(pagination.offset + pagination.limit, pagination.total);
+        if (pagination.total === 0) {
+            start = 0;
+            end = 0;
+        }
+        $links.find('#history-range').text(start + ' - ' + end + ' of ' + pagination.total);
     }
 
     function setHistoryMessage(type, message, showSpinner) {

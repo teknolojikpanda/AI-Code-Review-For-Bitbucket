@@ -310,6 +310,23 @@
     color: #6b778c;
 }
 
+.history-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 15px;
+}
+
+.history-pagination .history-range {
+    color: #6b778c;
+}
+
+.history-pagination .aui-button.disabled {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
 #review-history-table tbody tr.is-selected {
     background-color: #e9f2ff;
 }

@@ -49,18 +49,19 @@ public class ReviewHistoryService {
      * @return list of history records serialized as maps for JSON rendering
      */
     @Nonnull
-    public List<Map<String, Object>> getHistory(String projectKey,
+    public Page<Map<String, Object>> getHistory(String projectKey,
                                                 String repositorySlug,
                                                 Long pullRequestId,
                                                 Long since,
                                                 Long until,
-                                                int limit) {
-        final int fetchLimit = Math.min(Math.max(limit, 1), 100);
+                                                int limit,
+                                                int offset) {
+        final int pageSize = Math.min(Math.max(limit, 1), 100);
+        final int start = Math.max(offset, 0);
 
         return ao.executeInTransaction(() -> {
-            Query query = Query.select()
-                    .order("REVIEW_START_TIME DESC")
-                    .limit(fetchLimit);
+            Query baseQuery = Query.select()
+                    .order("REVIEW_START_TIME DESC");
 
             List<String> clauses = new ArrayList<>();
             List<Object> params = new ArrayList<>();
@@ -88,16 +89,19 @@ public class ReviewHistoryService {
 
             if (!clauses.isEmpty()) {
                 String whereClause = clauses.stream().collect(Collectors.joining(" AND "));
-                query = query.where(whereClause, params.toArray());
+                baseQuery = baseQuery.where(whereClause, params.toArray());
             }
 
-            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, query);
-            log.debug("Fetched {} review history entries (limit={}, filters applied={})",
-                    histories.length, fetchLimit, !clauses.isEmpty());
+            int total = ao.count(AIReviewHistory.class, baseQuery);
+            Query pagedQuery = baseQuery.limit(pageSize).offset(start);
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, pagedQuery);
+            log.debug("Fetched {} review history entries (limit={}, offset={}, filters applied={})",
+                    histories.length, pageSize, start, !clauses.isEmpty());
 
-            return Arrays.stream(histories)
+            List<Map<String, Object>> data = Arrays.stream(histories)
                     .map(this::toMap)
                     .collect(Collectors.toList());
+            return new Page<>(data, total, pageSize, start);
         });
     }
 
