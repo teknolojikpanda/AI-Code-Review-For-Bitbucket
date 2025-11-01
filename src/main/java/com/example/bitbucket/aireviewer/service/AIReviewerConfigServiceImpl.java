@@ -15,10 +15,16 @@ import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.net.URI;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * Implementation of AIReviewerConfigService using Active Objects for persistence.
@@ -122,30 +128,109 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     public void validateConfiguration(@Nonnull Map<String, Object> configMap) {
         Objects.requireNonNull(configMap, "configMap cannot be null");
 
-        // Validate Ollama URL
-        String ollamaUrl = (String) configMap.get("ollamaUrl");
-        if (ollamaUrl != null && !ollamaUrl.isEmpty()) {
-            validateUrl(ollamaUrl);
+        Map<String, String> errors = new LinkedHashMap<>();
+
+        validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
+            try {
+                validateUrl(value);
+            } catch (IllegalArgumentException e) {
+                errors.put("ollamaUrl", e.getMessage());
+            }
+        });
+        validateString(configMap, "ollamaModel", true, 512, errors, null);
+        validateString(configMap, "fallbackModel", true, 512, errors, null);
+
+        String ollamaModel = trimToNull(configMap.get("ollamaModel"));
+        String fallbackModel = trimToNull(configMap.get("fallbackModel"));
+        if (ollamaModel != null && fallbackModel != null && ollamaModel.equalsIgnoreCase(fallbackModel)) {
+            errors.put("fallbackModel", "Fallback model must differ from the primary Ollama model");
         }
 
-        // Validate numeric ranges
-        validateIntegerRange(configMap, "maxCharsPerChunk", 10000, 100000);
-        validateIntegerRange(configMap, "maxFilesPerChunk", 1, 10);
-        validateIntegerRange(configMap, "maxChunks", 1, 50);
-        validateIntegerRange(configMap, "parallelThreads", 1, 16);
-        validateIntegerRange(configMap, "maxIssuesPerFile", 1, 100);
-        validateIntegerRange(configMap, "maxIssueComments", 1, 100);
-        validateIntegerRange(configMap, "maxRetries", 0, 10);
+        validateIntegerRange(configMap, "maxCharsPerChunk", 10_000, 100_000, errors);
+        validateIntegerRange(configMap, "maxFilesPerChunk", 1, 10, errors);
+        validateIntegerRange(configMap, "maxChunks", 1, 50, errors);
+        validateIntegerRange(configMap, "parallelThreads", 1, 16, errors);
+        validateIntegerRange(configMap, "maxIssuesPerFile", 1, 100, errors);
+        validateIntegerRange(configMap, "maxIssueComments", 1, 100, errors);
+        validateIntegerRange(configMap, "maxRetries", 0, 10, errors);
+        validateIntegerRange(configMap, "baseRetryDelay", 100, 60_000, errors);
+        validateIntegerRange(configMap, "ollamaTimeout", 5_000, 600_000, errors);
+        validateIntegerRange(configMap, "connectTimeout", 1_000, 120_000, errors);
 
-        // Validate severity
-        String minSeverity = (String) configMap.get("minSeverity");
+        String minSeverity = trimToNull(configMap.get("minSeverity"));
         if (minSeverity != null && !isValidSeverity(minSeverity)) {
-            throw new IllegalArgumentException("Invalid severity: " + minSeverity + ". Must be one of: low, medium, high, critical");
+            errors.put("minSeverity", "Invalid severity '" + minSeverity + "'. Allowed values: low, medium, high, critical");
         }
 
-        String profileKey = (String) configMap.get("reviewProfile");
+        String profileKey = trimToNull(configMap.get("reviewProfile"));
         if (profileKey != null && ReviewProfilePreset.fromKey(profileKey).isEmpty()) {
-            throw new IllegalArgumentException("Unknown review profile: " + profileKey);
+            errors.put("reviewProfile", "Unknown profile preset '" + profileKey + "'");
+        }
+
+        String requireApproval = trimToNull(configMap.get("requireApprovalFor"));
+        if (requireApproval != null) {
+            List<String> invalid = Arrays.stream(requireApproval.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .filter(s -> !isValidSeverity(s))
+                    .collect(Collectors.toList());
+            if (!invalid.isEmpty()) {
+                errors.put("requireApprovalFor", "Invalid severity values: " + String.join(", ", invalid));
+            }
+        }
+
+        configMap.forEach((key, value) -> {
+            if (key == null || value == null) {
+                return;
+            }
+            String lower = key.toLowerCase(Locale.ROOT);
+            if (!lower.startsWith("prompt")) {
+                return;
+            }
+            if (!(value instanceof String)) {
+                errors.put(key, "Prompt values must be strings");
+                return;
+            }
+            String text = ((String) value).trim();
+            if (text.isEmpty()) {
+                errors.put(key, "Prompt overrides cannot be empty");
+            } else if (text.length() > 10_000) {
+                errors.put(key, "Prompt overrides must be 10,000 characters or fewer");
+            }
+        });
+
+        if (!errors.isEmpty()) {
+            throw new ConfigurationValidationException(errors);
+        }
+    }
+
+    private void validateString(Map<String, Object> map,
+                                String key,
+                                boolean enforceNonBlank,
+                                int maxLength,
+                                Map<String, String> errors,
+                                Consumer<String> additionalValidation) {
+        Object raw = map.get(key);
+        if (raw == null) {
+            return;
+        }
+        if (!(raw instanceof String)) {
+            errors.put(key, "Expected string value but received " + raw.getClass().getSimpleName());
+            return;
+        }
+        String value = ((String) raw).trim();
+        if (value.isEmpty()) {
+            if (enforceNonBlank) {
+                errors.put(key, "Value cannot be empty");
+            }
+            return;
+        }
+        if (value.length() > maxLength) {
+            errors.put(key, "Value must be " + maxLength + " characters or fewer");
+            return;
+        }
+        if (additionalValidation != null) {
+            additionalValidation.accept(value);
         }
     }
 
@@ -532,16 +617,43 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
     }
 
-    private void validateIntegerRange(Map<String, Object> configMap, String key, int min, int max) {
+    private void validateIntegerRange(Map<String, Object> configMap,
+                                      String key,
+                                      int min,
+                                      int max,
+                                      Map<String, String> errors) {
         if (!configMap.containsKey(key)) {
             return;
         }
-
-        int value = getIntValue(configMap, key);
-        if (value < min || value > max) {
-            throw new IllegalArgumentException(
-                    String.format("%s must be between %d and %d, got %d", key, min, max, value));
+        Integer value = parseInteger(configMap.get(key));
+        if (value == null) {
+            errors.put(key, "Expected whole number value");
+            return;
         }
+        if (value < min || value > max) {
+            errors.put(key, String.format("Value must be between %d and %d", min, max));
+        }
+    }
+
+    private Integer parseInteger(Object raw) {
+        if (raw instanceof Integer) {
+            return (Integer) raw;
+        }
+        if (raw instanceof Number) {
+            return ((Number) raw).intValue();
+        }
+        if (raw instanceof String) {
+            try {
+                String trimmed = ((String) raw).trim();
+                if (trimmed.isEmpty()) {
+                    return null;
+                }
+                return Integer.parseInt(trimmed);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private boolean isValidSeverity(String severity) {
@@ -569,5 +681,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             return Boolean.parseBoolean((String) value);
         }
         throw new IllegalArgumentException("Cannot convert " + key + " to boolean: " + value);
+    }
+
+    private String trimToNull(Object value) {
+        if (!(value instanceof String)) {
+            return null;
+        }
+        String trimmed = ((String) value).trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

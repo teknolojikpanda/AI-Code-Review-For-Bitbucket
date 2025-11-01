@@ -6,6 +6,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
+import com.example.bitbucket.aireviewer.service.ConfigurationValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -103,6 +104,11 @@ public class ConfigResource {
             Map<String, Object> normalized = normalizeConfigPayload(config);
             configService.updateConfiguration(normalized);
             return Response.ok(success("Configuration updated successfully")).build();
+        } catch (ConfigurationValidationException e) {
+            log.warn("Invalid configuration: {}", e.getErrors());
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid configuration", e.getErrors()))
+                    .build();
         } catch (IllegalArgumentException e) {
             log.warn("Invalid configuration: {}", e.getMessage());
             return Response.status(Response.Status.BAD_REQUEST)
@@ -221,6 +227,11 @@ public class ConfigResource {
                     : "Auto-approve disabled");
             response.put("autoApprove", enabled);
             return Response.ok(response).build();
+        } catch (ConfigurationValidationException ex) {
+            log.warn("Invalid auto-approve toggle request: {}", ex.getErrors());
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid configuration", ex.getErrors()))
+                    .build();
         } catch (IllegalArgumentException ex) {
             log.warn("Invalid auto-approve toggle request: {}", ex.getMessage());
             return Response.status(Response.Status.BAD_REQUEST)
@@ -262,9 +273,16 @@ public class ConfigResource {
     /**
      * Create error response
      */
-    private Map<String, String> error(String message) {
-        Map<String, String> error = new HashMap<>();
+    private Map<String, Object> error(String message) {
+        return error(message, null);
+    }
+
+    private Map<String, Object> error(String message, Map<String, String> details) {
+        Map<String, Object> error = new HashMap<>();
         error.put("error", message);
+        if (details != null && !details.isEmpty()) {
+            error.put("details", details);
+        }
         return error;
     }
 

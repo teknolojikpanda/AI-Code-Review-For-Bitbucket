@@ -43,6 +43,8 @@
 - Defined implementation plan covering metrics instrumentation, AO migrations for chunk-level data, administrative REST APIs, and admin UI enhancements to chart review performance.
 - Extended runtime instrumentation: `MetricsCollector` now captures list-based chunk invocation entries, and `OllamaAiReviewClient` records per-model success/failure counters plus fallback triggers for dashboard consumption.
 - Added `AIReviewChunk` AO entity, expanded `AIReviewHistory` with profile and model counter fields, and updated `AIReviewServiceImpl` to persist per-chunk invocation metadata alongside fallback statistics (Phase 3 observability groundwork).
+- Exposed detailed history endpoints: `ReviewHistoryService` now returns per-entry chunk metadata, and `HistoryResource` serves `/history/{id}` plus `/history/{id}/chunks`, enabling the admin UI to query chunk timelines.
+- Hardened configuration validation (Phase 3 / item 3): introduced structured `ConfigurationValidationException`, tightened numeric range checks, validated prompt overrides, and updated REST responses to surface field-level errors.
 
 ## Next Steps
 

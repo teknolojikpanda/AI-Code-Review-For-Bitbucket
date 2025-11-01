@@ -13,6 +13,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
@@ -20,6 +21,7 @@ import javax.ws.rs.core.Response;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * REST resource exposing AI review history for administrators.
@@ -82,5 +84,43 @@ public class HistoryResource {
         map.put("error", message);
         return map;
     }
-}
 
+    @GET
+    @Path("/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getHistoryEntry(@Context HttpServletRequest request,
+                                    @PathParam("id") long historyId) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        Optional<Map<String, Object>> entry = historyService.getHistoryById(historyId);
+        if (entry.isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(error("History entry not found"))
+                    .build();
+        }
+        return Response.ok(entry.get()).build();
+    }
+
+    @GET
+    @Path("/{id}/chunks")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getHistoryChunks(@Context HttpServletRequest request,
+                                     @PathParam("id") long historyId,
+                                     @QueryParam("limit") Integer limitParam) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        int limit = (limitParam == null) ? 100 : limitParam;
+        Map<String, Object> chunks = historyService.getChunks(historyId, limit);
+        return Response.ok(chunks).build();
+    }
+}

@@ -2,6 +2,7 @@ package com.example.bitbucket.aireviewer.service;
 
 import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.example.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import net.java.ao.Query;
@@ -89,6 +91,45 @@ public class ReviewHistoryService {
     }
 
     @Nonnull
+    public Optional<Map<String, Object>> getHistoryById(long historyId) {
+        return ao.executeInTransaction(() -> {
+            AIReviewHistory[] rows = ao.find(AIReviewHistory.class,
+                    Query.select().where("ID = ?", historyId));
+            if (rows.length == 0) {
+                return Optional.empty();
+            }
+
+            AIReviewHistory history = rows[0];
+            Map<String, Object> map = toMap(history);
+            map.put("chunkCount", countChunks(historyId));
+            return Optional.of(map);
+        });
+    }
+
+    @Nonnull
+    public Map<String, Object> getChunks(long historyId, int limit) {
+        final int fetchLimit = Math.min(Math.max(limit, 1), 500);
+        return ao.executeInTransaction(() -> {
+            int total = countChunks(historyId);
+            Query query = Query.select()
+                    .where("HISTORY_ID = ?", historyId)
+                    .order("SEQUENCE ASC, ID ASC")
+                    .limit(fetchLimit);
+            AIReviewChunk[] chunkEntities = ao.find(AIReviewChunk.class, query);
+            List<Map<String, Object>> entries = Arrays.stream(chunkEntities)
+                    .map(this::toChunkMap)
+                    .collect(Collectors.toList());
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("chunks", entries);
+            result.put("count", entries.size());
+            result.put("total", total);
+            result.put("limit", fetchLimit);
+            return result;
+        });
+    }
+
+    @Nonnull
     private Map<String, Object> toMap(@Nonnull AIReviewHistory history) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", history.getID());
@@ -146,5 +187,40 @@ public class ReviewHistoryService {
         return metricsJson.length() > 10_000
                 ? metricsJson.substring(0, 10_000)
                 : metricsJson;
+    }
+
+    private int countChunks(long historyId) {
+        return ao.count(AIReviewChunk.class, Query.select().where("HISTORY_ID = ?", historyId));
+    }
+
+    private Map<String, Object> toChunkMap(@Nonnull AIReviewChunk chunk) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", chunk.getID());
+        map.put("chunkId", chunk.getChunkId());
+        map.put("sequence", chunk.getSequence());
+        map.put("role", chunk.getRole());
+        map.put("model", chunk.getModel());
+        map.put("endpoint", chunk.getEndpoint());
+        map.put("attempts", chunk.getAttempts());
+        map.put("retries", chunk.getRetries());
+        map.put("durationMs", chunk.getDurationMs());
+        map.put("success", chunk.isSuccess());
+        map.put("modelNotFound", chunk.isModelNotFound());
+        String lastError = chunk.getLastError();
+        if (lastError != null && !lastError.trim().isEmpty()) {
+            map.put("lastError", truncate(lastError, 2048));
+        }
+        return map;
+    }
+
+    private String truncate(String value, int max) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= max) {
+            return trimmed;
+        }
+        return trimmed.substring(0, Math.max(0, max));
     }
 }
