@@ -97,8 +97,6 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.reviewOrchestrator = Objects.requireNonNull(reviewOrchestrator, "reviewOrchestrator cannot be null");
         this.configFactory = Objects.requireNonNull(configFactory, "configFactory cannot be null");
 
-        // Ensure AO schema is up-to-date for chunk telemetry columns
-        this.ao.migrate(AIReviewChunk.class);
     }
 
     @Nonnull
