@@ -48,6 +48,7 @@
 - Refreshed admin history UI to consume new observability data: table rows load detailed review metadata, model statistics, and chunk invocation timelines via the new REST endpoints, with a responsive summary panel.
 - Added `/history/metrics` aggregate endpoint and summary cards on the admin history page, surfacing total reviews, duration percentiles, issue counts, and fallback usage derived from persisted telemetry.
 - Added configurable page size options (10/100/1000/All) with corresponding server-side pagination so large history result sets load incrementally without blocking the UI.
+- Surfaced daily trend metrics via `/history/metrics/daily` and rendered a daily activity table on the admin dashboard for quick review cadence monitoring.
 
 ## Next Steps
 
