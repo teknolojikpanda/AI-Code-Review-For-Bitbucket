@@ -21,10 +21,16 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
-import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,6 +42,7 @@ import java.util.regex.Pattern;
 public class DefaultDiffProvider implements DiffProvider {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultDiffProvider.class);
+    private static final Pattern DIFF_HEADER_PATTERN = Pattern.compile("^diff --git\\s+(.+?)\\s+(.+)$");
 
     private final PullRequestService pullRequestService;
 
@@ -59,11 +66,12 @@ public class DefaultDiffProvider implements DiffProvider {
         }
 
         Instant start = metrics.recordStart("diff.stream");
-        String diffText = streamDiff(repo, pullRequest.getId());
+        DiffBundle bundle = streamDiff(repo, pullRequest.getId(), config.getMaxDiffBytes());
         metrics.recordEnd("diff.stream", start);
-        Diagnostics.dumpRawDiff(pullRequest.getId(), diffText);
+        Diagnostics.dumpRawDiff(pullRequest.getId(), bundle.rawDiff);
 
-        if (diffText == null || diffText.isEmpty()) {
+        String rawDiff = bundle.rawDiff;
+        if (rawDiff == null || rawDiff.isEmpty()) {
             log.info("No diff content for PR #{}", pullRequest.getId());
             metrics.recordMetric("diff.empty", true);
             return ReviewContext.builder()
@@ -76,68 +84,14 @@ public class DefaultDiffProvider implements DiffProvider {
                     .build();
         }
 
-        Map<String, ReviewOverview.FileStats> initialStats = computeFileStats(diffText);
-        if (Diagnostics.isEnabled()) {
-            Diagnostics.log(log, () -> String.format(
-                    "Initial file stats for PR #%d from streamed diff: %d files -> %s",
-                    pullRequest.getId(),
-                    initialStats.size(),
-                    initialStats.keySet()));
-        }
-
-        Map<String, String> existingSections = splitDiffByFile(diffText);
-        Map<String, String> fileDiffs = new LinkedHashMap<>();
-        StringBuilder combined = new StringBuilder();
-
-        for (String path : initialStats.keySet()) {
-            String fallback = existingSections.getOrDefault(path, "");
-            String streamed = streamSingleDiff(repo, pullRequest.getId(), path).orElse("");
-            String chosen = !streamed.isEmpty() ? streamed : fallback;
-            if (chosen.isEmpty()) {
-                log.warn("No diff content available for path {}", path);
-                continue;
-            }
-            fileDiffs.put(path, chosen);
-            combined.append(chosen);
-            if (!chosen.endsWith("\n")) {
-                combined.append("\n");
-            }
-            if (Diagnostics.isEnabled()) {
-                ReviewOverview.FileStats stats = initialStats.get(path);
-                Diagnostics.log(log, () -> String.format(
-                        "Collected diff for PR #%d file %s (chars=%d, additions=%d, deletions=%d, source=%s)",
-                        pullRequest.getId(),
-                        path,
-                        chosen.length(),
-                        stats != null ? stats.getAdditions() : -1,
-                        stats != null ? stats.getDeletions() : -1,
-                        streamed.isEmpty() ? "aggregate" : "streamed"));
-                Diagnostics.dumpFileDiff(pullRequest.getId(), path, chosen);
-            }
-        }
-
-        String effectiveDiff = combined.length() > 0 ? combined.toString() : diffText;
-
-        byte[] finalBytes = effectiveDiff.getBytes(StandardCharsets.UTF_8);
-        if (finalBytes.length > config.getMaxDiffBytes()) {
-            throw new IllegalStateException(String.format(
-                    "Diff size %,.2f MB exceeds limit of %,.2f MB",
-                    finalBytes.length / (1024.0 * 1024.0),
-                    config.getMaxDiffBytes() / (1024.0 * 1024.0)));
-        }
-
-        metrics.recordMetric("diff.bytes", finalBytes.length);
-        metrics.recordMetric("diff.lines", effectiveDiff.split("\n", -1).length);
-
-        Map<String, ReviewOverview.FileStats> finalStats = computeFileStats(effectiveDiff);
-        Map<String, ReviewFileMetadata> metadata = FileMetadataExtractor.extract(finalStats);
-        metrics.recordMetric("diff.files", finalStats.size());
+        Map<String, ReviewOverview.FileStats> finalStats = bundle.fileStats;
+        Map<String, String> fileDiffs = bundle.fileDiffs;
         if (Diagnostics.isEnabled()) {
             Diagnostics.log(log, () -> String.format(
                     "Diff summary for PR #%d -> files=%d, bytes=%d, additions=%d, deletions=%d",
                     pullRequest.getId(),
                     finalStats.size(),
-                    finalBytes.length,
+                    bundle.bytes,
                     finalStats.values().stream().mapToInt(ReviewOverview.FileStats::getAdditions).sum(),
                     finalStats.values().stream().mapToInt(ReviewOverview.FileStats::getDeletions).sum()));
             Diagnostics.log(log, () -> String.format(
@@ -146,10 +100,20 @@ public class DefaultDiffProvider implements DiffProvider {
                     finalStats.keySet()));
         }
 
+        if (Diagnostics.isEnabled()) {
+            fileDiffs.forEach((path, diff) -> Diagnostics.dumpFileDiff(pullRequest.getId(), path, diff));
+        }
+
+        metrics.recordMetric("diff.bytes", bundle.bytes);
+        metrics.recordMetric("diff.lines", bundle.lines);
+        metrics.recordMetric("diff.files", finalStats.size());
+
+        Map<String, ReviewFileMetadata> metadata = FileMetadataExtractor.extract(finalStats);
+
         return ReviewContext.builder()
                 .pullRequest(pullRequest)
                 .config(config)
-                .rawDiff(effectiveDiff)
+                .rawDiff(rawDiff)
                 .fileStats(finalStats)
                 .fileDiffs(fileDiffs)
                 .fileMetadata(metadata)
@@ -157,7 +121,7 @@ public class DefaultDiffProvider implements DiffProvider {
                 .build();
     }
 
-    private String streamDiff(Repository repository, long pullRequestId) {
+    private DiffBundle streamDiff(Repository repository, long pullRequestId, int maxDiffBytes) {
         try {
             PullRequestDiffRequest request = new PullRequestDiffRequest.Builder(repository.getId(), pullRequestId, null)
                     .withComments(false)
@@ -165,106 +129,180 @@ public class DefaultDiffProvider implements DiffProvider {
                     .contextLines(PullRequestDiffRequest.DEFAULT_CONTEXT_LINES)
                     .build();
 
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            TypeAwareOutputSupplier supplier = (String contentType) -> buffer;
+            StreamingDiffAccumulator accumulator = new StreamingDiffAccumulator(maxDiffBytes);
+            TypeAwareOutputSupplier supplier = contentType -> accumulator;
             pullRequestService.streamDiff(request, supplier);
-            return buffer.toString(StandardCharsets.UTF_8);
+            accumulator.finish();
+            return accumulator.toBundle();
+        } catch (DiffTooLargeException e) {
+            log.error("Diff for PR #{} exceeds configured limit ({} bytes > {} bytes)",
+                    pullRequestId, e.actualBytes, e.maxBytes);
+            throw e;
         } catch (Exception e) {
             log.error("Failed to stream diff for PR #{}: {}", pullRequestId, e.getMessage(), e);
             throw new IllegalStateException("Unable to fetch diff: " + e.getMessage(), e);
         }
     }
 
-    private Optional<String> streamSingleDiff(Repository repository, long pullRequestId, String path) {
-        try {
-            PullRequestDiffRequest request = new PullRequestDiffRequest.Builder(repository.getId(), pullRequestId, path)
-                    .withComments(false)
-                    .whitespace(DiffWhitespace.IGNORE_ALL)
-                    .contextLines(PullRequestDiffRequest.DEFAULT_CONTEXT_LINES)
-                    .build();
+    private final class StreamingDiffAccumulator extends OutputStream {
 
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            TypeAwareOutputSupplier supplier = (String contentType) -> buffer;
-            pullRequestService.streamDiff(request, supplier);
-            String diff = buffer.toString(StandardCharsets.UTF_8);
-            if (diff.trim().isEmpty() || !diff.contains("diff --git")) {
-                return Optional.empty();
+        private final long maxBytes;
+        private final Map<String, MutableFileState> files = new LinkedHashMap<>();
+        private final StringBuilder buffer = new StringBuilder();
+        private final StringBuilder rawDiff = new StringBuilder();
+        private long totalBytes;
+        private int totalLines;
+        private String currentFileKey;
+        private MutableFileState currentFile;
+
+        StreamingDiffAccumulator(long maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            byte[] single = {(byte) b};
+            write(single, 0, 1);
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) {
+            if (len <= 0) {
+                return;
             }
-            return Optional.of(diff);
-        } catch (Exception e) {
-            log.warn("Failed to stream diff for file {} in PR #{}: {}", path, pullRequestId, e.getMessage());
-            return Optional.empty();
+            totalBytes += len;
+            if (maxBytes > 0 && totalBytes > maxBytes) {
+                throw new DiffTooLargeException(totalBytes, maxBytes);
+            }
+            String chunk = new String(b, off, len, StandardCharsets.UTF_8);
+            buffer.append(chunk);
+            drain(false);
+        }
+
+        void finish() {
+            drain(true);
+        }
+
+        private void drain(boolean flushRemainder) {
+            int newlineIndex;
+            while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+                String line = buffer.substring(0, newlineIndex + 1);
+                buffer.delete(0, newlineIndex + 1);
+                handleLine(line, true);
+            }
+            if (flushRemainder && buffer.length() > 0) {
+                String remainder = buffer.toString();
+                buffer.setLength(0);
+                handleLine(remainder, false);
+            }
+        }
+
+        private void handleLine(String line, boolean endsWithNewline) {
+            rawDiff.append(line);
+            if (endsWithNewline || line.length() > 0) {
+                totalLines++;
+            }
+
+            String effective = endsWithNewline && line.endsWith("\n")
+                    ? line.substring(0, line.length() - 1)
+                    : line;
+
+            Matcher matcher = DIFF_HEADER_PATTERN.matcher(effective);
+            if (matcher.matches()) {
+                switchCurrentFile(line, matcher);
+                return;
+            }
+
+            if (currentFile == null) {
+                return;
+            }
+
+            currentFile.append(line);
+            if (effective.startsWith("+") && !effective.startsWith("+++")) {
+                currentFile.additions++;
+            } else if (effective.startsWith("-") && !effective.startsWith("---")) {
+                currentFile.deletions++;
+            } else if (effective.startsWith("Binary files") || effective.startsWith("GIT binary patch")) {
+                currentFile.binary = true;
+            }
+        }
+
+        private void switchCurrentFile(String rawLine, Matcher matcher) {
+            String pathA = normalizeDiffPath(matcher.group(1));
+            String pathB = normalizeDiffPath(matcher.group(2));
+            String key = (pathB == null || isDevNull(pathB)) ? pathA : pathB;
+            if (key == null || key.isEmpty()) {
+                key = pathA != null ? pathA : pathB;
+            }
+            if (key == null || key.isEmpty()) {
+                log.debug("Skipping diff header with unresolved path: {}", matcher.group(0));
+                currentFileKey = null;
+                currentFile = null;
+                return;
+            }
+            currentFileKey = key;
+            currentFile = files.computeIfAbsent(currentFileKey, __ -> new MutableFileState());
+            currentFile.append(rawLine);
+        }
+
+        DiffBundle toBundle() {
+            Map<String, String> diffs = new LinkedHashMap<>();
+            Map<String, ReviewOverview.FileStats> stats = new LinkedHashMap<>();
+            for (Map.Entry<String, MutableFileState> entry : files.entrySet()) {
+                MutableFileState state = entry.getValue();
+                diffs.put(entry.getKey(), state.content.toString());
+                stats.put(entry.getKey(), new ReviewOverview.FileStats(
+                        state.additions,
+                        state.deletions,
+                        state.binary));
+            }
+            return new DiffBundle(rawDiff.toString(), diffs, stats, totalBytes, totalLines);
         }
     }
 
-    private Map<String, String> splitDiffByFile(String diffText) {
-        Map<String, String> sections = new LinkedHashMap<>();
-        if (diffText == null || diffText.isEmpty()) {
-            return sections;
-        }
+    private static final class MutableFileState {
+        final StringBuilder content = new StringBuilder();
+        int additions;
+        int deletions;
+        boolean binary;
 
-        String[] lines = diffText.split("\n", -1);
-        String currentFile = null;
-        StringBuilder current = null;
-
-        Pattern headerPattern = Pattern.compile("^diff --git\\s+(.+?)\\s+(.+)$");
-        for (String line : lines) {
-            Matcher matcher = headerPattern.matcher(line);
-            if (matcher.matches()) {
-                if (currentFile != null && current != null) {
-                    sections.put(currentFile, current.toString());
-                }
-                String pathA = normalizeDiffPath(matcher.group(1));
-                String pathB = normalizeDiffPath(matcher.group(2));
-                currentFile = pathB != null ? pathB : pathA;
-                current = new StringBuilder();
-                current.append(line).append("\n");
-            } else if (current != null) {
-                current.append(line).append("\n");
-            }
+        void append(String line) {
+            content.append(line);
         }
-
-        if (currentFile != null && current != null) {
-            sections.put(currentFile, current.toString());
-        }
-        return sections;
     }
 
-    private Map<String, ReviewOverview.FileStats> computeFileStats(String diffText) {
-        Map<String, ReviewOverview.FileStats> stats = new HashMap<>();
-        String currentFile = null;
-        int additions = 0;
-        int deletions = 0;
+    private static final class DiffBundle {
+        final String rawDiff;
+        final Map<String, String> fileDiffs;
+        final Map<String, ReviewOverview.FileStats> fileStats;
+        final long bytes;
+        final int lines;
 
-        String[] lines = diffText.split("\n", -1);
-        Pattern headerPattern = Pattern.compile("^diff --git\\s+(.+?)\\s+(.+)$");
-
-        for (String line : lines) {
-            Matcher matcher = headerPattern.matcher(line);
-            if (matcher.matches()) {
-                if (currentFile != null) {
-                    stats.put(currentFile, new ReviewOverview.FileStats(additions, deletions, false));
-                }
-                String pathA = normalizeDiffPath(matcher.group(1));
-                String pathB = normalizeDiffPath(matcher.group(2));
-                if (pathB == null || isDevNull(pathB)) {
-                    currentFile = pathA;
-                } else {
-                    currentFile = pathB;
-                }
-                additions = 0;
-                deletions = 0;
-            } else if (line.startsWith("+") && !line.startsWith("+++")) {
-                additions++;
-            } else if (line.startsWith("-") && !line.startsWith("---")) {
-                deletions++;
-            }
+        DiffBundle(String rawDiff,
+                   Map<String, String> fileDiffs,
+                   Map<String, ReviewOverview.FileStats> fileStats,
+                   long bytes,
+                   int lines) {
+            this.rawDiff = rawDiff;
+            this.fileDiffs = fileDiffs;
+            this.fileStats = fileStats;
+            this.bytes = bytes;
+            this.lines = lines;
         }
+    }
 
-        if (currentFile != null) {
-            stats.put(currentFile, new ReviewOverview.FileStats(additions, deletions, false));
+    private static final class DiffTooLargeException extends IllegalStateException {
+        final long actualBytes;
+        final long maxBytes;
+
+        DiffTooLargeException(long actualBytes, long maxBytes) {
+            super(String.format(Locale.ENGLISH,
+                    "Diff size %,.2f MB exceeds limit of %,.2f MB",
+                    actualBytes / (1024.0 * 1024.0),
+                    maxBytes / (1024.0 * 1024.0)));
+            this.actualBytes = actualBytes;
+            this.maxBytes = maxBytes;
         }
-        return stats;
     }
 
     private String normalizeDiffPath(String rawPath) {

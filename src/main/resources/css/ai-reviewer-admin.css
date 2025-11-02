@@ -262,6 +262,11 @@
     color: #006644;
 }
 
+.status-inherit {
+    background-color: #f4f5f7;
+    color: #505f79;
+}
+
 .status-pending-add {
     background-color: #deebff;
     color: #0747a6;

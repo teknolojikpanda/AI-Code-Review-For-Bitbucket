@@ -127,6 +127,17 @@ public interface AIReviewHistory extends Entity {
     int getFallbackTriggered();
     void setFallbackTriggered(int triggered);
 
+    @StringLength(40)
+    String getFromCommit();
+    void setFromCommit(String fromCommit);
+
+    @StringLength(40)
+    String getToCommit();
+    void setToCommit(String toCommit);
+
+    int getPullRequestVersion();
+    void setPullRequestVersion(int version);
+
     // Review Outcome
     @StringLength(50)
     String getReviewOutcome();

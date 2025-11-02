@@ -32,6 +32,9 @@
         currentOverrides: new Map()
     };
     var suppressScopeEvents = false;
+    var catalogCacheKey = 'aiReviewerRepoCatalog::v1';
+    var catalogCacheTtlMs = 5 * 60 * 1000;
+    var catalogFetchInFlight = null;
 
     /**
      * Initialize the admin configuration page
@@ -50,7 +53,6 @@
         $('#repository-overrides-body').on('click', '.override-toggle', handleOverrideToggle);
 
         // Load current configuration
-        loadRepositoryCatalog();
         loadConfiguration();
 
         console.log('AI Reviewer Admin: Initialized');
@@ -120,7 +122,16 @@
 
         repositoryOverrides = Array.isArray(config.repositoryOverrides) ? config.repositoryOverrides : [];
         initializeScopeStateFromOverrides();
-        refreshScopeUi();
+        renderOverridesTable();
+        updateScopeSummary();
+        updateOverridePanelVisibility();
+        ensureRepositoryCatalog(false)
+            .done(function() {
+                refreshScopeUi();
+            })
+            .fail(function() {
+                // Scope tree message already handled in ensureRepositoryCatalog.
+            });
     }
 
     function buildProfilePresetMap(presets) {
@@ -245,22 +256,77 @@
         });
     }
 
-    function loadRepositoryCatalog() {
+    function ensureRepositoryCatalog(forceRefresh) {
+        if (!forceRefresh && repositoryCatalog.length) {
+            return $.Deferred().resolve(repositoryCatalog).promise();
+        }
+
+        if (!forceRefresh) {
+            try {
+                var cachedValue = sessionStorage.getItem(catalogCacheKey);
+                if (cachedValue) {
+                    var cachedPayload = JSON.parse(cachedValue);
+                    if (cachedPayload && cachedPayload.projects && cachedPayload.fetchedAt &&
+                            (Date.now() - cachedPayload.fetchedAt) < catalogCacheTtlMs) {
+                        repositoryCatalog = Array.isArray(cachedPayload.projects) ? cachedPayload.projects : [];
+                        buildCatalogIndex();
+                        treeInitialized = false;
+                        return $.Deferred().resolve(repositoryCatalog).promise();
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to parse cached repository catalogue:', e);
+            }
+        }
+
+        if (catalogFetchInFlight) {
+            return catalogFetchInFlight;
+        }
+
+        setScopeTreeMessage('<span class="aui-icon aui-icon-wait"></span> Loading repository catalogue…');
+
+        var deferred = $.Deferred();
+        catalogFetchInFlight = deferred.promise();
+
         $.ajax({
             url: apiUrl + '/repository-catalog',
             type: 'GET',
-            dataType: 'json',
-            success: function(data) {
-                repositoryCatalog = Array.isArray(data.projects) ? data.projects : [];
-                buildCatalogIndex();
-                treeInitialized = false;
-                refreshScopeUi();
-            },
-            error: function(xhr, status, error) {
-                console.error('Failed to load repository catalog:', error);
-                $('#repository-scope-tree').html('<div class="loading-message error">Failed to load repository catalogue.</div>');
+            dataType: 'json'
+        }).done(function(data) {
+            repositoryCatalog = Array.isArray(data.projects) ? data.projects : [];
+            buildCatalogIndex();
+            treeInitialized = false;
+            try {
+                sessionStorage.setItem(catalogCacheKey, JSON.stringify({
+                    fetchedAt: Date.now(),
+                    projects: repositoryCatalog
+                }));
+            } catch (e) {
+                console.warn('Failed to cache repository catalogue:', e);
             }
+            deferred.resolve(repositoryCatalog);
+        }).fail(function(xhr, status, error) {
+            console.error('Failed to load repository catalog:', error);
+            displayScopeCatalogError('Failed to load repository catalogue: ' + (error || status));
+            deferred.reject(error || status);
+        }).always(function() {
+            catalogFetchInFlight = null;
         });
+
+        return deferred.promise();
+    }
+
+    function setScopeTreeMessage(message) {
+        var $container = $('#repository-scope-tree');
+        if ($container.length) {
+            $container.html('<div class="loading-message">' + message + '</div>');
+        }
+    }
+
+    function displayScopeCatalogError(message) {
+        var safe = escapeHtml(message || 'Failed to load repository catalogue.');
+        $('#repository-scope-tree').html('<div class="loading-message error">' + safe + '</div>');
+        $('#scope-summary').text('Scope: Repository catalogue unavailable.');
     }
 
     function buildCatalogIndex() {
@@ -334,7 +400,12 @@
     }
 
     function ensureScopeTree() {
-        if (treeInitialized || !repositoryCatalog.length) {
+        if (treeInitialized) {
+            return;
+        }
+        if (!repositoryCatalog.length) {
+            setScopeTreeMessage('<em>No repositories available.</em>');
+            treeInitialized = true;
             return;
         }
         renderRepositoryScopeTree();
@@ -685,14 +756,20 @@
 
             var statusClass;
             var statusText;
+            var inheritsGlobal = overrideEntry && overrideEntry.inheritGlobal === true;
             if (selectionActive && overrideEntry) {
-                statusText = 'Active';
-                statusClass = 'status-active';
+                if (inheritsGlobal) {
+                    statusText = 'Inherits global';
+                    statusClass = 'status-inherit';
+                } else {
+                    statusText = 'Override active';
+                    statusClass = 'status-active';
+                }
             } else if (selectionActive && !overrideEntry) {
                 statusText = 'Will add';
                 statusClass = 'status-pending-add';
             } else if (!selectionActive && overrideEntry) {
-                statusText = 'Will remove';
+                statusText = inheritsGlobal ? 'Will remove' : 'Remove override';
                 statusClass = 'status-pending-remove';
             } else {
                 return;

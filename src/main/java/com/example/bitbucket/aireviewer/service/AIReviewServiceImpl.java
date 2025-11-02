@@ -42,6 +42,7 @@ import javax.inject.Named;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -79,6 +80,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ReviewOrchestrator reviewOrchestrator;
     private final ReviewConfigFactory configFactory;
     private final ReviewHistoryService reviewHistoryService;
+    private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(ReviewRun::initial);
 
     @Inject
     public AIReviewServiceImpl(
@@ -108,14 +110,104 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Nonnull
     @Override
     public ReviewResult reviewPullRequest(@Nonnull PullRequest pullRequest) {
+        Objects.requireNonNull(pullRequest, "pullRequest");
+        return executeWithRun(ReviewRun.initial(), () -> reviewPullRequestInternal(pullRequest));
+    }
+
+    @Nonnull
+    @Override
+    public ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest) {
+        return reReviewPullRequest(pullRequest, false);
+    }
+
+    @Nonnull
+    @Override
+    public ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest, boolean force) {
+        return runReReview(pullRequest, force, false);
+    }
+
+    @Nonnull
+    @Override
+    public ReviewResult manualReview(@Nonnull PullRequest pullRequest, boolean force, boolean treatAsUpdate) {
+        Objects.requireNonNull(pullRequest, "pullRequest");
+        if (treatAsUpdate) {
+            return runReReview(pullRequest, force, true);
+        }
+        return executeWithRun(ReviewRun.manualInitial(force), () -> reviewPullRequestInternal(pullRequest));
+    }
+
+    private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {
+        ReviewRun previous = REVIEW_RUN_CONTEXT.get();
+        REVIEW_RUN_CONTEXT.set(run);
+        try {
+            return action.get();
+        } finally {
+            REVIEW_RUN_CONTEXT.set(previous);
+        }
+    }
+
+    private ReviewResult runReReview(@Nonnull PullRequest pullRequest, boolean force, boolean manual) {
+        Objects.requireNonNull(pullRequest, "pullRequest");
         long pullRequestId = pullRequest.getId();
-        log.info("Starting AI review for pull request: {}", pullRequestId);
+
+        if (!force) {
+            try {
+                Optional<AIReviewHistory> latestHistory = reviewHistoryService.findLatestForPullRequest(pullRequestId);
+                String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
+
+                if (latestHistory.isPresent() && latestCommit != null && !latestCommit.isEmpty()) {
+                    AIReviewHistory history = latestHistory.get();
+                    String previousCommit = history.getFromCommit();
+                    if (previousCommit == null || previousCommit.isEmpty()) {
+                        previousCommit = history.getCommitId();
+                    }
+                    ReviewResult.Status previousStatus = ReviewResult.Status.fromString(history.getReviewStatus());
+
+                    if (latestCommit.equals(previousCommit) && previousStatus != ReviewResult.Status.FAILED) {
+                        long now = System.currentTimeMillis();
+                        Map<String, Object> metrics = new HashMap<>();
+                        metrics.put("review.startEpochMs", now);
+                        metrics.put("review.endEpochMs", now);
+                        metrics.put("review.skipped.reason", "commit-unchanged");
+                        metrics.put("review.skipped.commit", latestCommit);
+                        metrics.put("issues.previous", Math.max(0, history.getTotalIssuesFound()));
+
+                        log.info("Skipping re-review for PR #{} - latest commit {} already reviewed with status {}",
+                                pullRequestId, latestCommit, previousStatus.getValue());
+                        return buildSkippedResult(pullRequestId,
+                                "Latest commit already reviewed; skipping duplicate re-review.",
+                                metrics);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Unable to determine previous review state for PR #{}: {}", pullRequestId, e.getMessage());
+            }
+        }
+
+        ReviewRun run = manual ? ReviewRun.manualUpdate(force) : ReviewRun.update(force);
+        return executeWithRun(run, () -> reviewPullRequestInternal(pullRequest));
+    }
+
+    private ReviewResult reviewPullRequestInternal(@Nonnull PullRequest pullRequest) {
+        ReviewRun run = REVIEW_RUN_CONTEXT.get();
+        long pullRequestId = pullRequest.getId();
+        String modeLabel = run.update ? "update" : "initial";
+        if (run.manual) {
+            modeLabel = "manual " + modeLabel;
+        }
+        if (run.force) {
+            modeLabel = modeLabel + " (forced)";
+        }
+        log.info("Starting {} AI review for pull request: {}", modeLabel, pullRequestId);
         MetricsCollector metrics = new MetricsCollector("pr-" + pullRequestId);
         MetricsRecorderAdapter recorder = new MetricsRecorderAdapter(metrics);
         Instant overallStart = recorder.recordStart("overall");
         metrics.setGauge("review.startEpochMs", overallStart.toEpochMilli());
         metrics.setGauge("autoApprove.applied", 0);
         metrics.setGauge("autoApprove.failed", 0);
+        metrics.setGauge("review.manual", run.manual ? 1 : 0);
+        metrics.setGauge("review.forced", run.force ? 1 : 0);
+        metrics.setGauge("review.mode", run.update ? 1 : 0);
 
         try {
             logPullRequestInfo(pullRequest);
@@ -467,42 +559,32 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
     }
 
-    @Nonnull
-    @Override
-    public ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest) {
-        Objects.requireNonNull(pullRequest, "pullRequest");
-        long pullRequestId = pullRequest.getId();
-        log.info("Re-reviewing pull request: {}", pullRequestId);
+    private static final class ReviewRun {
+        final boolean update;
+        final boolean force;
+        final boolean manual;
 
-        try {
-            Optional<AIReviewHistory> latestHistory = reviewHistoryService.findLatestForPullRequest(pullRequestId);
-            String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
-
-            if (latestHistory.isPresent() && latestCommit != null && !latestCommit.isEmpty()) {
-                AIReviewHistory history = latestHistory.get();
-                String previousCommit = history.getCommitId();
-                ReviewResult.Status previousStatus = ReviewResult.Status.fromString(history.getReviewStatus());
-
-                if (latestCommit.equals(previousCommit) && previousStatus != ReviewResult.Status.FAILED) {
-                    long now = System.currentTimeMillis();
-                    Map<String, Object> metrics = new HashMap<>();
-                    metrics.put("review.startEpochMs", now);
-                    metrics.put("review.endEpochMs", now);
-                    metrics.put("review.skipped.reason", "commit-unchanged");
-                    metrics.put("review.skipped.commit", latestCommit);
-                    metrics.put("issues.previous", Math.max(0, history.getTotalIssuesFound()));
-
-                    log.info("Skipping re-review for PR #{} - latest commit {} already reviewed with status {}", pullRequestId, latestCommit, previousStatus.getValue());
-                    return buildSkippedResult(pullRequestId,
-                            "Latest commit already reviewed; skipping duplicate re-review.",
-                            metrics);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Unable to determine previous review state for PR #{}: {}", pullRequestId, e.getMessage());
+        private ReviewRun(boolean update, boolean force, boolean manual) {
+            this.update = update;
+            this.force = force;
+            this.manual = manual;
         }
 
-        return reviewPullRequest(pullRequest);
+        static ReviewRun initial() {
+            return new ReviewRun(false, false, false);
+        }
+
+        static ReviewRun update(boolean force) {
+            return new ReviewRun(true, force, false);
+        }
+
+        static ReviewRun manualInitial(boolean force) {
+            return new ReviewRun(false, force, true);
+        }
+
+        static ReviewRun manualUpdate(boolean force) {
+            return new ReviewRun(true, force, true);
+        }
     }
 
     @Override
@@ -1189,9 +1271,9 @@ public class AIReviewServiceImpl implements AIReviewService {
      * @param result the review result
      */
     private void saveReviewHistory(@Nonnull PullRequest pullRequest,
-                                     @Nonnull List<ReviewIssue> issues,
-                                     @Nonnull ReviewResult result,
-                                     @Nonnull Map<String, Object> config) {
+                                   @Nonnull List<ReviewIssue> issues,
+                                   @Nonnull ReviewResult result,
+                                   @Nonnull Map<String, Object> config) {
         try {
             String model = String.valueOf(config.getOrDefault("ollamaModel", ""));
             Map<String, Object> metricsMap = result.getMetrics();
@@ -1199,6 +1281,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             long startTime = extractLongMetric(metricsMap, "review.startEpochMs", defaultTimestamp);
             long endTime = extractLongMetric(metricsMap, "review.endEpochMs", startTime);
             long durationMs = extractLongMetric(metricsMap, "review.durationMs", Math.max(0, endTime - startTime));
+            ReviewRun runContext = REVIEW_RUN_CONTEXT.get();
 
             ao.executeInTransaction(() -> {
                 // Create entity with all required fields in a single map
@@ -1217,9 +1300,24 @@ public class AIReviewServiceImpl implements AIReviewService {
                 history.setReviewEndTime(endTime);
                 history.setModelUsed(model);
                 history.setAnalysisTimeSeconds(durationMs / 1000.0);
-                String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
-                if (latestCommit != null) {
-                    history.setCommitId(latestCommit);
+                String fromCommit = pullRequest.getFromRef() != null
+                        ? pullRequest.getFromRef().getLatestCommit()
+                        : null;
+                String toCommit = pullRequest.getToRef() != null
+                        ? pullRequest.getToRef().getLatestCommit()
+                        : null;
+
+                if (fromCommit != null && !fromCommit.trim().isEmpty()) {
+                    String normalizedFrom = fromCommit.trim();
+                    history.setCommitId(normalizedFrom);
+                    history.setFromCommit(normalizedFrom);
+                }
+                if (toCommit != null && !toCommit.trim().isEmpty()) {
+                    history.setToCommit(toCommit.trim());
+                }
+                long prVersion = pullRequest.getVersion();
+                if (prVersion >= 0) {
+                    history.setPullRequestVersion(safeLongToInt(prVersion));
                 }
 
                 // Issue counts
@@ -1263,7 +1361,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                 history.setFallbackModelFailures(safeLongToInt(extractLongMetric(metricsMap, "ai.model.fallback.failures", 0)));
                 history.setFallbackTriggered(safeLongToInt(extractLongMetric(metricsMap, "ai.model.fallback.triggered", 0)));
                 history.setReviewOutcome(determineOutcome(result, metricsMap));
-                history.setUpdateReview(extractLongMetric(metricsMap, "issues.resolved", 0) > 0);
+                boolean isUpdateReview = runContext != null
+                        ? runContext.update
+                        : extractLongMetric(metricsMap, "issues.resolved", 0) > 0;
+                history.setUpdateReview(isUpdateReview);
 
                 // Store metrics snapshot as JSON string
                 history.setMetricsJson(serializeMetrics(metricsMap));

@@ -62,11 +62,27 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         assertEquals("custom-model", effective.get("ollamaModel"));
         assertEquals(5, ((Number) effective.get("maxChunks")).intValue());
         assertTrue((Boolean) effective.get("autoApprove"));
+        assertFalse((Boolean) repoConfig.get("inheritGlobal"));
 
         service.clearRepositoryConfiguration(projectKey, repoSlug);
         Map<String, Object> afterClear = service.getEffectiveConfiguration(projectKey, repoSlug);
         assertEquals(defaults.get("ollamaModel"), afterClear.get("ollamaModel"));
         assertFalse((Boolean) afterClear.get("autoApprove"));
+    }
+
+    @Test
+    public void updateRepositoryConfigurationWithEmptyOverridesCreatesInheritanceRecord() {
+        String projectKey = "PROJ";
+        String repoSlug = "repo";
+
+        // Initial call to toggle selection without overrides
+        service.updateRepositoryConfiguration(projectKey, repoSlug, new HashMap<>(), "tester");
+
+        Map<String, Object> config = service.getRepositoryConfiguration(projectKey, repoSlug);
+        assertTrue((Boolean) config.get("inheritGlobal"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> overrides = (Map<String, Object>) config.get("overrides");
+        assertTrue(overrides.isEmpty());
     }
 
     @Test
@@ -81,6 +97,10 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         assertEquals("PROJ", firstOverride.get("projectKey"));
         assertEquals("repo_ONE", firstOverride.get("repositorySlug"));
         assertEquals("tester", firstOverride.get("modifiedBy"));
+        assertTrue((Boolean) firstOverride.get("inheritGlobal"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstOverrides = (Map<String, Object>) firstOverride.get("overrides");
+        assertTrue(firstOverrides.isEmpty());
 
         service.synchronizeRepositoryOverrides(
                 Arrays.asList(new AIReviewerConfigService.RepositoryScope("PROJ", "repo_TWO")),
@@ -89,6 +109,7 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         Map<String, Object> secondOverride = service.listRepositoryConfigurations().get(0);
         assertEquals("repo_TWO", secondOverride.get("repositorySlug"));
         assertEquals("PROJ", secondOverride.get("projectKey"));
+        assertTrue((Boolean) secondOverride.get("inheritGlobal"));
 
         service.synchronizeRepositoryOverrides(Arrays.<AIReviewerConfigService.RepositoryScope>asList(), "tester");
         assertTrue(service.listRepositoryConfigurations().isEmpty());

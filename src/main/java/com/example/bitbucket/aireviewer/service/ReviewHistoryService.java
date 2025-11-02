@@ -473,11 +473,15 @@ public class ReviewHistoryService {
         map.put("pullRequestId", history.getPullRequestId());
         map.put("projectKey", history.getProjectKey());
         map.put("repositorySlug", history.getRepositorySlug());
+        map.put("commitId", history.getCommitId());
         map.put("reviewStatus", history.getReviewStatus());
         map.put("reviewOutcome", history.getReviewOutcome());
         map.put("modelUsed", history.getModelUsed());
         map.put("reviewStartTime", history.getReviewStartTime());
         map.put("reviewEndTime", history.getReviewEndTime());
+        map.put("fromCommit", history.getFromCommit());
+        map.put("toCommit", history.getToCommit());
+        map.put("pullRequestVersion", history.getPullRequestVersion());
         map.put("analysisTimeSeconds", history.getAnalysisTimeSeconds());
         map.put("totalIssuesFound", history.getTotalIssuesFound());
         map.put("criticalIssues", history.getCriticalIssues());
@@ -513,6 +517,7 @@ public class ReviewHistoryService {
 
         boolean hasBlocking = history.getCriticalIssues() > 0 || history.getHighIssues() > 0;
         map.put("hasBlockingIssues", hasBlocking);
+        map.put("updateReview", history.isUpdateReview());
 
         return map;
     }

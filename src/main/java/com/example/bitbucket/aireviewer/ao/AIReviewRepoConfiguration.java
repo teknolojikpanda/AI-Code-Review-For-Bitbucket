@@ -24,6 +24,9 @@ public interface AIReviewRepoConfiguration extends Entity {
     String getConfigurationJson();
     void setConfigurationJson(String configurationJson);
 
+    boolean isInheritGlobal();
+    void setInheritGlobal(boolean inheritGlobal);
+
     long getCreatedDate();
     void setCreatedDate(long createdDate);
 

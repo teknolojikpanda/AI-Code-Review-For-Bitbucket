@@ -122,7 +122,7 @@
           name="AI Reviewer REST Resources"
           path="/ai-reviewer"
           version="1.0">
-        <description>Exposes configuration, repository scope, and override management endpoints.</description>
+        <description>Exposes configuration, repository scope, override management, and manual review trigger endpoints.</description>
         <package>com.example.bitbucket.aireviewer.rest</package>
     </rest>
 

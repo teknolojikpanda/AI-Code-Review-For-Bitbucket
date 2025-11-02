@@ -55,6 +55,26 @@ public interface AIReviewService {
     ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest);
 
     /**
+     * Re-reviews a pull request and optionally bypasses duplicate-commit checks.
+     *
+     * @param pullRequest the pull request to re-review
+     * @param force when true, skip duplicate commit detection and run regardless
+     * @return review result
+     */
+    @Nonnull
+    ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest, boolean force);
+
+    /**
+     * Manually triggers a review for a pull request.
+     *
+     * @param pullRequest the pull request
+     * @param force when true, bypass duplicate commit detection and cached results
+     * @return review result
+     */
+    @Nonnull
+    ReviewResult manualReview(@Nonnull PullRequest pullRequest, boolean force, boolean treatAsUpdate);
+
+    /**
      * Tests connectivity and functionality of the Ollama service.
      *
      * Sends a simple test prompt to Ollama and validates the response.

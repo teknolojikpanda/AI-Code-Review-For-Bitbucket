@@ -412,15 +412,16 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return ao.executeInTransaction(() -> {
             AIReviewRepoConfiguration[] entries = ao.find(AIReviewRepoConfiguration.class, Query.select());
             List<Map<String, Object>> results = new ArrayList<>(entries.length);
-            for (AIReviewRepoConfiguration entry : entries) {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("projectKey", entry.getProjectKey());
-                map.put("repositorySlug", entry.getRepositorySlug());
-                map.put("overrides", parseConfigurationJson(entry.getConfigurationJson()));
-                map.put("modifiedDate", entry.getModifiedDate());
-                map.put("modifiedBy", entry.getModifiedBy());
-                results.add(map);
-            }
+        for (AIReviewRepoConfiguration entry : entries) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("projectKey", entry.getProjectKey());
+            map.put("repositorySlug", entry.getRepositorySlug());
+            map.put("overrides", parseConfigurationJson(entry.getConfigurationJson()));
+            map.put("modifiedDate", entry.getModifiedDate());
+            map.put("modifiedBy", entry.getModifiedBy());
+            map.put("inheritGlobal", entry.isInheritGlobal());
+            results.add(map);
+        }
             return results;
         });
     }
@@ -445,6 +446,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         response.put("global", global);
         response.put("overrides", new LinkedHashMap<>(overrides));
         response.put("effective", effective);
+        AIReviewRepoConfiguration entity = findRepoConfiguration(projectKey, repositorySlug);
+        response.put("inheritGlobal", entity == null || entity.isInheritGlobal());
         return response;
     }
 
@@ -477,14 +480,25 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
 
         ao.executeInTransaction(() -> {
             AIReviewRepoConfiguration existing = findRepoConfiguration(projectKey, repositorySlug);
+            long now = System.currentTimeMillis();
+
             if (sanitized.isEmpty()) {
-                if (existing != null) {
-                    ao.delete(existing);
+                if (existing == null) {
+                    existing = ao.create(AIReviewRepoConfiguration.class,
+                            new DBParam("PROJECT_KEY", projectKey),
+                            new DBParam("REPOSITORY_SLUG", repositorySlug));
+                    existing.setCreatedDate(now);
                 }
+                existing.setConfigurationJson("{}");
+                existing.setInheritGlobal(true);
+                existing.setModifiedDate(now);
+                if (updatedBy != null) {
+                    existing.setModifiedBy(updatedBy);
+                }
+                existing.save();
                 return null;
             }
 
-            long now = System.currentTimeMillis();
             if (existing == null) {
                 existing = ao.create(AIReviewRepoConfiguration.class,
                         new DBParam("PROJECT_KEY", projectKey),
@@ -492,6 +506,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 existing.setCreatedDate(now);
             }
             existing.setConfigurationJson(writeConfigurationJson(sanitized));
+            existing.setInheritGlobal(false);
             existing.setModifiedDate(now);
             if (updatedBy != null) {
                 existing.setModifiedBy(updatedBy);
@@ -551,9 +566,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        Map<String, Object> baseConfig = getConfigurationAsMap();
-        Map<String, Object> normalizedOverrides = normalizeOverrides(baseConfig);
-        String overridesJson = writeConfigurationJson(normalizedOverrides);
+        if (desiredKeys.size() > 1000) {
+            throw new IllegalArgumentException("Too many repository selections (max 1000)");
+        }
+
         long now = System.currentTimeMillis();
 
         ao.executeInTransaction(() -> {
@@ -576,14 +592,31 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 if (key == null) {
                     continue;
                 }
+
                 AIReviewRepoConfiguration entity = existingMap.get(key);
                 if (entity == null) {
                     entity = ao.create(AIReviewRepoConfiguration.class,
                             new DBParam("PROJECT_KEY", scope.getProjectKey()),
                             new DBParam("REPOSITORY_SLUG", scope.getRepositorySlug()));
                     entity.setCreatedDate(now);
+                    entity.setConfigurationJson("{}");
+                    entity.setInheritGlobal(true);
                 }
-                entity.setConfigurationJson(overridesJson);
+
+                if (!entity.isInheritGlobal()) {
+                    // Preserve custom overrides; only update audit metadata if requested.
+                    if (updatedBy != null) {
+                        entity.setModifiedBy(updatedBy);
+                    }
+                    entity.setModifiedDate(now);
+                    entity.save();
+                    continue;
+                }
+
+                if (entity.getConfigurationJson() == null || entity.getConfigurationJson().trim().isEmpty()) {
+                    entity.setConfigurationJson("{}");
+                }
+                entity.setInheritGlobal(true);
                 entity.setModifiedDate(now);
                 if (updatedBy != null) {
                     entity.setModifiedBy(updatedBy);

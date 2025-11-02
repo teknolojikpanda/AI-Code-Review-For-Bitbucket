@@ -21,9 +21,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Locale;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * REST API resource for managing AI Reviewer configuration.
@@ -34,6 +37,9 @@ import java.util.Map;
 public class ConfigResource {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigResource.class);
+    private static final int MAX_SCOPE_SELECTION = 1000;
+    private static final Pattern PROJECT_KEY_PATTERN = Pattern.compile("^[A-Z0-9_\\-]+$");
+    private static final Pattern REPOSITORY_SLUG_PATTERN = Pattern.compile("^[A-Za-z0-9._\\-]+$");
 
     private final UserManager userManager;
     private final AIReviewerConfigService configService;
@@ -130,7 +136,9 @@ public class ConfigResource {
     @GET
     @Path("/repository-catalog")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getRepositoryCatalog(@Context HttpServletRequest request) {
+    public Response getRepositoryCatalog(@Context HttpServletRequest request,
+                                         @QueryParam("start") @DefaultValue("0") int start,
+                                         @QueryParam("limit") @DefaultValue("0") int limit) {
         UserProfile profile = userManager.getRemoteUser(request);
 
         if (!isSystemAdmin(profile)) {
@@ -139,8 +147,23 @@ public class ConfigResource {
                     .build();
         }
         try {
+            int safeStart = Math.max(0, start);
+            int safeLimit = Math.max(0, limit);
+            if (safeLimit > 500) {
+                safeLimit = 500;
+            }
+
+            List<Map<String, Object>> projects = new ArrayList<>(configService.listRepositoryCatalog());
+            int total = projects.size();
+            int fromIndex = Math.min(safeStart, total);
+            int toIndex = safeLimit > 0 ? Math.min(fromIndex + safeLimit, total) : total;
+            List<Map<String, Object>> slice = projects.subList(fromIndex, toIndex);
+
             Map<String, Object> payload = new HashMap<>();
-            payload.put("projects", configService.listRepositoryCatalog());
+            payload.put("projects", new ArrayList<>(slice));
+            payload.put("total", total);
+            payload.put("start", fromIndex);
+            payload.put("limit", safeLimit > 0 ? slice.size() : total);
             return Response.ok(payload).build();
         } catch (Exception e) {
             log.error("Error loading repository catalog", e);
@@ -170,25 +193,56 @@ public class ConfigResource {
 
         String username = profile.getUsername();
         String mode = stringValue(payload.get("mode"));
-        Collection<?> rawRepositories = Collections.emptyList();
-        Object repositoriesValue = payload.get("repositories");
-        if (repositoriesValue instanceof Collection) {
-            rawRepositories = (Collection<?>) repositoriesValue;
+        String normalizedMode = mode != null ? mode.toLowerCase(Locale.ENGLISH) : "";
+        if (!"all".equals(normalizedMode) && !"repositories".equals(normalizedMode)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid scope mode. Expected 'all' or 'repositories'."))
+                    .build();
         }
 
+        Object repositoriesValue = payload.get("repositories");
+        Collection<?> rawRepositories = (repositoriesValue instanceof Collection)
+                ? (Collection<?>) repositoriesValue
+                : Collections.emptyList();
+
         List<AIReviewerConfigService.RepositoryScope> scopes = new ArrayList<>();
-        if (!"all".equalsIgnoreCase(mode)) {
+        if ("repositories".equals(normalizedMode)) {
+            Set<String> seen = new LinkedHashSet<>();
             for (Object entry : rawRepositories) {
                 if (!(entry instanceof Map)) {
-                    continue;
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(error("Malformed repository entry in scope payload."))
+                            .build();
                 }
                 Map<?, ?> repo = (Map<?, ?>) entry;
                 String projectKey = stringValue(repo.get("projectKey"));
                 String repositorySlug = stringValue(repo.get("repositorySlug"));
-                if (projectKey != null && repositorySlug != null) {
+                if (projectKey == null || repositorySlug == null) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(error("Each repository entry must include projectKey and repositorySlug."))
+                            .build();
+                }
+                if (!PROJECT_KEY_PATTERN.matcher(projectKey).matches()) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(error("Invalid project key: " + projectKey))
+                            .build();
+                }
+                if (!REPOSITORY_SLUG_PATTERN.matcher(repositorySlug).matches()) {
+                    return Response.status(Response.Status.BAD_REQUEST)
+                            .entity(error("Invalid repository slug: " + repositorySlug))
+                            .build();
+                }
+                String key = projectKey + "/" + repositorySlug;
+                if (seen.add(key)) {
                     scopes.add(new AIReviewerConfigService.RepositoryScope(projectKey, repositorySlug));
                 }
             }
+        }
+
+        if (scopes.size() > MAX_SCOPE_SELECTION) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Too many repositories selected (max " + MAX_SCOPE_SELECTION + ")"))
+                    .build();
         }
 
         try {
