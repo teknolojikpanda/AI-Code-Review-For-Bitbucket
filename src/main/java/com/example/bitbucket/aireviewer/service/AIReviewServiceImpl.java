@@ -11,6 +11,7 @@ import com.atlassian.bitbucket.content.DiffFileType;
 import com.atlassian.bitbucket.content.DiffSegmentType;
 import com.atlassian.bitbucket.pull.PullRequest;
 import com.atlassian.bitbucket.pull.PullRequestService;
+import com.atlassian.bitbucket.repository.Repository;
 import com.atlassian.bitbucket.server.ApplicationPropertiesService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.example.bitbucket.aireviewer.ao.AIReviewChunk;
@@ -77,6 +78,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ChunkPlanner chunkPlanner;
     private final ReviewOrchestrator reviewOrchestrator;
     private final ReviewConfigFactory configFactory;
+    private final ReviewHistoryService reviewHistoryService;
 
     @Inject
     public AIReviewServiceImpl(
@@ -88,7 +90,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             DiffProvider diffProvider,
             ChunkPlanner chunkPlanner,
             ReviewOrchestrator reviewOrchestrator,
-            ReviewConfigFactory configFactory) {
+            ReviewConfigFactory configFactory,
+            ReviewHistoryService reviewHistoryService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -98,6 +101,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.chunkPlanner = Objects.requireNonNull(chunkPlanner, "chunkPlanner cannot be null");
         this.reviewOrchestrator = Objects.requireNonNull(reviewOrchestrator, "reviewOrchestrator cannot be null");
         this.configFactory = Objects.requireNonNull(configFactory, "configFactory cannot be null");
+        this.reviewHistoryService = Objects.requireNonNull(reviewHistoryService, "reviewHistoryService cannot be null");
 
     }
 
@@ -116,7 +120,10 @@ public class AIReviewServiceImpl implements AIReviewService {
         try {
             logPullRequestInfo(pullRequest);
 
-            Map<String, Object> configMap = configService.getConfigurationAsMap();
+            Repository repository = pullRequest.getToRef().getRepository();
+            String projectKey = repository.getProject().getKey();
+            String repositorySlug = repository.getSlug();
+            Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
             ReviewConfig reviewConfig = configFactory.from(configMap);
             metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());
             metrics.setGauge("config.maxChunks", reviewConfig.getMaxChunks());
@@ -180,9 +187,9 @@ public class AIReviewServiceImpl implements AIReviewService {
 
             ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
             int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
-                    overallStart, comparison, metrics);
+                    overallStart, comparison, metrics, configMap);
 
-            boolean approved = handleAutoApproval(validated, pullRequest, metrics);
+            boolean approved = handleAutoApproval(validated, pullRequest, metrics, configMap);
             Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
             ReviewResult result = buildFinalResult(pullRequestId, validated,
                     preparation.getOverview().getTotalFiles(),
@@ -190,7 +197,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             log.info("AI Review: completed PR #{} with {} validated issue(s); comments posted={} approved={}",
                     pullRequestId, validated.size(), commentsPosted, approved);
 
-            saveReviewHistory(pullRequest, validated, result);
+            saveReviewHistory(pullRequest, validated, result, configMap);
             return result;
 
         } catch (Exception e) {
@@ -284,6 +291,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         List<ReviewIssue> newIssues = new ArrayList<>();
         
         if (!previousIssues.isEmpty()) {
+            metrics.setGauge("issues.previous", previousIssues.size());
             resolvedIssues = findResolvedIssues(previousIssues, issues);
             newIssues = findNewIssues(previousIssues, issues);
             log.info("Re-review comparison: {} resolved, {} new out of {} previous and {} current issues",
@@ -292,13 +300,19 @@ public class AIReviewServiceImpl implements AIReviewService {
             metrics.setGauge("issues.new", newIssues.size());
         } else {
             log.info("No previous review found - first review for this PR");
+            metrics.setGauge("issues.previous", 0);
         }
         
         return new ReviewComparison(resolvedIssues, newIssues);
     }
     
-    private int postCommentsIfNeeded(@Nonnull List<ReviewIssue> issues, @Nonnull Map<String, FileChange> fileChanges,
-            @Nonnull PullRequest pr, @Nonnull Instant overallStart, @Nonnull ReviewComparison comparison, @Nonnull MetricsCollector metrics) {
+    private int postCommentsIfNeeded(@Nonnull List<ReviewIssue> issues,
+                                     @Nonnull Map<String, FileChange> fileChanges,
+                                     @Nonnull PullRequest pr,
+                                     @Nonnull Instant overallStart,
+                                     @Nonnull ReviewComparison comparison,
+                                     @Nonnull MetricsCollector metrics,
+                                     @Nonnull Map<String, Object> configMap) {
         Instant commentStart = metrics.recordStart("postComments");
         int commentsPosted = 0;
         
@@ -306,7 +320,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             try {
                 long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
                 
-                commentsPosted = postIssueComments(issues, pr);
+                commentsPosted = postIssueComments(issues, pr, configMap);
                 log.info("✓ Posted {} issue comment(s)", commentsPosted);
 
                 String summaryText = buildSummaryComment(
@@ -316,7 +330,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                         elapsedSeconds,
                         0,
                         comparison.resolvedIssues,
-                        comparison.newIssues);
+                        comparison.newIssues,
+                        configMap);
                 Comment summaryComment = addPRComment(pr, summaryText);
                 log.info("Posted summary comment with ID: {}", summaryComment.getId());
             } catch (Exception e) {
@@ -331,10 +346,12 @@ public class AIReviewServiceImpl implements AIReviewService {
         return commentsPosted;
     }
     
-    private boolean handleAutoApproval(@Nonnull List<ReviewIssue> issues, @Nonnull PullRequest pr, @Nonnull MetricsCollector metrics) {
-        Map<String, Object> config = configService.getConfigurationAsMap();
+    private boolean handleAutoApproval(@Nonnull List<ReviewIssue> issues,
+                                       @Nonnull PullRequest pr,
+                                       @Nonnull MetricsCollector metrics,
+                                       @Nonnull Map<String, Object> config) {
         boolean approved = false;
-        
+
         if (shouldApprovePR(issues, config)) {
             log.info("Attempting to auto-approve PR #{}", pr.getId());
             approved = approvePR(pr);
@@ -453,20 +470,38 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Nonnull
     @Override
     public ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest) {
-        log.info("Re-reviewing pull request: {}", pullRequest.getId());
+        Objects.requireNonNull(pullRequest, "pullRequest");
+        long pullRequestId = pullRequest.getId();
+        log.info("Re-reviewing pull request: {}", pullRequestId);
 
-        // TODO: Phase 2 - Implement re-review logic
-        // For now, delegate to regular review
-        return reviewPullRequest(pullRequest);
-    }
+        try {
+            Optional<AIReviewHistory> latestHistory = reviewHistoryService.findLatestForPullRequest(pullRequestId);
+            String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
 
-    @Nonnull
-    @Override
-    public ReviewResult manualReview(@Nonnull PullRequest pullRequest) {
-        log.info("Manual review triggered for pull request: {}", pullRequest.getId());
+            if (latestHistory.isPresent() && latestCommit != null && !latestCommit.isEmpty()) {
+                AIReviewHistory history = latestHistory.get();
+                String previousCommit = history.getCommitId();
+                ReviewResult.Status previousStatus = ReviewResult.Status.fromString(history.getReviewStatus());
 
-        // TODO: Phase 2 - Implement manual review (ignoring enabled flag)
-        // For now, delegate to regular review
+                if (latestCommit.equals(previousCommit) && previousStatus != ReviewResult.Status.FAILED) {
+                    long now = System.currentTimeMillis();
+                    Map<String, Object> metrics = new HashMap<>();
+                    metrics.put("review.startEpochMs", now);
+                    metrics.put("review.endEpochMs", now);
+                    metrics.put("review.skipped.reason", "commit-unchanged");
+                    metrics.put("review.skipped.commit", latestCommit);
+                    metrics.put("issues.previous", Math.max(0, history.getTotalIssuesFound()));
+
+                    log.info("Skipping re-review for PR #{} - latest commit {} already reviewed with status {}", pullRequestId, latestCommit, previousStatus.getValue());
+                    return buildSkippedResult(pullRequestId,
+                            "Latest commit already reviewed; skipping duplicate re-review.",
+                            metrics);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Unable to determine previous review state for PR #{}: {}", pullRequestId, e.getMessage());
+        }
+
         return reviewPullRequest(pullRequest);
     }
 
@@ -475,24 +510,14 @@ public class AIReviewServiceImpl implements AIReviewService {
         log.info("Testing Ollama connection");
 
         try {
-            // Get configuration
-            String ollamaUrl = (String) configService.getConfigurationAsMap().get("ollamaUrl");
-            int connectTimeout = (int) configService.getConfigurationAsMap().get("connectTimeout");
-            int readTimeout = (int) configService.getConfigurationAsMap().get("readTimeout");
-            int maxRetries = (int) configService.getConfigurationAsMap().get("maxRetries");
-            int baseRetryDelay = (int) configService.getConfigurationAsMap().get("baseRetryDelayMs");
-            int apiDelay = (int) configService.getConfigurationAsMap().get("apiDelayMs");
+            Map<String, Object> config = configService.getConfigurationAsMap();
+            String ollamaUrl = (String) config.get("ollamaUrl");
+            if (ollamaUrl == null || ollamaUrl.trim().isEmpty()) {
+                log.warn("Ollama URL is not configured; skipping connection test.");
+                return false;
+            }
 
-            // Create HTTP client and test connection
-            HttpClientUtil httpClient = new HttpClientUtil(
-                    connectTimeout,
-                    readTimeout,
-                    maxRetries,
-                    baseRetryDelay,
-                    apiDelay
-            );
-
-            boolean connected = httpClient.testConnection(ollamaUrl);
+            boolean connected = configService.testOllamaConnection(ollamaUrl.trim());
             log.info("Ollama connection test result: {}", connected);
             return connected;
 
@@ -639,6 +664,25 @@ public class AIReviewServiceImpl implements AIReviewService {
         return CommentSeverity.NORMAL;
     }
 
+    private int getNumericConfig(Object value, int defaultValue) {
+        if (value instanceof Integer) {
+            return (Integer) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (value instanceof String) {
+            try {
+                String trimmed = ((String) value).trim();
+                if (!trimmed.isEmpty()) {
+                    return Integer.parseInt(trimmed);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return defaultValue;
+    }
+
     /**
      * Builds a summary comment with all issues grouped by file and severity.
      *
@@ -656,9 +700,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                                         long elapsedSeconds,
                                         int failedChunks,
                                         @Nonnull List<ReviewIssue> resolvedIssues,
-                                        @Nonnull List<ReviewIssue> newIssues) {
-        Map<String, Object> config = configService.getConfigurationAsMap();
-        String model = (String) config.get("ollamaModel");
+                                        @Nonnull List<ReviewIssue> newIssues,
+                                        @Nonnull Map<String, Object> config) {
+        String model = (String) config.getOrDefault("ollamaModel", "");
 
         return SummaryCommentRenderer.render(
                 issues,
@@ -720,7 +764,8 @@ public class AIReviewServiceImpl implements AIReviewService {
      * @return number of comments successfully posted
      */
     private int postIssueComments(@Nonnull List<ReviewIssue> issues,
-                                   @Nonnull PullRequest pullRequest) {
+                                   @Nonnull PullRequest pullRequest,
+                                   @Nonnull Map<String, Object> configMap) {
         // Pre-fetch pull request data to avoid lazy loading issues in AddLineCommentRequest.Builder
         // Force initialization of pull request properties that might be lazy-loaded
         long prId = pullRequest.getId();
@@ -732,26 +777,10 @@ public class AIReviewServiceImpl implements AIReviewService {
         log.debug("Posting comments for PR #{} in {}/{}: {} ({}->{})",
                 prId, projectKey, repoSlug, prTitle, fromRef, toRef);
 
-        Map<String, Object> config = configService.getConfigurationAsMap();
-        int maxIssueComments = 20; // Limit to prevent comment spam
+        int maxIssueComments = getNumericConfig(configMap.get("maxIssueComments"), 20);
+        int apiDelayMs = getNumericConfig(configMap.get("apiDelayMs"), 100);
 
-        // Safely get apiDelayMs with type checking
-        int apiDelayMs;
-        try {
-            Object apiDelayValue = config.get("apiDelayMs");
-            if (apiDelayValue instanceof Integer) {
-                apiDelayMs = (Integer) apiDelayValue;
-            } else if (apiDelayValue instanceof Number) {
-                apiDelayMs = ((Number) apiDelayValue).intValue();
-            } else {
-                log.warn("apiDelayMs config value is not a number: {} (type: {}), using default 100ms",
-                        apiDelayValue, apiDelayValue != null ? apiDelayValue.getClass().getName() : "null");
-                apiDelayMs = 100; // Default value
-            }
-        } catch (Exception e) {
-            log.error("Failed to get apiDelayMs from config: {}", e.getMessage(), e);
-            apiDelayMs = 100; // Default value
-        }
+        String reviewModel = String.valueOf(configMap.getOrDefault("ollamaModel", ""));
 
         List<ReviewIssue> issuesToPost = issues.stream()
                 .limit(maxIssueComments)
@@ -785,7 +814,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                 // Remove any remaining leading slashes
                 filePath = filePath.replaceAll("^/+", "");
 
-                String commentText = buildIssueComment(issue, i + 1, issues.size());
+                String commentText = buildIssueComment(issue, i + 1, issues.size(), reviewModel);
 
                 // Determine anchor line: prefer lineEnd so the comment appears beneath the span
                 Integer anchorLine = issue.getLineEnd() != null && issue.getLineEnd() > 0
@@ -927,7 +956,10 @@ public class AIReviewServiceImpl implements AIReviewService {
      * @return formatted markdown comment
      */
     @Nonnull
-    private String buildIssueComment(@Nonnull ReviewIssue issue, int issueNumber, int totalIssues) {
+    private String buildIssueComment(@Nonnull ReviewIssue issue,
+                                     int issueNumber,
+                                     int totalIssues,
+                                     @Nonnull String reviewModel) {
         StringBuilder md = new StringBuilder();
 
         String icon = getSeverityIcon(issue.getSeverity());
@@ -969,9 +1001,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (issue.getSeverity() == ReviewIssue.Severity.LOW || issue.getSeverity() == ReviewIssue.Severity.INFO) {
             md.append("_🔵 Low Priority Issue_");
         } else {
-            Map<String, Object> config = configService.getConfigurationAsMap();
-            String model = (String) config.get("ollamaModel");
-            md.append("_🤖 AI Code Review powered by ").append(model).append("_");
+            md.append("_🤖 AI Code Review powered by ").append(reviewModel).append("_");
         }
 
         return md.toString();
@@ -1160,10 +1190,10 @@ public class AIReviewServiceImpl implements AIReviewService {
      */
     private void saveReviewHistory(@Nonnull PullRequest pullRequest,
                                      @Nonnull List<ReviewIssue> issues,
-                                     @Nonnull ReviewResult result) {
+                                     @Nonnull ReviewResult result,
+                                     @Nonnull Map<String, Object> config) {
         try {
-            Map<String, Object> config = configService.getConfigurationAsMap();
-            String model = (String) config.get("ollamaModel");
+            String model = String.valueOf(config.getOrDefault("ollamaModel", ""));
             Map<String, Object> metricsMap = result.getMetrics();
             long defaultTimestamp = System.currentTimeMillis();
             long startTime = extractLongMetric(metricsMap, "review.startEpochMs", defaultTimestamp);
@@ -1187,6 +1217,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                 history.setReviewEndTime(endTime);
                 history.setModelUsed(model);
                 history.setAnalysisTimeSeconds(durationMs / 1000.0);
+                String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
+                if (latestCommit != null) {
+                    history.setCommitId(latestCommit);
+                }
 
                 // Issue counts
                 long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
@@ -1202,6 +1236,7 @@ public class AIReviewServiceImpl implements AIReviewService {
 
                 history.setResolvedIssuesCount((int) extractLongMetric(metricsMap, "issues.resolved", 0));
                 history.setNewIssuesCount((int) extractLongMetric(metricsMap, "issues.new", 0));
+                history.setPreviousIssuesCount((int) extractLongMetric(metricsMap, "issues.previous", 0));
 
                 // Files reviewed
                 history.setFilesReviewed(result.getFilesReviewed());

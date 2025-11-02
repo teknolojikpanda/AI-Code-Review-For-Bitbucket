@@ -17,8 +17,12 @@ import javax.ws.rs.*;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -67,6 +71,7 @@ public class ConfigResource {
             Object defaultApiDelay = defaults.get("apiDelayMs");
             config.putIfAbsent("apiDelay", config.getOrDefault("apiDelayMs", defaultApiDelay));
             config.put("profilePresets", ReviewProfilePreset.descriptors());
+            config.put("repositoryOverrides", configService.listRepositoryConfigurations());
             return Response.ok(config).build();
         } catch (Exception e) {
             log.error("Error getting configuration", e);
@@ -118,6 +123,85 @@ public class ConfigResource {
             log.error("Error updating configuration", e);
             return Response.serverError()
                     .entity(error("Failed to update configuration: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
+    @Path("/repository-catalog")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getRepositoryCatalog(@Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("projects", configService.listRepositoryCatalog());
+            return Response.ok(payload).build();
+        } catch (Exception e) {
+            log.error("Error loading repository catalog", e);
+            return Response.serverError()
+                    .entity(error("Failed to load repository catalog: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @POST
+    @Path("/scope")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response updateRepositoryScope(Map<String, Object> payload,
+                                          @Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+        if (payload == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Request payload is required"))
+                    .build();
+        }
+
+        String username = profile.getUsername();
+        String mode = stringValue(payload.get("mode"));
+        Collection<?> rawRepositories = Collections.emptyList();
+        Object repositoriesValue = payload.get("repositories");
+        if (repositoriesValue instanceof Collection) {
+            rawRepositories = (Collection<?>) repositoriesValue;
+        }
+
+        List<AIReviewerConfigService.RepositoryScope> scopes = new ArrayList<>();
+        if (!"all".equalsIgnoreCase(mode)) {
+            for (Object entry : rawRepositories) {
+                if (!(entry instanceof Map)) {
+                    continue;
+                }
+                Map<?, ?> repo = (Map<?, ?>) entry;
+                String projectKey = stringValue(repo.get("projectKey"));
+                String repositorySlug = stringValue(repo.get("repositorySlug"));
+                if (projectKey != null && repositorySlug != null) {
+                    scopes.add(new AIReviewerConfigService.RepositoryScope(projectKey, repositorySlug));
+                }
+            }
+        }
+
+        try {
+            configService.synchronizeRepositoryOverrides(scopes, username);
+            Map<String, Object> response = new HashMap<>();
+            response.put("repositoryOverrides", configService.listRepositoryConfigurations());
+            response.put("mode", scopes.isEmpty() ? "all" : "repositories");
+            response.put("selectedRepositories", scopes);
+            return Response.ok(response).build();
+        } catch (Exception e) {
+            log.error("Failed to update repository scope", e);
+            return Response.serverError()
+                    .entity(error("Failed to update repository scope: " + e.getMessage()))
                     .build();
         }
     }
@@ -302,6 +386,14 @@ public class ConfigResource {
             normalized.remove("apiDelay");
         }
         return normalized;
+    }
+
+    private String stringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String str = value.toString().trim();
+        return str.isEmpty() ? null : str;
     }
 
     private Boolean parseBoolean(Object value) {

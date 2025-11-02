@@ -13,8 +13,8 @@
     <description>Automated AI-powered code review plugin for Bitbucket Data Center</description>
 
     <organization>
-        <name>Example Organization</name>
-        <url>http://www.example.com/</url>
+        <name>TeknolojikPanda</name>
+        <url>https://www.teknolojikpanda.com.tr/</url>
     </organization>
 
     <properties>
@@ -166,6 +166,48 @@
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
             <version>${mockito.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.dev.activeobjects</groupId>
+            <artifactId>activeobjects-test</artifactId>
+            <version>6.1.2</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.1.210</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.atlassian.activeobjects</groupId>
+            <artifactId>activeobjects-spi</artifactId>
+            <version>6.1.2</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.glassfish.jersey.core</groupId>
+            <artifactId>jersey-common</artifactId>
+            <version>2.35</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-core</artifactId>
+            <version>1.19.4</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-server</artifactId>
+            <version>1.19.4</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

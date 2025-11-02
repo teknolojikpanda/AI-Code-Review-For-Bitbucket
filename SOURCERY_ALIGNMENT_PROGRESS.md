@@ -55,8 +55,19 @@
 - Added chunk-telemetry backfill endpoint and service to repopulate legacy history entries; metrics summary now aggregates total bytes/timeouts.
 - Ensure new telemetry columns are created on startup by migrating `AIReviewChunk` within the service constructor.
 
+## 2025-11-02
+
+- Standardised the chunk telemetry helper by exposing `ReviewHistoryService.safeLongToInt` as a package-visible static and adding direct unit coverage for its boundary handling.
+- Simplified `ReviewHistoryServiceTest` to exercise helper methods without reflection and verified JSON extraction via `ChunkTelemetryUtil`.
+- Introduced an ActiveObjects-backed integration test for `ReviewHistoryService.backfillChunkTelemetry`, wiring the `activeobjects-test` harness (H2 in-memory DB) to confirm chunk rows capture the new telemetry metrics.
+- Extended the integration suite to assert that `getMetricsSummary` aggregates chunk totals, IO telemetry, and status codes correctly after backfill.
+- Added admin REST unit tests for `/history/backfill/chunks` ensuring access control and limit handling behave as expected.
+- Refactored metrics aggregation to pull chunk telemetry from persisted JSON (falling back to AO rows), eliminating per-history entity hydration and improving large-history performance.
+- Introduced repository-level configuration overrides with ActiveObjects persistence, REST endpoints, repository settings UI, and tests ensuring effective/global values merge correctly.
+- Added repository navigation hook and servlet fallbacks so repo admin users always see the AI settings entry (even when contextual modules are missing), with URL templates resolving via @repositoryUrl@.
+
 ## Next Steps
 
-- Implement metrics capture enhancements and persistence migrations outlined in the observability dashboard design.
-- Harden configuration validation for prompt/profile fields and expose clear errors (Phase 3 / item 3).
-- Plan implementation schedule for fingerprint persistence (Phase 1 / F3) based on the documented migration approach.
+- Profile large history datasets and design batching/streaming to avoid long-running scans in `ReviewHistoryService` summary/backfill operations.
+- Extend automated coverage to verify chunk telemetry aggregations (status and IO totals) surface expected values in `HistoryResource`.
+- Backfill REST coverage for `/history/metrics` and `/history/{id}` flows, including negative cases and error propagation.

@@ -7,7 +7,7 @@
     $webResourceManager.requireResource("com.example.bitbucket.ai-code-reviewer:ai-reviewer-history-resources")
 </head>
 <body>
-<header class="aui-page-header">
+<header class="aui-page-header" style="padding-bottom: 20px;">
     <div class="aui-page-header-inner">
         <div class="aui-page-header-main">
             <h1>AI Code Reviewer History</h1>

@@ -1,11 +1,24 @@
 package com.example.bitbucket.aireviewer.service;
 
 import com.atlassian.activeobjects.external.ActiveObjects;
+import com.atlassian.bitbucket.project.NoSuchProjectException;
+import com.atlassian.bitbucket.project.Project;
+import com.atlassian.bitbucket.project.ProjectService;
+import com.atlassian.bitbucket.project.ProjectType;
+import com.atlassian.bitbucket.repository.Repository;
+import com.atlassian.bitbucket.repository.RepositoryService;
+import com.atlassian.bitbucket.util.Page;
+import com.atlassian.bitbucket.util.PageRequest;
+import com.atlassian.bitbucket.util.PageRequestImpl;
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
+import com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.example.bitbucket.aireviewer.util.HttpClientUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import net.java.ao.DBParam;
 import net.java.ao.Query;
 import org.slf4j.Logger;
@@ -15,14 +28,19 @@ import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -36,7 +54,38 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final Logger log = LoggerFactory.getLogger(AIReviewerConfigServiceImpl.class);
 
     private final ActiveObjects ao;
+    private final ProjectService projectService;
+    private final RepositoryService repositoryService;
     private final HttpClientUtil httpClientUtil;
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {};
+
+    private static final Set<String> INTEGER_KEYS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
+            "maxCharsPerChunk",
+            "maxFilesPerChunk",
+            "maxChunks",
+            "parallelThreads",
+            "connectTimeout",
+            "readTimeout",
+            "ollamaTimeout",
+            "maxIssuesPerFile",
+            "maxIssueComments",
+            "maxDiffSize",
+            "maxRetries",
+            "baseRetryDelay",
+            "apiDelayMs"
+    )));
+
+    private static final Set<String> BOOLEAN_KEYS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
+            "enabled",
+            "reviewDraftPRs",
+            "skipGeneratedFiles",
+            "skipTests",
+            "autoApprove"
+    )));
+
+    private static final Set<String> SUPPORTED_KEYS;
 
     // Default configuration values
     private static final String DEFAULT_OLLAMA_URL = "http://0.0.0.0:11434";
@@ -67,11 +116,59 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final boolean DEFAULT_SKIP_TESTS = false;
     private static final boolean DEFAULT_AUTO_APPROVE = false;
 
+    static {
+        LinkedHashSet<String> keys = new LinkedHashSet<>(Arrays.asList(
+                "ollamaUrl",
+                "ollamaModel",
+                "fallbackModel",
+                "maxCharsPerChunk",
+                "maxFilesPerChunk",
+                "maxChunks",
+                "parallelThreads",
+                "connectTimeout",
+                "readTimeout",
+                "ollamaTimeout",
+                "maxIssuesPerFile",
+                "maxIssueComments",
+                "maxDiffSize",
+                "maxRetries",
+                "baseRetryDelay",
+                "apiDelayMs",
+                "minSeverity",
+                "requireApprovalFor",
+                "reviewExtensions",
+                "ignorePatterns",
+                "ignorePaths",
+                "reviewProfile",
+                "enabled",
+                "reviewDraftPRs",
+                "skipGeneratedFiles",
+                "skipTests",
+                "autoApprove"
+        ));
+        SUPPORTED_KEYS = Collections.unmodifiableSet(keys);
+    }
+
     @Inject
     public AIReviewerConfigServiceImpl(
-            @ComponentImport ActiveObjects ao) {
+            @ComponentImport ActiveObjects ao,
+            @ComponentImport ProjectService projectService,
+            @ComponentImport RepositoryService repositoryService) {
+        this(ao, projectService, repositoryService, new HttpClientUtil());
+    }
+
+    AIReviewerConfigServiceImpl(ActiveObjects ao) {
+        this(ao, null, null, new HttpClientUtil());
+    }
+
+    AIReviewerConfigServiceImpl(ActiveObjects ao,
+                                ProjectService projectService,
+                                RepositoryService repositoryService,
+                                HttpClientUtil httpClientUtil) {
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
-        this.httpClientUtil = new HttpClientUtil(); // Create with default settings
+        this.projectService = projectService;
+        this.repositoryService = repositoryService;
+        this.httpClientUtil = httpClientUtil != null ? httpClientUtil : new HttpClientUtil();
     }
 
     @Nonnull
@@ -309,7 +406,398 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return Collections.unmodifiableMap(defaults);
     }
 
+    @Nonnull
+    @Override
+    public List<Map<String, Object>> listRepositoryConfigurations() {
+        return ao.executeInTransaction(() -> {
+            AIReviewRepoConfiguration[] entries = ao.find(AIReviewRepoConfiguration.class, Query.select());
+            List<Map<String, Object>> results = new ArrayList<>(entries.length);
+            for (AIReviewRepoConfiguration entry : entries) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("projectKey", entry.getProjectKey());
+                map.put("repositorySlug", entry.getRepositorySlug());
+                map.put("overrides", parseConfigurationJson(entry.getConfigurationJson()));
+                map.put("modifiedDate", entry.getModifiedDate());
+                map.put("modifiedBy", entry.getModifiedBy());
+                results.add(map);
+            }
+            return results;
+        });
+    }
+
+    @Nonnull
+    @Override
+    public Map<String, Object> getRepositoryConfiguration(@Nonnull String projectKey,
+                                                          @Nonnull String repositorySlug) {
+        Objects.requireNonNull(projectKey, "projectKey");
+        Objects.requireNonNull(repositorySlug, "repositorySlug");
+
+        Map<String, Object> defaults = new LinkedHashMap<>(getDefaultConfiguration());
+        Map<String, Object> global = new LinkedHashMap<>(getConfigurationAsMap());
+        Map<String, Object> overrides = loadRepositoryOverrides(projectKey, repositorySlug);
+        Map<String, Object> effective = new LinkedHashMap<>(global);
+        overrides.forEach(effective::put);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("projectKey", projectKey);
+        response.put("repositorySlug", repositorySlug);
+        response.put("defaults", defaults);
+        response.put("global", global);
+        response.put("overrides", new LinkedHashMap<>(overrides));
+        response.put("effective", effective);
+        return response;
+    }
+
+    @Nonnull
+    @Override
+    public Map<String, Object> getEffectiveConfiguration(@Nonnull String projectKey,
+                                                         @Nonnull String repositorySlug) {
+        Objects.requireNonNull(projectKey, "projectKey");
+        Objects.requireNonNull(repositorySlug, "repositorySlug");
+
+        Map<String, Object> global = new LinkedHashMap<>(getConfigurationAsMap());
+        Map<String, Object> overrides = loadRepositoryOverrides(projectKey, repositorySlug);
+        overrides.forEach(global::put);
+        return Collections.unmodifiableMap(global);
+    }
+
+    @Override
+    public void updateRepositoryConfiguration(@Nonnull String projectKey,
+                                              @Nonnull String repositorySlug,
+                                              @Nonnull Map<String, Object> overrides,
+                                              String updatedBy) {
+        Objects.requireNonNull(projectKey, "projectKey");
+        Objects.requireNonNull(repositorySlug, "repositorySlug");
+        Objects.requireNonNull(overrides, "overrides");
+
+        Map<String, Object> sanitized = normalizeOverrides(overrides);
+        Map<String, Object> effective = new LinkedHashMap<>(getConfigurationAsMap());
+        sanitized.forEach(effective::put);
+        validateConfiguration(effective);
+
+        ao.executeInTransaction(() -> {
+            AIReviewRepoConfiguration existing = findRepoConfiguration(projectKey, repositorySlug);
+            if (sanitized.isEmpty()) {
+                if (existing != null) {
+                    ao.delete(existing);
+                }
+                return null;
+            }
+
+            long now = System.currentTimeMillis();
+            if (existing == null) {
+                existing = ao.create(AIReviewRepoConfiguration.class,
+                        new DBParam("PROJECT_KEY", projectKey),
+                        new DBParam("REPOSITORY_SLUG", repositorySlug));
+                existing.setCreatedDate(now);
+            }
+            existing.setConfigurationJson(writeConfigurationJson(sanitized));
+            existing.setModifiedDate(now);
+            if (updatedBy != null) {
+                existing.setModifiedBy(updatedBy);
+            }
+            existing.save();
+            return null;
+        });
+    }
+
+    @Override
+    public void clearRepositoryConfiguration(@Nonnull String projectKey, @Nonnull String repositorySlug) {
+        Objects.requireNonNull(projectKey, "projectKey");
+        Objects.requireNonNull(repositorySlug, "repositorySlug");
+
+        ao.executeInTransaction(() -> {
+            AIReviewRepoConfiguration existing = findRepoConfiguration(projectKey, repositorySlug);
+            if (existing != null) {
+                ao.delete(existing);
+            }
+            return null;
+        });
+    }
+
+    @Nonnull
+    @Override
+    public List<Map<String, Object>> listRepositoryCatalog() {
+        if (projectService == null || repositoryService == null) {
+            log.debug("Project catalogue unavailable (projectService={}, repositoryService={})",
+                    projectService != null, repositoryService != null);
+            return Collections.emptyList();
+        }
+
+        List<Map<String, Object>> projects = new ArrayList<>();
+        PageRequest projectRequest = new PageRequestImpl(0, 100);
+        Page<Project> projectPage;
+
+        do {
+            projectPage = projectService.findAll(projectRequest);
+            for (Project project : projectPage.getValues()) {
+                projects.add(buildProjectCatalogueEntry(project));
+            }
+            projectRequest = projectPage.getNextPageRequest();
+        } while (projectRequest != null && !projectPage.getIsLastPage());
+
+        projects.sort(this::compareProjectsForCatalogue);
+        return projects;
+    }
+
+    @Override
+    public void synchronizeRepositoryOverrides(@Nonnull Collection<RepositoryScope> desiredRepositories,
+                                               String updatedBy) {
+        Objects.requireNonNull(desiredRepositories, "desiredRepositories");
+
+        LinkedHashSet<RepositoryScope> desired = sanitizeDesiredRepositories(desiredRepositories);
+        Set<String> desiredKeys = desired.stream()
+                .map(this::repositoryKey)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<String, Object> baseConfig = getConfigurationAsMap();
+        Map<String, Object> normalizedOverrides = normalizeOverrides(baseConfig);
+        String overridesJson = writeConfigurationJson(normalizedOverrides);
+        long now = System.currentTimeMillis();
+
+        ao.executeInTransaction(() -> {
+            AIReviewRepoConfiguration[] existing = ao.find(AIReviewRepoConfiguration.class, Query.select());
+            Map<String, AIReviewRepoConfiguration> existingMap = Arrays.stream(existing)
+                    .collect(Collectors.toMap(
+                            entry -> repositoryKey(entry.getProjectKey(), entry.getRepositorySlug()),
+                            entry -> entry,
+                            (left, right) -> left,
+                            LinkedHashMap::new));
+
+            for (Map.Entry<String, AIReviewRepoConfiguration> entry : existingMap.entrySet()) {
+                if (!desiredKeys.contains(entry.getKey())) {
+                    ao.delete(entry.getValue());
+                }
+            }
+
+            for (RepositoryScope scope : desired) {
+                String key = repositoryKey(scope);
+                if (key == null) {
+                    continue;
+                }
+                AIReviewRepoConfiguration entity = existingMap.get(key);
+                if (entity == null) {
+                    entity = ao.create(AIReviewRepoConfiguration.class,
+                            new DBParam("PROJECT_KEY", scope.getProjectKey()),
+                            new DBParam("REPOSITORY_SLUG", scope.getRepositorySlug()));
+                    entity.setCreatedDate(now);
+                }
+                entity.setConfigurationJson(overridesJson);
+                entity.setModifiedDate(now);
+                if (updatedBy != null) {
+                    entity.setModifiedBy(updatedBy);
+                }
+                entity.save();
+            }
+            return null;
+        });
+    }
+
     // Private helper methods
+
+    private Map<String, Object> loadRepositoryOverrides(String projectKey, String repositorySlug) {
+        return ao.executeInTransaction(() -> {
+            AIReviewRepoConfiguration entity = findRepoConfiguration(projectKey, repositorySlug);
+            if (entity == null) {
+                return Collections.emptyMap();
+            }
+            return parseConfigurationJson(entity.getConfigurationJson());
+        });
+    }
+
+    private AIReviewRepoConfiguration findRepoConfiguration(String projectKey, String repositorySlug) {
+        AIReviewRepoConfiguration[] configs = ao.find(
+                AIReviewRepoConfiguration.class,
+                Query.select()
+                        .where("PROJECT_KEY = ? AND REPOSITORY_SLUG = ?", projectKey, repositorySlug)
+                        .limit(1));
+        return configs.length == 0 ? null : configs[0];
+    }
+
+    private Map<String, Object> buildProjectCatalogueEntry(Project project) {
+        Map<String, Object> projectMap = new LinkedHashMap<>();
+        projectMap.put("projectId", project.getId());
+        projectMap.put("projectKey", project.getKey());
+        projectMap.put("projectName", project.getName());
+        ProjectType type = project.getType();
+        projectMap.put("projectType", type != null ? type.name() : ProjectType.NORMAL.name());
+        projectMap.put("personal", type == ProjectType.PERSONAL);
+        projectMap.put("public", project.isPublic());
+        List<Map<String, Object>> repositories = collectRepositories(project);
+        projectMap.put("repositories", repositories);
+        projectMap.put("repositoryCount", repositories.size());
+        return projectMap;
+    }
+
+    private List<Map<String, Object>> collectRepositories(Project project) {
+        List<Map<String, Object>> repositories = new ArrayList<>();
+        if (repositoryService == null) {
+            return repositories;
+        }
+        PageRequest repoRequest = new PageRequestImpl(0, 100);
+        Page<Repository> repoPage;
+        do {
+            String projectKey = project.getKey();
+            if (projectKey == null) {
+                break;
+            }
+            try {
+                repoPage = repositoryService.findByProjectKey(projectKey, repoRequest);
+            } catch (NoSuchProjectException e) {
+                log.warn("Repository catalogue: project no longer exists (key={})", projectKey, e);
+                break;
+            }
+            for (Repository repository : repoPage.getValues()) {
+                repositories.add(buildRepositoryCatalogueEntry(project, repository));
+            }
+            repoRequest = repoPage.getNextPageRequest();
+        } while (repoRequest != null && !repoPage.getIsLastPage());
+
+        repositories.sort(Comparator.comparing(entry ->
+                ((String) entry.getOrDefault("repositorySlug", "")).toLowerCase(Locale.ROOT)));
+        return repositories;
+    }
+
+    private Map<String, Object> buildRepositoryCatalogueEntry(Project project, Repository repository) {
+        Map<String, Object> repoMap = new LinkedHashMap<>();
+        repoMap.put("repositoryId", repository.getId());
+        repoMap.put("repositorySlug", repository.getSlug());
+        repoMap.put("repositoryName", repository.getName());
+        repoMap.put("projectKey", project.getKey());
+        repoMap.put("projectId", project.getId());
+        repoMap.put("state", repository.getState() != null ? repository.getState().name() : "AVAILABLE");
+        return repoMap;
+    }
+
+    private int compareProjectsForCatalogue(Map<String, Object> left, Map<String, Object> right) {
+        String leftType = toStringOrEmpty(left.get("projectType"));
+        String rightType = toStringOrEmpty(right.get("projectType"));
+        if (!leftType.equalsIgnoreCase(rightType)) {
+            if ("PERSONAL".equalsIgnoreCase(leftType)) {
+                return 1;
+            }
+            if ("PERSONAL".equalsIgnoreCase(rightType)) {
+                return -1;
+            }
+        }
+        String leftKey = toStringOrEmpty(left.get("projectKey"));
+        String rightKey = toStringOrEmpty(right.get("projectKey"));
+        return leftKey.compareToIgnoreCase(rightKey);
+    }
+
+    private LinkedHashSet<RepositoryScope> sanitizeDesiredRepositories(Collection<RepositoryScope> desiredRepositories) {
+        LinkedHashSet<RepositoryScope> sanitized = new LinkedHashSet<>();
+        if (desiredRepositories == null) {
+            return sanitized;
+        }
+        for (RepositoryScope scope : desiredRepositories) {
+            if (scope == null) {
+                continue;
+            }
+            String projectKey = scope.getProjectKey();
+            String repositorySlug = scope.getRepositorySlug();
+            if (isBlank(projectKey) || isBlank(repositorySlug)) {
+                continue;
+            }
+            sanitized.add(new RepositoryScope(projectKey.trim(), repositorySlug.trim()));
+        }
+        return sanitized;
+    }
+
+    private String repositoryKey(RepositoryScope scope) {
+        if (scope == null) {
+            return null;
+        }
+        return repositoryKey(scope.getProjectKey(), scope.getRepositorySlug());
+    }
+
+    private String repositoryKey(String projectKey, String repositorySlug) {
+        if (isBlank(projectKey) || isBlank(repositorySlug)) {
+            return null;
+        }
+        return projectKey.trim() + "/" + repositorySlug.trim();
+    }
+
+    private String toStringOrEmpty(Object value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private Map<String, Object> normalizeOverrides(Map<String, Object> overrides) {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        if (overrides == null || overrides.isEmpty()) {
+            return normalized;
+        }
+        overrides.forEach((key, value) -> {
+            if (key == null) {
+                return;
+            }
+            String trimmedKey = key.trim();
+            if (trimmedKey.isEmpty() || !SUPPORTED_KEYS.contains(trimmedKey)) {
+                return;
+            }
+            Object normalizedValue = normalizeOverrideValue(trimmedKey, value);
+            if (normalizedValue != null) {
+                normalized.put(trimmedKey, normalizedValue);
+            }
+        });
+        return normalized;
+    }
+
+    private Object normalizeOverrideValue(String key, Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (INTEGER_KEYS.contains(key)) {
+            return parseInteger(value);
+        }
+        if (BOOLEAN_KEYS.contains(key)) {
+            return parseBoolean(value);
+        }
+        if (!(value instanceof String)) {
+            value = String.valueOf(value);
+        }
+        String trimmed = ((String) value).trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private Boolean parseBoolean(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        if (value instanceof String) {
+            String trimmed = ((String) value).trim();
+            if (trimmed.isEmpty()) {
+                return null;
+            }
+            return Boolean.parseBoolean(trimmed);
+        }
+        return null;
+    }
+
+    private Map<String, Object> parseConfigurationJson(String json) {
+        if (json == null || json.trim().isEmpty()) {
+            return Collections.emptyMap();
+        }
+        try {
+            Map<String, Object> data = OBJECT_MAPPER.readValue(json, MAP_TYPE);
+            return normalizeOverrides(data);
+        } catch (Exception e) {
+            log.warn("Failed to parse repository configuration JSON", e);
+            return Collections.emptyMap();
+        }
+    }
+
+    private String writeConfigurationJson(Map<String, Object> overrides) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(overrides);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialise repository configuration overrides", e);
+        }
+    }
 
     private AIReviewConfiguration getOrCreateConfiguration() {
         AIReviewConfiguration[] configs = ao.find(AIReviewConfiguration.class, Query.select());

@@ -4,6 +4,7 @@ import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.example.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
+import com.example.bitbucket.aireviewer.util.ChunkTelemetryUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -196,6 +197,27 @@ public class ReviewHistoryService {
         });
     }
 
+    /**
+     * Returns the most recent review history entry for a pull request, if any.
+     *
+     * @param pullRequestId the pull request identifier
+     * @return optional containing the latest history entry
+     */
+    @Nonnull
+    public Optional<AIReviewHistory> findLatestForPullRequest(long pullRequestId) {
+        if (pullRequestId <= 0) {
+            return Optional.empty();
+        }
+        return ao.executeInTransaction(() -> {
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
+                    Query.select()
+                            .where("PULL_REQUEST_ID = ?", pullRequestId)
+                            .order("REVIEW_START_TIME DESC")
+                            .limit(1));
+            return histories.length > 0 ? Optional.of(histories[0]) : Optional.empty();
+        });
+    }
+
     @Nonnull
     public Optional<Map<String, Object>> getHistoryById(long historyId) {
         return ao.executeInTransaction(() -> {
@@ -314,13 +336,8 @@ public class ReviewHistoryService {
             long fallbackFailures = 0;
             long fallbackTriggered = 0;
 
-            long totalRequestBytes = 0;
-            long totalResponseBytes = 0;
-            long totalTimeouts = 0;
-            long totalChunkRecords = 0;
-            Map<Integer, Long> httpStatusCounts = new LinkedHashMap<>();
-
             List<Double> durations = new ArrayList<>();
+            ChunkAggregation chunkAggregation = new ChunkAggregation();
 
             for (AIReviewHistory history : histories) {
                 String status = normalizeStatus(history.getReviewStatus());
@@ -349,21 +366,20 @@ public class ReviewHistoryService {
                     durations.add(durationSeconds);
                 }
 
-                AIReviewChunk[] chunkEntities = history.getChunks();
-                if (chunkEntities != null) {
-                    totalChunkRecords += chunkEntities.length;
-                    for (AIReviewChunk chunk : chunkEntities) {
-                        totalRequestBytes += Math.max(0, chunk.getRequestBytes());
-                        totalResponseBytes += Math.max(0, chunk.getResponseBytes());
-                        if (chunk.isTimeout()) {
-                            totalTimeouts++;
-                        }
-                        int statusCode = chunk.getStatusCode();
-                        if (statusCode > 0) {
-                            httpStatusCounts.merge(statusCode, 1L, Long::sum);
+                List<Map<String, Object>> telemetryEntries = ChunkTelemetryUtil.extractEntriesFromJson(history.getMetricsJson());
+                if (!telemetryEntries.isEmpty()) {
+                    for (Map<String, Object> entry : telemetryEntries) {
+                        chunkAggregation.accept(entry);
+                    }
+                } else {
+                    AIReviewChunk[] chunkEntities = history.getChunks();
+                    if (chunkEntities != null) {
+                        for (AIReviewChunk chunk : chunkEntities) {
+                            chunkAggregation.accept(chunk);
                         }
                     }
                 }
+
             }
 
             summary.put("statusCounts", statusCounts);
@@ -373,7 +389,12 @@ public class ReviewHistoryService {
                     primaryInvocations, primarySuccesses, primaryFailures,
                     fallbackInvocations, fallbackSuccesses, fallbackFailures));
             summary.put("chunkTotals", buildChunkTotals(totalChunks, successfulChunks, failedChunks));
-            summary.put("ioTotals", buildIoTotals(totalRequestBytes, totalResponseBytes, totalChunkRecords, totalTimeouts, httpStatusCounts));
+            summary.put("ioTotals", buildIoTotals(
+                    chunkAggregation.requestBytes,
+                    chunkAggregation.responseBytes,
+                    chunkAggregation.chunkCount,
+                    chunkAggregation.timeoutCount,
+                    chunkAggregation.statusCounts));
 
             return summary;
         });
@@ -720,6 +741,40 @@ public class ReviewHistoryService {
         return -1d;
     }
 
+    private final class ChunkAggregation {
+        long requestBytes;
+        long responseBytes;
+        long chunkCount;
+        long timeoutCount;
+        final Map<Integer, Long> statusCounts = new LinkedHashMap<>();
+
+        void accept(AIReviewChunk chunk) {
+            chunkCount++;
+            requestBytes += Math.max(0, chunk.getRequestBytes());
+            responseBytes += Math.max(0, chunk.getResponseBytes());
+            if (chunk.isTimeout()) {
+                timeoutCount++;
+            }
+            int statusCode = chunk.getStatusCode();
+            if (statusCode > 0) {
+                statusCounts.merge(statusCode, 1L, Long::sum);
+            }
+        }
+
+        void accept(Map<String, Object> entry) {
+            chunkCount++;
+            requestBytes += Math.max(0, asLong(entry.get("requestBytes"), 0));
+            responseBytes += Math.max(0, asLong(entry.get("responseBytes"), 0));
+            if (asBoolean(entry.get("timeout"), false)) {
+                timeoutCount++;
+            }
+            int statusCode = safeLongToInt(asLong(entry.get("statusCode"), 0));
+            if (statusCode > 0) {
+                statusCounts.merge(statusCode, 1L, Long::sum);
+            }
+        }
+    }
+
     private static final class DailyStats {
         int reviews;
         double totalDurationSeconds;
@@ -739,6 +794,16 @@ public class ReviewHistoryService {
             return trimmed;
         }
         return trimmed.substring(0, Math.max(0, max));
+    }
+
+    static int safeLongToInt(long value) {
+        if (value > Integer.MAX_VALUE) {
+            return Integer.MAX_VALUE;
+        }
+        if (value < Integer.MIN_VALUE) {
+            return Integer.MIN_VALUE;
+        }
+        return (int) value;
     }
 
     private long asLong(Object value, long defaultValue) {

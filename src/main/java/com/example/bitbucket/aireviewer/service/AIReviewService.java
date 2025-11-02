@@ -55,18 +55,6 @@ public interface AIReviewService {
     ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest);
 
     /**
-     * Manually triggers a review of a pull request.
-     *
-     * Can be called via REST API or UI action.
-     * Ignores the "enabled" configuration flag.
-     *
-     * @param pullRequest the pull request to review
-     * @return the review result
-     */
-    @Nonnull
-    ReviewResult manualReview(@Nonnull PullRequest pullRequest);
-
-    /**
      * Tests connectivity and functionality of the Ollama service.
      *
      * Sends a simple test prompt to Ollama and validates the response.

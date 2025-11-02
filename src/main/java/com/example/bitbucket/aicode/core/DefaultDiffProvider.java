@@ -6,7 +6,6 @@ import com.atlassian.bitbucket.pull.PullRequest;
 import com.atlassian.bitbucket.pull.PullRequestDiffRequest;
 import com.atlassian.bitbucket.pull.PullRequestService;
 import com.atlassian.bitbucket.repository.Repository;
-import com.atlassian.bitbucket.repository.RepositoryService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.example.bitbucket.aicode.api.DiffProvider;
@@ -39,13 +38,10 @@ public class DefaultDiffProvider implements DiffProvider {
     private static final Logger log = LoggerFactory.getLogger(DefaultDiffProvider.class);
 
     private final PullRequestService pullRequestService;
-    private final RepositoryService repositoryService;
 
     @Inject
-    public DefaultDiffProvider(@ComponentImport PullRequestService pullRequestService,
-                               @ComponentImport RepositoryService repositoryService) {
+    public DefaultDiffProvider(@ComponentImport PullRequestService pullRequestService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService");
-        this.repositoryService = Objects.requireNonNull(repositoryService, "repositoryService");
     }
 
     @Nonnull
@@ -57,7 +53,7 @@ public class DefaultDiffProvider implements DiffProvider {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(metrics, "metrics");
 
-        Repository repo = repositoryService.getById(pullRequest.getToRef().getRepository().getId());
+        Repository repo = pullRequest.getToRef() != null ? pullRequest.getToRef().getRepository() : null;
         if (repo == null) {
             throw new IllegalStateException("Repository not found for PR " + pullRequest.getId());
         }

@@ -113,6 +113,196 @@
     cursor: pointer;
 }
 
+.scope-group .scope-option {
+    margin-bottom: 12px;
+}
+
+.scope-group .scope-option input[type="radio"] {
+    margin-right: 8px;
+}
+
+#scope-tree-container {
+    margin-bottom: 20px;
+    padding: 0 0 0;
+}
+
+#scope-tree-container .scope-help {
+    background-color: #f4f5f7;
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: #42526e;
+}
+
+#repository-scope-tree {
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    background-color: #fff;
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 6px 0;
+    position: relative;
+}
+
+#repository-scope-tree .loading-message {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: #6b778c;
+}
+
+.scope-tree {
+    padding: 0 8px 6px;
+}
+
+.scope-tree-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.scope-node {
+    margin: 0;
+}
+
+.scope-node .node-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 4px 4px 8px;
+    border-radius: 3px;
+}
+
+.scope-node .node-row:hover {
+    background-color: #f4f5f7;
+}
+
+.scope-node .scope-checkbox {
+    margin: 0;
+}
+
+.scope-node .count-badge {
+    margin-left: auto;
+    font-size: 11px;
+    color: #97a0af;
+}
+
+.scope-node-toggle {
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+}
+
+.scope-node-toggle::before {
+    content: "▾";
+    font-size: 12px;
+    color: #6b778c;
+    display: inline-block;
+    transition: transform 0.2s ease;
+}
+
+.scope-node-collapsed > .node-row .scope-node-toggle::before {
+    transform: rotate(-90deg);
+}
+
+.scope-node:not(.scope-node-expandable) .scope-node-toggle {
+    visibility: hidden;
+}
+
+.scope-node .scope-children {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 24px;
+}
+
+.scope-node-collapsed > .scope-children {
+    display: none;
+}
+
+#scope-summary {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background-color: #f4f5f7;
+    font-size: 12px;
+    color: #42526e;
+}
+
+#repository-override-panel {
+    margin: 15px 0 25px;
+    padding: 15px;
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    background-color: #fafbfc;
+}
+
+#repository-override-panel.hidden {
+    display: none;
+}
+
+#repository-overrides-body td.status-column {
+    width: 130px;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.status-active {
+    background-color: #e3fcef;
+    color: #006644;
+}
+
+.status-pending-add {
+    background-color: #deebff;
+    color: #0747a6;
+}
+
+.status-pending-remove {
+    background-color: #ffebe6;
+    color: #bf2600;
+}
+
+#repository-overrides-body td.actions-column,
+.actions-column {
+    width: 140px;
+    text-align: right;
+}
+
+.override-add-group .override-inputs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.override-add-group .short-field {
+    width: 120px;
+}
+
+.override-add-group .separator {
+    font-weight: 600;
+}
+
+.override-add-group #add-override-btn {
+    margin-left: 4px;
+}
+
+.repository-override-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     #ai-reviewer-config-container {

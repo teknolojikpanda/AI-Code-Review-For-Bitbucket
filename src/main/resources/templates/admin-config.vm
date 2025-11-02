@@ -7,7 +7,7 @@
     $webResourceManager.requireResource("com.example.bitbucket.ai-code-reviewer:ai-reviewer-admin-resources")
 </head>
 <body>
-    <header class="aui-page-header">
+    <header class="aui-page-header" style="padding-bottom: 20px;">
         <div class="aui-page-header-inner">
             <div class="aui-page-header-main">
                 <h1>AI Code Reviewer Configuration</h1>
@@ -25,17 +25,51 @@
 
                     <form id="ai-reviewer-config-form" class="aui">
 
+                        <!-- Scope Selection -->
+                        <h2>Scope</h2>
+                        <p class="description">Choose which projects and repositories will use this configuration.</p>
+                        <div id="scope-tree-container" class="field-group">
+                            <div class="scope-help">
+                                <p><strong>All repositories</strong> applies the configuration globally. Select individual projects or repositories for finer control. Changes are applied after you save.</p>
+                            </div>
+                            <div id="repository-scope-tree" class="scope-tree-placeholder">
+                                <div class="loading-message"><span class="aui-icon aui-icon-wait"></span> Loading repository catalogue…</div>
+                            </div>
+                            <div id="scope-summary" class="scope-summary">Scope: Loading…</div>
+                        </div>
+
+                        <div id="repository-override-panel" class="hidden">
+                            <h3>Selection Preview</h3>
+                            <p class="description">Save to apply these overrides. Existing overrides update to match the configuration on this page.</p>
+
+                            <table class="aui aui-table-list">
+                                <thead>
+                                    <tr>
+                                        <th>Project</th>
+                                        <th>Repository</th>
+                                        <th>Status</th>
+                                        <th>Last Modified</th>
+                                        <th>Modified By</th>
+                                        <th class="actions-column">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="repository-overrides-body">
+                                    <tr><td colspan="6"><em>No overrides configured.</em></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
                         <!-- Ollama Configuration -->
                         <h2>Ollama Configuration</h2>
                         <div class="field-group">
-                            <label for="ollama-url">Ollama URL<span class="aui-icon icon-required">(required)</span></label>
+                            <label for="ollama-url">Ollama URL<span class="aui-icon icon-required"></span></label>
                             <input class="text long-field" type="text" id="ollama-url" name="ollamaUrl"
                                    value="$ollamaUrl" placeholder="http://ollama:11434">
                             <div class="description">The URL of your Ollama service endpoint</div>
                         </div>
 
                         <div class="field-group">
-                            <label for="ollama-model">Primary AI Model<span class="aui-icon icon-required">(required)</span></label>
+                            <label for="ollama-model">Primary AI Model<span class="aui-icon icon-required"></span></label>
                             <input class="text long-field" type="text" id="ollama-model" name="ollamaModel"
                                    value="$ollamaModel" placeholder="qwen3-coder:30b">
                             <div class="description">The primary model to use for code review</div>
