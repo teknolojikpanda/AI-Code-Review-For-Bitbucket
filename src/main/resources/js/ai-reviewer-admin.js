@@ -288,28 +288,59 @@
         var deferred = $.Deferred();
         catalogFetchInFlight = deferred.promise();
 
-        $.ajax({
-            url: apiUrl + '/repository-catalog',
-            type: 'GET',
-            dataType: 'json'
-        }).done(function(data) {
-            repositoryCatalog = Array.isArray(data.projects) ? data.projects : [];
-            buildCatalogIndex();
-            treeInitialized = false;
-            try {
-                sessionStorage.setItem(catalogCacheKey, JSON.stringify({
-                    fetchedAt: Date.now(),
-                    projects: repositoryCatalog
-                }));
-            } catch (e) {
-                console.warn('Failed to cache repository catalogue:', e);
-            }
-            deferred.resolve(repositoryCatalog);
-        }).fail(function(xhr, status, error) {
-            console.error('Failed to load repository catalog:', error);
-            displayScopeCatalogError('Failed to load repository catalogue: ' + (error || status));
-            deferred.reject(error || status);
-        }).always(function() {
+        var accumulated = [];
+        var pageSize = 200;
+        var totalExpected = null;
+
+        function loadPage(start) {
+            $.ajax({
+                url: apiUrl + '/repository-catalog',
+                type: 'GET',
+                dataType: 'json',
+                data: {
+                    start: start,
+                    limit: pageSize
+                }
+            }).done(function(data) {
+                var projects = Array.isArray(data.projects) ? data.projects : [];
+                if (totalExpected === null) {
+                    totalExpected = typeof data.total === 'number' ? data.total : projects.length;
+                }
+
+                Array.prototype.push.apply(accumulated, projects);
+                var fetchedCount = accumulated.length;
+                var remaining = totalExpected != null ? Math.max(0, totalExpected - fetchedCount) : null;
+
+                if (remaining === 0 || projects.length === 0) {
+                    repositoryCatalog = accumulated;
+                    buildCatalogIndex();
+                    treeInitialized = false;
+                    try {
+                        sessionStorage.setItem(catalogCacheKey, JSON.stringify({
+                            fetchedAt: Date.now(),
+                            projects: repositoryCatalog
+                        }));
+                    } catch (e) {
+                        console.warn('Failed to cache repository catalogue:', e);
+                    }
+                    setScopeTreeMessage('');
+                    deferred.resolve(repositoryCatalog);
+                    return;
+                }
+
+                var progressText = 'Loaded ' + fetchedCount + ' of ' + totalExpected + ' repositories. Still fetching…';
+                setScopeTreeMessage('<span class="aui-icon aui-icon-wait"></span> ' + progressText);
+                loadPage(start + projects.length);
+            }).fail(function(xhr, status, error) {
+                console.error('Failed to load repository catalog page:', error || status);
+                displayScopeCatalogError('Failed to load repository catalogue: ' + (error || status));
+                deferred.reject(error || status);
+            });
+        }
+
+        loadPage(0);
+
+        deferred.always(function() {
             catalogFetchInFlight = null;
         });
 
@@ -318,9 +349,14 @@
 
     function setScopeTreeMessage(message) {
         var $container = $('#repository-scope-tree');
-        if ($container.length) {
-            $container.html('<div class="loading-message">' + message + '</div>');
+        if (!$container.length) {
+            return;
         }
+        if (!message) {
+            $container.empty();
+            return;
+        }
+        $container.html('<div class="loading-message">' + message + '</div>');
     }
 
     function displayScopeCatalogError(message) {

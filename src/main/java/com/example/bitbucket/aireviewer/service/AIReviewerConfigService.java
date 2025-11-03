@@ -3,7 +3,9 @@ package com.example.bitbucket.aireviewer.service;
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 
 import javax.annotation.Nonnull;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -127,7 +129,20 @@ public interface AIReviewerConfigService {
      * @return ordered list of project descriptors (each containing repository descriptors)
      */
     @Nonnull
-    List<Map<String, Object>> listRepositoryCatalog();
+    default List<Map<String, Object>> listRepositoryCatalog() {
+        RepositoryCatalogPage page = getRepositoryCatalog(0, 0);
+        return page.getProjects();
+    }
+
+    /**
+     * Retrieves a paginated slice of the repository catalogue suitable for UI consumption.
+     *
+     * @param start zero-based index of the first project to return
+     * @param limit maximum number of projects to return (0 for all)
+     * @return page structure containing the requested slice and total count metadata
+     */
+    @Nonnull
+    RepositoryCatalogPage getRepositoryCatalog(int start, int limit);
 
     /**
      * Synchronizes repository overrides so that only the provided repositories retain a copy of the
@@ -139,6 +154,43 @@ public interface AIReviewerConfigService {
      */
     void synchronizeRepositoryOverrides(@Nonnull Collection<RepositoryScope> desiredRepositories,
                                         String updatedBy);
+
+    /**
+     * Immutable value object representing a page of repository catalogue entries.
+     */
+    final class RepositoryCatalogPage {
+        private final List<Map<String, Object>> projects;
+        private final int start;
+        private final int limit;
+        private final int total;
+
+        public RepositoryCatalogPage(@Nonnull List<Map<String, Object>> projects,
+                                     int start,
+                                     int limit,
+                                     int total) {
+            this.projects = Collections.unmodifiableList(new ArrayList<>(projects));
+            this.start = Math.max(0, start);
+            this.limit = Math.max(0, limit);
+            this.total = Math.max(0, total);
+        }
+
+        @Nonnull
+        public List<Map<String, Object>> getProjects() {
+            return projects;
+        }
+
+        public int getStart() {
+            return start;
+        }
+
+        public int getLimit() {
+            return limit;
+        }
+
+        public int getTotal() {
+            return total;
+        }
+    }
 
     /**
      * Value object representing a repository address (project key + repository slug).

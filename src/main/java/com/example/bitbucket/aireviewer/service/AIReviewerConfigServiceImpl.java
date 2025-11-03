@@ -16,6 +16,7 @@ import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.example.bitbucket.aireviewer.util.HttpClientUtil;
+import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -226,6 +228,12 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         Objects.requireNonNull(configMap, "configMap cannot be null");
 
         Map<String, String> errors = new LinkedHashMap<>();
+
+        configMap.keySet().stream()
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .filter(key -> !SUPPORTED_KEYS.contains(key))
+                .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
 
         validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
             try {
@@ -474,15 +482,17 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         Objects.requireNonNull(overrides, "overrides");
 
         Map<String, Object> sanitized = normalizeOverrides(overrides);
-        Map<String, Object> effective = new LinkedHashMap<>(getConfigurationAsMap());
-        sanitized.forEach(effective::put);
+        Map<String, Object> globalConfig = new LinkedHashMap<>(getConfigurationAsMap());
+        Map<String, Object> overrideDiff = stripMatchingGlobalValues(sanitized, globalConfig);
+        Map<String, Object> effective = new LinkedHashMap<>(globalConfig);
+        overrideDiff.forEach(effective::put);
         validateConfiguration(effective);
 
         ao.executeInTransaction(() -> {
             AIReviewRepoConfiguration existing = findRepoConfiguration(projectKey, repositorySlug);
             long now = System.currentTimeMillis();
 
-            if (sanitized.isEmpty()) {
+            if (overrideDiff.isEmpty()) {
                 if (existing == null) {
                     existing = ao.create(AIReviewRepoConfiguration.class,
                             new DBParam("PROJECT_KEY", projectKey),
@@ -505,7 +515,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                         new DBParam("REPOSITORY_SLUG", repositorySlug));
                 existing.setCreatedDate(now);
             }
-            existing.setConfigurationJson(writeConfigurationJson(sanitized));
+            existing.setConfigurationJson(writeConfigurationJson(overrideDiff));
             existing.setInheritGlobal(false);
             existing.setModifiedDate(now);
             if (updatedBy != null) {
@@ -533,26 +543,39 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     @Nonnull
     @Override
     public List<Map<String, Object>> listRepositoryCatalog() {
+        return getRepositoryCatalog(0, 0).getProjects();
+    }
+
+    @Nonnull
+    @Override
+    public RepositoryCatalogPage getRepositoryCatalog(int start, int limit) {
         if (projectService == null || repositoryService == null) {
             log.debug("Project catalogue unavailable (projectService={}, repositoryService={})",
                     projectService != null, repositoryService != null);
-            return Collections.emptyList();
+            return new RepositoryCatalogPage(Collections.emptyList(), Math.max(0, start), 0, 0);
         }
 
-        List<Map<String, Object>> projects = new ArrayList<>();
+        int safeStart = Math.max(0, start);
+        int safeLimit = limit < 0 ? 0 : Math.min(limit, 500);
+
+        List<Map<String, Object>> allProjects = new ArrayList<>();
         PageRequest projectRequest = new PageRequestImpl(0, 100);
         Page<Project> projectPage;
 
         do {
             projectPage = projectService.findAll(projectRequest);
             for (Project project : projectPage.getValues()) {
-                projects.add(buildProjectCatalogueEntry(project));
+                allProjects.add(buildProjectCatalogueEntry(project));
             }
             projectRequest = projectPage.getNextPageRequest();
         } while (projectRequest != null && !projectPage.getIsLastPage());
 
-        projects.sort(this::compareProjectsForCatalogue);
-        return projects;
+        allProjects.sort(this::compareProjectsForCatalogue);
+        int total = allProjects.size();
+        int actualStart = Math.min(safeStart, total);
+        int endExclusive = safeLimit > 0 ? Math.min(actualStart + safeLimit, total) : total;
+        List<Map<String, Object>> slice = allProjects.subList(actualStart, endExclusive);
+        return new RepositoryCatalogPage(slice, actualStart, slice.size(), total);
     }
 
     @Override
@@ -570,6 +593,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             throw new IllegalArgumentException("Too many repository selections (max 1000)");
         }
 
+        Map<String, Object> globalConfig = new LinkedHashMap<>(getConfigurationAsMap());
         long now = System.currentTimeMillis();
 
         ao.executeInTransaction(() -> {
@@ -594,29 +618,24 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 }
 
                 AIReviewRepoConfiguration entity = existingMap.get(key);
+                Map<String, Object> existingOverrides = Collections.emptyMap();
                 if (entity == null) {
                     entity = ao.create(AIReviewRepoConfiguration.class,
                             new DBParam("PROJECT_KEY", scope.getProjectKey()),
                             new DBParam("REPOSITORY_SLUG", scope.getRepositorySlug()));
                     entity.setCreatedDate(now);
+                } else {
+                    existingOverrides = parseConfigurationJson(entity.getConfigurationJson());
+                }
+
+                Map<String, Object> delta = stripMatchingGlobalValues(existingOverrides, globalConfig);
+                if (delta.isEmpty()) {
                     entity.setConfigurationJson("{}");
                     entity.setInheritGlobal(true);
+                } else {
+                    entity.setConfigurationJson(writeConfigurationJson(delta));
+                    entity.setInheritGlobal(false);
                 }
-
-                if (!entity.isInheritGlobal()) {
-                    // Preserve custom overrides; only update audit metadata if requested.
-                    if (updatedBy != null) {
-                        entity.setModifiedBy(updatedBy);
-                    }
-                    entity.setModifiedDate(now);
-                    entity.save();
-                    continue;
-                }
-
-                if (entity.getConfigurationJson() == null || entity.getConfigurationJson().trim().isEmpty()) {
-                    entity.setConfigurationJson("{}");
-                }
-                entity.setInheritGlobal(true);
                 entity.setModifiedDate(now);
                 if (updatedBy != null) {
                     entity.setModifiedBy(updatedBy);
@@ -792,6 +811,48 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         String trimmed = ((String) value).trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private Map<String, Object> stripMatchingGlobalValues(Map<String, Object> overrides,
+                                                          Map<String, Object> globalConfig) {
+        Map<String, Object> delta = new LinkedHashMap<>();
+        if (overrides == null || overrides.isEmpty()) {
+            return delta;
+        }
+        overrides.forEach((key, value) -> {
+            if (key == null || value == null) {
+                return;
+            }
+            Object baseline = globalConfig != null ? globalConfig.get(key) : null;
+            if (!valuesEqual(value, baseline)) {
+                delta.put(key, value);
+            }
+        });
+        return delta;
+    }
+
+    private boolean valuesEqual(Object left, Object right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left instanceof Number && right instanceof Number) {
+            return numbersEqual((Number) left, (Number) right);
+        }
+        return Objects.equals(left, right);
+    }
+
+    private boolean numbersEqual(Number left, Number right) {
+        if (isFloatingPoint(left) || isFloatingPoint(right)) {
+            return Double.compare(left.doubleValue(), right.doubleValue()) == 0;
+        }
+        return new BigDecimal(left.toString()).compareTo(new BigDecimal(right.toString())) == 0;
+    }
+
+    private boolean isFloatingPoint(Number number) {
+        return number instanceof Double || number instanceof Float;
     }
 
     private Boolean parseBoolean(Object value) {

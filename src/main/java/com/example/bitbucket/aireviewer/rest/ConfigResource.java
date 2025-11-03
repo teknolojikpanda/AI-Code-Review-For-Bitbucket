@@ -7,6 +7,7 @@ import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
 import com.example.bitbucket.aireviewer.service.ConfigurationValidationException;
+import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,12 +22,17 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * REST API resource for managing AI Reviewer configuration.
@@ -40,6 +46,11 @@ public class ConfigResource {
     private static final int MAX_SCOPE_SELECTION = 1000;
     private static final Pattern PROJECT_KEY_PATTERN = Pattern.compile("^[A-Z0-9_\\-]+$");
     private static final Pattern REPOSITORY_SLUG_PATTERN = Pattern.compile("^[A-Za-z0-9._\\-]+$");
+    private static final RateLimiter RATE_LIMITER = new RateLimiter();
+    private static final long CONFIG_WRITE_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final int CONFIG_WRITE_LIMIT = 12;
+    private static final long TEST_CONNECTION_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
+    private static final int TEST_CONNECTION_LIMIT = 4;
 
     private final UserManager userManager;
     private final AIReviewerConfigService configService;
@@ -108,6 +119,14 @@ public class ConfigResource {
         }
 
         String username = profile.getUsername();
+        Response rateLimited = enforceRateLimit(request, profile,
+                "config-update",
+                "configuration updates",
+                CONFIG_WRITE_LIMIT,
+                CONFIG_WRITE_WINDOW_MS);
+        if (rateLimited != null) {
+            return rateLimited;
+        }
         log.info("Updating configuration by user: {}", username);
         log.debug("New configuration: {}", config);
 
@@ -138,7 +157,7 @@ public class ConfigResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getRepositoryCatalog(@Context HttpServletRequest request,
                                          @QueryParam("start") @DefaultValue("0") int start,
-                                         @QueryParam("limit") @DefaultValue("0") int limit) {
+                                         @QueryParam("limit") @DefaultValue("50") int limit) {
         UserProfile profile = userManager.getRemoteUser(request);
 
         if (!isSystemAdmin(profile)) {
@@ -149,21 +168,14 @@ public class ConfigResource {
         try {
             int safeStart = Math.max(0, start);
             int safeLimit = Math.max(0, limit);
-            if (safeLimit > 500) {
-                safeLimit = 500;
-            }
 
-            List<Map<String, Object>> projects = new ArrayList<>(configService.listRepositoryCatalog());
-            int total = projects.size();
-            int fromIndex = Math.min(safeStart, total);
-            int toIndex = safeLimit > 0 ? Math.min(fromIndex + safeLimit, total) : total;
-            List<Map<String, Object>> slice = projects.subList(fromIndex, toIndex);
+            RepositoryCatalogPage page = configService.getRepositoryCatalog(safeStart, safeLimit);
 
             Map<String, Object> payload = new HashMap<>();
-            payload.put("projects", new ArrayList<>(slice));
-            payload.put("total", total);
-            payload.put("start", fromIndex);
-            payload.put("limit", safeLimit > 0 ? slice.size() : total);
+            payload.put("projects", new ArrayList<>(page.getProjects()));
+            payload.put("total", page.getTotal());
+            payload.put("start", page.getStart());
+            payload.put("limit", page.getLimit());
             return Response.ok(payload).build();
         } catch (Exception e) {
             log.error("Error loading repository catalog", e);
@@ -184,6 +196,14 @@ public class ConfigResource {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
+        }
+        Response rateLimited = enforceRateLimit(request, profile,
+                "scope-update",
+                "scope updates",
+                CONFIG_WRITE_LIMIT,
+                CONFIG_WRITE_WINDOW_MS);
+        if (rateLimited != null) {
+            return rateLimited;
         }
         if (payload == null) {
             return Response.status(Response.Status.BAD_REQUEST)
@@ -281,6 +301,15 @@ public class ConfigResource {
                     .build();
         }
 
+        Response rateLimited = enforceRateLimit(request, profile,
+                "connection-test",
+                "connection test",
+                TEST_CONNECTION_LIMIT,
+                TEST_CONNECTION_WINDOW_MS);
+        if (rateLimited != null) {
+            return rateLimited;
+        }
+
         String ollamaUrl = params.get("ollamaUrl");
         if (ollamaUrl == null || ollamaUrl.trim().isEmpty()) {
             return Response.status(Response.Status.BAD_REQUEST)
@@ -338,6 +367,15 @@ public class ConfigResource {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
+        }
+
+        Response rateLimited = enforceRateLimit(request, profile,
+                "auto-approve-toggle",
+                "auto-approve changes",
+                CONFIG_WRITE_LIMIT,
+                CONFIG_WRITE_WINDOW_MS);
+        if (rateLimited != null) {
+            return rateLimited;
         }
 
         if (payload == null || !payload.containsKey("enabled")) {
@@ -434,11 +472,26 @@ public class ConfigResource {
     }
 
     private Map<String, Object> normalizeConfigPayload(Map<String, Object> rawConfig) {
-        Map<String, Object> normalized = new HashMap<>(rawConfig);
-        if (normalized.containsKey("apiDelay")) {
-            normalized.put("apiDelayMs", normalized.get("apiDelay"));
-            normalized.remove("apiDelay");
+        Map<String, Object> normalized = new HashMap<>();
+        if (rawConfig == null || rawConfig.isEmpty()) {
+            return normalized;
         }
+
+        Set<String> allowedKeys = new HashSet<>(configService.getDefaultConfiguration().keySet());
+        allowedKeys.add("apiDelayMs");
+
+        rawConfig.forEach((key, value) -> {
+            if (key == null) {
+                return;
+            }
+            if ("apiDelay".equals(key)) {
+                normalized.put("apiDelayMs", value);
+                return;
+            }
+            if (allowedKeys.contains(key)) {
+                normalized.put(key, value);
+            }
+        });
         return normalized;
     }
 
@@ -464,5 +517,62 @@ public class ConfigResource {
             return ((Number) value).intValue() != 0;
         }
         return null;
+    }
+
+    private Response enforceRateLimit(HttpServletRequest request,
+                                      UserProfile profile,
+                                      String actionKey,
+                                      String actionDescription,
+                                      int limit,
+                                      long windowMs) {
+        String identity = resolveIdentity(request, profile);
+        if (!RATE_LIMITER.tryAcquire(identity + ":" + actionKey, limit, windowMs)) {
+            long seconds = Math.max(1, TimeUnit.MILLISECONDS.toSeconds(windowMs));
+            String message = String.format("Too many %s. Please wait up to %d seconds and try again.",
+                    actionDescription,
+                    seconds);
+            return Response.status(Response.Status.TOO_MANY_REQUESTS)
+                    .entity(error(message))
+                    .build();
+        }
+        return null;
+    }
+
+    private String resolveIdentity(HttpServletRequest request, UserProfile profile) {
+        if (profile != null && profile.getUserKey() != null) {
+            return profile.getUserKey().getStringValue();
+        }
+        if (request != null && request.getRemoteAddr() != null) {
+            return request.getRemoteAddr();
+        }
+        return "anonymous";
+    }
+
+    private static final class RateLimiter {
+        private final ConcurrentMap<String, Window> windows = new ConcurrentHashMap<>();
+
+        boolean tryAcquire(String key, int limit, long windowMs) {
+            long now = System.currentTimeMillis();
+            Window window = windows.computeIfAbsent(key, k -> new Window(now));
+            synchronized (window) {
+                if (now - window.windowStart >= windowMs) {
+                    window.windowStart = now;
+                    window.count.set(0);
+                }
+                if (window.count.incrementAndGet() > limit) {
+                    return false;
+                }
+                return true;
+            }
+        }
+
+        private static final class Window {
+            volatile long windowStart;
+            final AtomicInteger count = new AtomicInteger();
+
+            Window(long windowStart) {
+                this.windowStart = windowStart;
+            }
+        }
     }
 }

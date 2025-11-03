@@ -86,6 +86,26 @@ public class AIReviewerConfigServiceImplIntegrationTest {
     }
 
     @Test
+    public void updateRepositoryConfigurationStripsGlobalMatches() {
+        String projectKey = "PROJ";
+        String repoSlug = "repo";
+
+        Map<String, Object> global = service.getConfigurationAsMap();
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("ollamaModel", global.get("ollamaModel"));
+        overrides.put("maxChunks", global.get("maxChunks"));
+        overrides.put("autoApprove", global.get("autoApprove"));
+
+        service.updateRepositoryConfiguration(projectKey, repoSlug, overrides, "tester");
+
+        Map<String, Object> config = service.getRepositoryConfiguration(projectKey, repoSlug);
+        assertTrue((Boolean) config.get("inheritGlobal"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> storedOverrides = (Map<String, Object>) config.get("overrides");
+        assertTrue(storedOverrides.isEmpty());
+    }
+
+    @Test
     public void synchronizeRepositoryOverridesUpdatesTargets() {
         assertTrue(service.listRepositoryConfigurations().isEmpty());
 

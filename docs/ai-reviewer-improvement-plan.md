@@ -1,9 +1,9 @@
 # AI Reviewer Improvement Plan
 
 ## Configuration & Scope
-- Implement incremental loading and caching for the repository scope tree (admin JS) with clear loading/error states.
-- Refine `synchronizeRepositoryOverrides` so repository overrides store deltas instead of cloning the entire global configuration.
-- Extend config REST endpoints with pagination, stricter payload validation, and rate limiting safeguards.
+- [x] Implement incremental loading and caching for the repository scope tree (admin JS) with clear loading/error states.
+- [x] Refine `synchronizeRepositoryOverrides` so repository overrides store deltas instead of cloning the entire global configuration.
+- [x] Extend config REST endpoints with pagination, stricter payload validation, and rate limiting safeguards.
 
 ## Review Pipeline
 - Restore a privileged manual-review trigger (REST/UI) that bypasses listener gating for admin force-runs.
