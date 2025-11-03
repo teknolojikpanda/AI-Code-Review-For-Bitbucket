@@ -10,14 +10,12 @@
         <param name="atlassian-data-center-compatible">true</param>
     </plugin-info>
 
-    <!-- Internationalization Resources -->
-    <resource type="i18n" name="i18n" location="i18n/ai-code-reviewer"/>
-
     <!-- Active Objects Entity Definitions -->
     <ao key="ao-module">
         <description>Active Objects module for AI Code Reviewer</description>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewConfiguration</entity>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewHistory</entity>
+        <entity>com.example.bitbucket.aireviewer.ao.AIReviewChunk</entity>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration</entity>
     </ao>
 
