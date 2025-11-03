@@ -39,6 +39,7 @@ public interface AIReviewHistory extends Entity {
 
     // Review Execution Information
     @NotNull
+    @Indexed
     long getReviewStartTime();
     void setReviewStartTime(long timestamp);
 
