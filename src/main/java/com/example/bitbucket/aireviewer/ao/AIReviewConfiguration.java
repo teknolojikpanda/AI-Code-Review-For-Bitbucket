@@ -113,6 +113,10 @@ public interface AIReviewConfiguration extends Entity {
     boolean isAutoApprove();
     void setAutoApprove(boolean autoApprove);
 
+    @StringLength(20)
+    String getScopeMode();
+    void setScopeMode(String scopeMode);
+
     // Configuration Metadata
     @StringLength(100)
     String getConfigurationName();

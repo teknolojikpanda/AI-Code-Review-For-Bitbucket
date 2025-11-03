@@ -153,7 +153,23 @@ public interface AIReviewerConfigService {
      * @param updatedBy optional user key performing the change (used for auditing metadata)
      */
     void synchronizeRepositoryOverrides(@Nonnull Collection<RepositoryScope> desiredRepositories,
+                                        @Nonnull ScopeMode scopeMode,
                                         String updatedBy);
+
+    /**
+     * Returns the currently configured scope mode.
+     */
+    @Nonnull
+    ScopeMode getScopeMode();
+
+    /**
+     * Determines whether the given repository should be considered within the active review scope.
+     *
+     * @param projectKey Bitbucket project key
+     * @param repositorySlug repository slug
+     * @return true if the repository is in scope
+     */
+    boolean isRepositoryWithinScope(@Nonnull String projectKey, @Nonnull String repositorySlug);
 
     /**
      * Immutable value object representing a page of repository catalogue entries.
@@ -189,6 +205,32 @@ public interface AIReviewerConfigService {
 
         public int getTotal() {
             return total;
+        }
+    }
+
+    /**
+     * Scope modes for review application.
+     */
+    enum ScopeMode {
+        ALL,
+        REPOSITORIES;
+
+        @Nonnull
+        public static ScopeMode fromString(String value) {
+            if (value == null) {
+                return ALL;
+            }
+            for (ScopeMode mode : values()) {
+                if (mode.name().equalsIgnoreCase(value)) {
+                    return mode;
+                }
+            }
+            return ALL;
+        }
+
+        @Nonnull
+        public String toConfigValue() {
+            return name();
         }
     }
 

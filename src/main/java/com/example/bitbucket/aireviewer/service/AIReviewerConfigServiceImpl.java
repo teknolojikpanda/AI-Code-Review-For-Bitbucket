@@ -17,6 +17,7 @@ import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.example.bitbucket.aireviewer.util.HttpClientUtil;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
+import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -112,6 +113,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final String DEFAULT_IGNORE_PATTERNS = "*.min.js,*.generated.*,package-lock.json,yarn.lock,*.map";
     private static final String DEFAULT_IGNORE_PATHS = "node_modules/,vendor/,build/,dist/,.git/";
     private static final String DEFAULT_REVIEW_PROFILE_KEY = ReviewProfilePreset.BALANCED.getKey();
+    private static final String DEFAULT_SCOPE_MODE = ScopeMode.ALL.toConfigValue();
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_REVIEW_DRAFT_PRS = false;
     private static final boolean DEFAULT_SKIP_GENERATED = true;
@@ -146,7 +148,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "reviewDraftPRs",
                 "skipGeneratedFiles",
                 "skipTests",
-                "autoApprove"
+                "autoApprove",
+                "scopeMode"
         ));
         SUPPORTED_KEYS = Collections.unmodifiableSet(keys);
     }
@@ -578,10 +581,31 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return new RepositoryCatalogPage(slice, actualStart, slice.size(), total);
     }
 
+    @Nonnull
+    @Override
+    public ScopeMode getScopeMode() {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        return ScopeMode.fromString(config.getScopeMode());
+    }
+
+    @Override
+    public boolean isRepositoryWithinScope(@Nonnull String projectKey, @Nonnull String repositorySlug) {
+        Objects.requireNonNull(projectKey, "projectKey");
+        Objects.requireNonNull(repositorySlug, "repositorySlug");
+
+        ScopeMode mode = getScopeMode();
+        if (mode == ScopeMode.ALL) {
+            return true;
+        }
+        return ao.executeInTransaction(() -> findRepoConfiguration(projectKey, repositorySlug) != null);
+    }
+
     @Override
     public void synchronizeRepositoryOverrides(@Nonnull Collection<RepositoryScope> desiredRepositories,
+                                               @Nonnull ScopeMode scopeMode,
                                                String updatedBy) {
         Objects.requireNonNull(desiredRepositories, "desiredRepositories");
+        Objects.requireNonNull(scopeMode, "scopeMode");
 
         LinkedHashSet<RepositoryScope> desired = sanitizeDesiredRepositories(desiredRepositories);
         Set<String> desiredKeys = desired.stream()
@@ -641,6 +665,17 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                     entity.setModifiedBy(updatedBy);
                 }
                 entity.save();
+            }
+
+            AIReviewConfiguration configuration = getOrCreateConfiguration();
+            String desiredMode = scopeMode.toConfigValue();
+            if (!desiredMode.equals(configuration.getScopeMode())) {
+                configuration.setScopeMode(desiredMode);
+                configuration.setModifiedDate(now);
+                if (updatedBy != null) {
+                    configuration.setModifiedBy(updatedBy);
+                }
+                configuration.save();
             }
             return null;
         });
@@ -1029,6 +1064,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (configMap.containsKey("autoApprove")) {
             config.setAutoApprove(getBooleanValue(configMap, "autoApprove"));
         }
+        if (configMap.containsKey("scopeMode")) {
+            ScopeMode mode = ScopeMode.fromString(String.valueOf(configMap.get("scopeMode")));
+            config.setScopeMode(mode.toConfigValue());
+        }
     }
 
     private String defaultString(String value, String defaultValue) {
@@ -1130,6 +1169,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             updated = true;
         }
 
+        if (isBlank(config.getScopeMode())) {
+            config.setScopeMode(DEFAULT_SCOPE_MODE);
+            updated = true;
+        }
+
         if (config.getMinSeverity() == null || config.getMinSeverity().trim().isEmpty()) {
             config.setMinSeverity(DEFAULT_MIN_SEVERITY);
             updated = true;
@@ -1184,6 +1228,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("skipGeneratedFiles", defaultBoolean(config.isSkipGeneratedFiles(), DEFAULT_SKIP_GENERATED));
         map.put("skipTests", defaultBoolean(config.isSkipTests(), DEFAULT_SKIP_TESTS));
         map.put("autoApprove", defaultBoolean(config.isAutoApprove(), DEFAULT_AUTO_APPROVE));
+        map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
         return map;
     }
 

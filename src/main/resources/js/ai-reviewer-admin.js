@@ -121,7 +121,7 @@
         updateProfileDetails($('#review-profile').val());
 
         repositoryOverrides = Array.isArray(config.repositoryOverrides) ? config.repositoryOverrides : [];
-        initializeScopeStateFromOverrides();
+        initializeScopeStateFromOverrides((config.scopeMode || '').toLowerCase());
         renderOverridesTable();
         updateScopeSummary();
         updateOverridePanelVisibility();
@@ -391,7 +391,7 @@
         });
     }
 
-    function initializeScopeStateFromOverrides() {
+    function initializeScopeStateFromOverrides(scopeMode) {
         scopeState.currentOverrides = new Map();
         scopeState.selectedRepositories = new Set();
         (Array.isArray(repositoryOverrides) ? repositoryOverrides : []).forEach(function(entry) {
@@ -402,7 +402,13 @@
             scopeState.currentOverrides.set(key, entry);
             scopeState.selectedRepositories.add(key);
         });
-        scopeState.mode = scopeState.selectedRepositories.size ? 'repositories' : 'all';
+        if (scopeMode === 'repositories') {
+            scopeState.mode = 'repositories';
+        } else if (scopeMode === 'all') {
+            scopeState.mode = 'all';
+        } else {
+            scopeState.mode = scopeState.selectedRepositories.size ? 'repositories' : 'all';
+        }
         scopeState.previousSelection = new Set(scopeState.selectedRepositories);
     }
 
@@ -1101,7 +1107,7 @@
             data: JSON.stringify(payload),
             success: function(response) {
                 repositoryOverrides = Array.isArray(response.repositoryOverrides) ? response.repositoryOverrides : [];
-                initializeScopeStateFromOverrides();
+                initializeScopeStateFromOverrides(response.mode);
                 refreshScopeUi();
                 showMessage('success', 'Configuration saved successfully!');
                 showLoading(false);

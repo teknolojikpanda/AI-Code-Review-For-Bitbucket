@@ -6,6 +6,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aicode.model.ReviewProfilePreset;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
+import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 import com.example.bitbucket.aireviewer.service.ConfigurationValidationException;
 import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
 import org.slf4j.Logger;
@@ -47,6 +48,7 @@ public class ConfigResource {
     private static final Pattern PROJECT_KEY_PATTERN = Pattern.compile("^[A-Z0-9_\\-]+$");
     private static final Pattern REPOSITORY_SLUG_PATTERN = Pattern.compile("^[A-Za-z0-9._\\-]+$");
     private static final RateLimiter RATE_LIMITER = new RateLimiter();
+    private static final int HTTP_TOO_MANY_REQUESTS = 429;
     private static final long CONFIG_WRITE_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
     private static final int CONFIG_WRITE_LIMIT = 12;
     private static final long TEST_CONNECTION_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
@@ -219,6 +221,7 @@ public class ConfigResource {
                     .entity(error("Invalid scope mode. Expected 'all' or 'repositories'."))
                     .build();
         }
+        ScopeMode scopeMode = ScopeMode.fromString(normalizedMode);
 
         Object repositoriesValue = payload.get("repositories");
         Collection<?> rawRepositories = (repositoriesValue instanceof Collection)
@@ -266,10 +269,10 @@ public class ConfigResource {
         }
 
         try {
-            configService.synchronizeRepositoryOverrides(scopes, username);
+            configService.synchronizeRepositoryOverrides(scopes, scopeMode, username);
             Map<String, Object> response = new HashMap<>();
             response.put("repositoryOverrides", configService.listRepositoryConfigurations());
-            response.put("mode", scopes.isEmpty() ? "all" : "repositories");
+            response.put("mode", scopeMode == ScopeMode.ALL ? "all" : "repositories");
             response.put("selectedRepositories", scopes);
             return Response.ok(response).build();
         } catch (Exception e) {
@@ -488,6 +491,9 @@ public class ConfigResource {
                 normalized.put("apiDelayMs", value);
                 return;
             }
+            if ("scopeMode".equals(key)) {
+                return;
+            }
             if (allowedKeys.contains(key)) {
                 normalized.put(key, value);
             }
@@ -531,7 +537,7 @@ public class ConfigResource {
             String message = String.format("Too many %s. Please wait up to %d seconds and try again.",
                     actionDescription,
                     seconds);
-            return Response.status(Response.Status.TOO_MANY_REQUESTS)
+            return Response.status(HTTP_TOO_MANY_REQUESTS)
                     .entity(error(message))
                     .build();
         }

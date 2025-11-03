@@ -215,6 +215,14 @@ public class AIReviewServiceImpl implements AIReviewService {
             Repository repository = pullRequest.getToRef().getRepository();
             String projectKey = repository.getProject().getKey();
             String repositorySlug = repository.getSlug();
+
+            if (!configService.isRepositoryWithinScope(projectKey, repositorySlug)) {
+                log.info("Skipping PR #{} in {}/{} - repository out of configured AI review scope", pullRequestId, projectKey, repositorySlug);
+                metrics.setGauge("review.skipped.reason", "out-of-scope");
+                Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
+                return buildSkippedResult(pullRequestId, "Repository is not selected for AI review scope", metricsSnapshot);
+            }
+
             Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
             ReviewConfig reviewConfig = configFactory.from(configMap);
             metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());

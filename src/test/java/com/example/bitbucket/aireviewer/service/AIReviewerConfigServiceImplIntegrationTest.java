@@ -19,6 +19,7 @@ import java.util.Map;
 
 import com.example.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
+import com.example.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -111,6 +112,7 @@ public class AIReviewerConfigServiceImplIntegrationTest {
 
         service.synchronizeRepositoryOverrides(
                 Arrays.asList(new AIReviewerConfigService.RepositoryScope("PROJ", "repo_ONE")),
+                ScopeMode.REPOSITORIES,
                 "tester");
 
         Map<String, Object> firstOverride = service.listRepositoryConfigurations().get(0);
@@ -124,6 +126,7 @@ public class AIReviewerConfigServiceImplIntegrationTest {
 
         service.synchronizeRepositoryOverrides(
                 Arrays.asList(new AIReviewerConfigService.RepositoryScope("PROJ", "repo_TWO")),
+                ScopeMode.REPOSITORIES,
                 "tester");
 
         Map<String, Object> secondOverride = service.listRepositoryConfigurations().get(0);
@@ -131,8 +134,27 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         assertEquals("PROJ", secondOverride.get("projectKey"));
         assertTrue((Boolean) secondOverride.get("inheritGlobal"));
 
-        service.synchronizeRepositoryOverrides(Arrays.<AIReviewerConfigService.RepositoryScope>asList(), "tester");
+        service.synchronizeRepositoryOverrides(Arrays.<AIReviewerConfigService.RepositoryScope>asList(), ScopeMode.REPOSITORIES, "tester");
         assertTrue(service.listRepositoryConfigurations().isEmpty());
+    }
+
+    @Test
+    public void scopeModeControlsRepositoryAccess() {
+        assertEquals(ScopeMode.ALL, service.getScopeMode());
+        assertTrue(service.isRepositoryWithinScope("PROJ", "repo"));
+
+        service.synchronizeRepositoryOverrides(
+                Arrays.asList(new AIReviewerConfigService.RepositoryScope("PROJ", "repo_ONE")),
+                ScopeMode.REPOSITORIES,
+                "tester");
+
+        assertEquals(ScopeMode.REPOSITORIES, service.getScopeMode());
+        assertTrue(service.isRepositoryWithinScope("PROJ", "repo_ONE"));
+        assertFalse(service.isRepositoryWithinScope("PROJ", "repo_TWO"));
+
+        service.synchronizeRepositoryOverrides(Arrays.<AIReviewerConfigService.RepositoryScope>asList(), ScopeMode.ALL, "tester");
+        assertEquals(ScopeMode.ALL, service.getScopeMode());
+        assertTrue(service.isRepositoryWithinScope("PROJ", "repo_ONE"));
     }
 
     private static final class TestActiveObjects extends EntityManagedActiveObjects {
