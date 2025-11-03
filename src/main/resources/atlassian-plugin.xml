@@ -14,12 +14,10 @@
     <resource type="i18n" name="i18n" location="i18n/ai-code-reviewer"/>
 
     <!-- Active Objects Entity Definitions -->
-    <ao key="ai-reviewer-ao"
-        name="AI Reviewer Active Objects">
-        <description>Stores AI reviewer configuration, execution history, and per-chunk telemetry.</description>
+    <ao key="ao-module">
+        <description>Active Objects module for AI Code Reviewer</description>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewConfiguration</entity>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewHistory</entity>
-        <entity>com.example.bitbucket.aireviewer.ao.AIReviewChunk</entity>
         <entity>com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration</entity>
     </ao>
 
@@ -48,81 +46,70 @@
     -->
 
     <!-- Explicit component declarations for services -->
-    <component key="aiReviewerConfigService"
-               name="AI Reviewer Configuration Service"
-               class="com.example.bitbucket.aireviewer.service.AIReviewerConfigServiceImpl"
+    <component key="aiReviewerConfigService" 
+               class="com.example.bitbucket.aireviewer.service.AIReviewerConfigServiceImpl" 
                public="true">
-        <description>Manages global settings and scoped overrides for the AI reviewer.</description>
+        <description>AI Reviewer Configuration Service</description>
         <interface>com.example.bitbucket.aireviewer.service.AIReviewerConfigService</interface>
     </component>
 
-    <component key="aiReviewService"
-               name="AI Review Execution Service"
-               class="com.example.bitbucket.aireviewer.service.AIReviewServiceImpl"
+    <component key="aiReviewService" 
+               class="com.example.bitbucket.aireviewer.service.AIReviewServiceImpl" 
                public="true">
-        <description>Runs the AI review workflow, posting findings and updating history.</description>
+        <description>AI Review Service</description>
         <interface>com.example.bitbucket.aireviewer.service.AIReviewService</interface>
     </component>
 
-    <component key="pullRequestAIReviewListener"
-               name="AI Review Pull Request Listener"
+    <component key="pullRequestAIReviewListener" 
                class="com.example.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
-        <description>Listens for pull request events and triggers initial or update AI reviews.</description>
+        <description>Pull Request AI Review Event Listener</description>
     </component>
 
     <component key="aiDiffProvider"
-               name="AI Reviewer Diff Provider"
                class="com.example.bitbucket.aicode.core.DefaultDiffProvider">
-        <description>Streams pull request diffs and records per-file stats for downstream analysis.</description>
+        <description>Diff provider for AI review pipeline</description>
         <interface>com.example.bitbucket.aicode.api.DiffProvider</interface>
     </component>
 
     <component key="aiChunkPlanner"
-               name="AI Reviewer Chunk Planner"
                class="com.example.bitbucket.aicode.core.HeuristicChunkPlanner">
-        <description>Plans chunk boundaries for AI processing using heuristic scoring.</description>
+        <description>Chunk planner for AI review pipeline</description>
         <interface>com.example.bitbucket.aicode.api.ChunkPlanner</interface>
     </component>
 
     <component key="sizeFirstChunkStrategy"
-               name="Size-First Chunk Strategy"
                class="com.example.bitbucket.aicode.core.SizeFirstChunkStrategy">
-        <description>Implements a size-prioritized chunk strategy used by the heuristic planner.</description>
+        <description>Default size-based chunk strategy</description>
         <interface>com.example.bitbucket.aicode.api.ChunkStrategy</interface>
     </component>
 
     <component key="aiReviewClient"
-               name="Ollama AI Review Client"
                class="com.example.bitbucket.aicode.core.OllamaAiReviewClient">
-        <description>Handles prompt execution against Ollama with retry, timeout, and telemetry hooks.</description>
+        <description>Ollama-backed AI review client</description>
         <interface>com.example.bitbucket.aicode.api.AiReviewClient</interface>
     </component>
 
     <component key="aiReviewOrchestrator"
-               name="Two-Pass Review Orchestrator"
                class="com.example.bitbucket.aicode.core.TwoPassReviewOrchestrator">
-        <description>Coordinates the two-pass review pipeline: overview planning followed by detailed analysis.</description>
+        <description>Two-pass AI review orchestrator</description>
         <interface>com.example.bitbucket.aicode.api.ReviewOrchestrator</interface>
     </component>
 
     <component key="aiReviewConfigFactory"
-               name="Review Configuration Factory"
                class="com.example.bitbucket.aicode.core.ReviewConfigFactory">
-        <description>Constructs immutable review configuration objects consumed by the review pipeline.</description>
+        <description>Factory for building review configuration snapshots</description>
     </component>
 
     <component key="reviewHistoryService"
-               name="AI Review History Service"
                class="com.example.bitbucket.aireviewer.service.ReviewHistoryService">
-        <description>Provides read APIs for AI review history entries, chunk telemetry, and summaries.</description>
+        <description>Provides access to stored AI review history</description>
     </component>
 
     <!-- REST API for Configuration -->
     <rest key="aiReviewerRestEndpoints"
-          name="AI Reviewer REST Resources"
           path="/ai-reviewer"
           version="1.0">
-        <description>Exposes configuration, repository scope, override management, and manual review trigger endpoints.</description>
+        <description>REST API for AI Code Reviewer configuration</description>
         <package>com.example.bitbucket.aireviewer.rest</package>
     </rest>
 
@@ -131,7 +118,7 @@
               name="AI Code Reviewer"
               section="atl.admin/admin-plugins-section"
               weight="200">
-        <description>Navigates administrators to the AI reviewer configuration screen.</description>
+        <description>Link to AI Code Reviewer configuration</description>
         <label key="ai.reviewer.admin.link"/>
         <link>/plugins/servlet/ai-reviewer/admin</link>
     </web-item>
@@ -140,7 +127,7 @@
               name="AI Review History"
               section="atl.admin/admin-plugins-section"
               weight="201">
-        <description>Opens the AI review history dashboard for auditing prior runs.</description>
+        <description>Link to AI Code Reviewer history</description>
         <label key="ai.reviewer.history.link"/>
         <link>/plugins/servlet/ai-reviewer/history</link>
     </web-item>
@@ -149,37 +136,39 @@
     <servlet key="ai-reviewer-admin-servlet"
              name="AI Reviewer Admin Servlet"
              class="com.example.bitbucket.aireviewer.servlet.AdminConfigServlet">
-        <description>Serves the AI reviewer admin interface rendered via Velocity templates.</description>
+        <description>Admin configuration page for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/admin</url-pattern>
     </servlet>
 
     <servlet key="ai-reviewer-history-servlet"
              name="AI Reviewer History Servlet"
              class="com.example.bitbucket.aireviewer.servlet.ReviewHistoryServlet">
-        <description>Provides the AI review history UI and supporting data endpoints.</description>
+        <description>Admin history page for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/history</url-pattern>
     </servlet>
 
     <!-- Web Resources -->
     <web-resource key="ai-reviewer-admin-resources" name="AI Reviewer Admin Resources">
-        <description>Bundles styles and scripts used by the AI reviewer admin configuration page.</description>
+        <description>Resources for the admin configuration page</description>
         <dependency>com.atlassian.auiplugin:ajs</dependency>
         <dependency>com.atlassian.auiplugin:aui-flag</dependency>
         <dependency>com.atlassian.auiplugin:aui-form-validation</dependency>
         <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
 
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-scope-tree.js" location="/js/ai-reviewer-scope-tree.js"/>
         <resource type="download" name="ai-reviewer-admin.js" location="/js/ai-reviewer-admin.js"/>
         <context>ai-reviewer-admin</context>
     </web-resource>
 
     <web-resource key="ai-reviewer-history-resources" name="AI Reviewer History Resources">
-        <description>Provides UI resources for the AI review history dashboard.</description>
+        <description>Resources for the AI review history page</description>
         <dependency>com.atlassian.auiplugin:ajs</dependency>
         <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
         <resource type="download" name="ai-reviewer-history.js" location="/js/ai-reviewer-history.js"/>
         <context>ai-reviewer-history</context>
     </web-resource>
-
 </atlassian-plugin>
