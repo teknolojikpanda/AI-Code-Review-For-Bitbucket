@@ -544,17 +544,49 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private ReviewResult handleReviewException(long pullRequestId, @Nonnull Exception e, @Nonnull MetricsCollector metrics, @Nonnull Instant overallStart) {
-        log.error("Failed to review pull request: {}", pullRequestId, e);
-        metrics.setGauge("error", e.getMessage());
+        String correlationId = "ERR-" + UUID.randomUUID().toString();
+        log.error("Failed to review pull request: {} correlationId={} type={} message={}",
+                pullRequestId,
+                correlationId,
+                e.getClass().getName(),
+                e.getMessage(),
+                e);
+
+        metrics.setGauge("error.type", e.getClass().getName());
+        metrics.setGauge("error.message", safeTruncate(e.getMessage(), 512));
+        metrics.setGauge("error.correlationId", correlationId);
+
         Map<String, Object> snapshot = finalizeMetricsSnapshot(metrics, overallStart);
+        String failureMessage = buildFailureSummary(e, correlationId);
+
         return ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.FAILED)
-                .message("Review failed: " + e.getMessage())
+                .message(failureMessage)
                 .filesReviewed(0)
                 .filesSkipped(0)
                 .metrics(snapshot)
                 .build();
+    }
+
+    private String buildFailureSummary(@Nonnull Exception e, @Nonnull String correlationId) {
+        String type = e.getClass().getSimpleName();
+        String message = safeTruncate(e.getMessage(), 240);
+        if (message == null || message.isEmpty()) {
+            message = "No additional error details provided.";
+        }
+        return String.format("Review failed (%s): %s [ref: %s]", type, message, correlationId);
+    }
+
+    private String safeTruncate(String value, int maxLength) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+        return trimmed.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
     
     private static class ReviewComparison {

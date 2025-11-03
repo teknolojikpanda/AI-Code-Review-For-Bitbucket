@@ -18,7 +18,7 @@
 
 ## Error Handling & Observability
 
-- Enrich failure summaries in review results/comments with exception class/details to aid troubleshooting.
+- [x] Enrich failure summaries in review results/comments with exception class/details to aid troubleshooting.
 - Improve admin UI error surfacing by exposing response status/text and logging correlation data.
 
 ## Testing & Quality
