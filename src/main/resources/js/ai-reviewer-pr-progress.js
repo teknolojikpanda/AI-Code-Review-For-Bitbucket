@@ -2,7 +2,6 @@
     'use strict';
 
     var HISTORY_LIMIT = 10;
-    var namespace = null;
     var metrics = {
         cacheHits: 0,
         cacheMisses: 0,
@@ -71,9 +70,8 @@
         if (typeof window === 'undefined') {
             return;
         }
-        namespace = window.AIReviewer || (window.AIReviewer = {});
+        var namespace = window.AIReviewer || (window.AIReviewer = {});
         namespace.PrProgress = namespace.PrProgress || {};
-        namespace.Flags = namespace.Flags || {};
         if (namespace.PrProgress.metrics) {
             metrics = namespace.PrProgress.metrics;
         } else {
@@ -111,9 +109,6 @@
             $panel = buildFloatingPanel(locationContext.projectKey, locationContext.repositorySlug, locationContext.pullRequestId);
         }
         $panel = ensurePanelStructure($panel);
-        if (!initialFlag) {
-            $panel.addClass('iteration2-disabled');
-        }
 
         var projectKey = $panel.data('projectKey');
         var repositorySlug = $panel.data('repositorySlug');
@@ -139,9 +134,6 @@
             }
         }());
         var cachedSnapshot = null;
-        var initialFlag = namespace.Flags && typeof namespace.Flags.progressIteration2 !== 'undefined'
-            ? !!namespace.Flags.progressIteration2
-            : true;
 
         var $timelineWrap = $panel.find('.progress-timeline-wrapper');
         var $timeline = $panel.find('.progress-timeline');
@@ -165,45 +157,8 @@
             viewMode: 'live',
             selectedHistoryId: null,
             historyEntries: [],
-            lastHistoryRefreshRunId: null,
-            iteration2Enabled: initialFlag
+            lastHistoryRefreshRunId: null
         };
-
-        function isIteration2Active() {
-            return panelState.iteration2Enabled === true;
-        }
-
-        function applyIteration2State(enabled) {
-            var normalized = !!enabled;
-            if (panelState.iteration2Enabled === normalized) {
-                return;
-            }
-            panelState.iteration2Enabled = normalized;
-            namespace.Flags.progressIteration2 = normalized;
-            $panel.toggleClass('iteration2-disabled', !normalized);
-            if (!normalized) {
-                if ($historySelect.length) {
-                    $historySelect.prop('disabled', true).val('');
-                }
-                if ($historyRefreshBtn.length) {
-                    $historyRefreshBtn.prop('disabled', true);
-                }
-                if ($historyMessage.length) {
-                    $historyMessage.attr('aria-hidden', 'true').hide();
-                }
-                panelState.historyEntries = [];
-                switchToLive('Live progress restored (Iteration 2 disabled).');
-            } else {
-                if ($historySelect.length) {
-                    $historySelect.prop('disabled', false);
-                }
-                if ($historyRefreshBtn.length) {
-                    $historyRefreshBtn.prop('disabled', false);
-                }
-                renderHistoryOptions();
-                loadHistoryList(false);
-            }
-        }
 
         function buildSnapshotPayload(response, events) {
             if (!response) {
@@ -225,7 +180,7 @@
         }
 
         function persistSnapshot(snapshot) {
-            if (!snapshot || !isIteration2Active()) {
+            if (!snapshot) {
                 return;
             }
             cachedSnapshot = snapshot;
@@ -239,7 +194,7 @@
         }
 
         function loadSnapshotFromStorage(record) {
-            if (!isIteration2Active() || !storageAvailable) {
+            if (!storageAvailable) {
                 if (record) {
                     metrics.cacheMisses++;
                     emitMetrics('cache-miss');
@@ -317,7 +272,7 @@
                 .attr('aria-label', detail);
         }
 
-        var initialSnapshot = isIteration2Active() ? loadSnapshotFromStorage(true) : null;
+        var initialSnapshot = loadSnapshotFromStorage(true);
         if (initialSnapshot) {
             cachedSnapshot = initialSnapshot;
             renderProgress(initialSnapshot, { skipCache: true, forceRender: true, silent: true, source: 'cache', hydrationStartedAt: now() });
@@ -362,18 +317,6 @@
                 response.events = events;
                 if (response.completed && !response.completedAt && response.lastUpdatedAt) {
                     response.completedAt = response.lastUpdatedAt;
-                }
-                if (typeof response.iteration2Enabled === 'boolean') {
-                    applyIteration2State(response.iteration2Enabled);
-                }
-            }
-
-            if (!isIteration2Active()) {
-                if (panelState.viewMode !== 'live') {
-                    switchToLive();
-                }
-                if (!opts.skipCache) {
-                    cachedSnapshot = null;
                 }
             }
 
@@ -432,7 +375,7 @@
                 emitMetrics('hydration-' + source);
             }
 
-            if (isIteration2Active() && !opts.skipCache) {
+            if (!opts.skipCache) {
                 persistSnapshot(buildSnapshotPayload(response, events));
             }
         }
@@ -461,9 +404,6 @@
         }
 
         function loadHistoryList(manual) {
-            if (!isIteration2Active()) {
-                return;
-            }
             if (!$historySelect.length) {
                 return;
             }
@@ -498,9 +438,6 @@
         }
 
         function renderHistoryOptions() {
-            if (!isIteration2Active()) {
-                return;
-            }
             if (!$historySelect.length) {
                 return;
             }
@@ -539,9 +476,6 @@
         }
 
         function loadHistoryDetail(historyId) {
-            if (!isIteration2Active()) {
-                return;
-            }
             var numericId = Number(historyId);
             if (!numericId) {
                 switchToLive('Showing live progress.');
@@ -570,9 +504,6 @@
         }
 
         function renderHistoryView(entry, events, raw, hydrationStartedAt) {
-            if (!isIteration2Active()) {
-                return;
-            }
             panelState.viewMode = 'history';
             panelState.autoCollapsed = false;
             var summaryResponse = {
@@ -621,7 +552,7 @@
             } else {
                 setStatus(null);
             }
-            var snapshot = isIteration2Active() ? (cachedSnapshot || loadSnapshotFromStorage(false)) : null;
+            var snapshot = cachedSnapshot || loadSnapshotFromStorage(false);
             if (snapshot) {
                 renderProgress(snapshot, { skipCache: true, forceRender: true, silent: true, source: 'cache', hydrationStartedAt: now() });
             } else {

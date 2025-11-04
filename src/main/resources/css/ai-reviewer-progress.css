@@ -45,6 +45,10 @@
     gap: 8px;
 }
 
+.progress-event.has-details .progress-event-header {
+    align-items: center;
+}
+
 .progress-event-stage {
     font-weight: 600;
     color: var(--ds-text-strong, #579dff);
@@ -59,6 +63,40 @@
     font-size: 11px;
     color: var(--ds-text-subtlest, #6b778c);
     margin-left: auto;
+}
+
+.progress-event-toggle {
+    margin-left: 8px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--ds-text-subtle, #42526e);
+    cursor: pointer;
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.progress-event-toggle:focus {
+    outline: 2px solid var(--ds-border-focused, #4c9aff);
+    outline-offset: 2px;
+}
+
+.progress-event-toggle .toggle-icon {
+    transition: transform 0.2s ease;
+}
+
+.progress-event.has-details .progress-event-details {
+    display: none;
+}
+
+.progress-event.has-details.is-expanded .progress-event-details {
+    display: block;
+}
+
+.progress-event.has-details.is-expanded .progress-event-toggle .toggle-icon {
+    transform: rotate(180deg);
 }
 
 .progress-event-details {
@@ -226,10 +264,6 @@
     gap: 8px;
     flex-wrap: wrap;
     margin-bottom: 8px;
-}
-
-.ai-reviewer-pr-progress.iteration2-disabled .progress-history-controls {
-    display: none;
 }
 
 .ai-reviewer-pr-progress .progress-history-label {

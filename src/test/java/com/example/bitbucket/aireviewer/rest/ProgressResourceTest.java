@@ -9,7 +9,6 @@ import com.atlassian.bitbucket.user.UserService;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
-import com.example.bitbucket.aireviewer.dto.ReviewResult;
 import com.example.bitbucket.aireviewer.progress.ProgressEvent;
 import com.example.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.example.bitbucket.aireviewer.service.Page;
@@ -109,7 +108,6 @@ public class ProgressResourceTest {
         assertEquals(1, payload.get("eventCount"));
         assertTrue(payload.get("summary").toString().contains("Running"));
         assertTrue(payload.get("completedAt") == null);
-        assertEquals(Boolean.TRUE, payload.get("iteration2Enabled"));
     }
 
     @Test
@@ -175,28 +173,5 @@ public class ProgressResourceTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> entries = (List<Map<String, Object>>) payload.get("entries");
         assertEquals(99L, entries.get(0).get("id"));
-    }
-
-    @Test
-    public void getRecentHistoryDisabledByFlag() {
-        String previous = System.getProperty("ai.reviewer.progress.iteration2.enabled");
-        System.setProperty("ai.reviewer.progress.iteration2.enabled", "false");
-        try {
-            when(userManager.getRemoteUser(request)).thenReturn(profile);
-            when(userService.getUserBySlug(profile.getUsername())).thenReturn(applicationUser);
-            when(repositoryService.getBySlug("PROJ", "repo")).thenReturn(repository);
-            when(permissionService.hasRepositoryPermission(applicationUser, repository, Permission.REPO_READ)).thenReturn(true);
-            when(permissionService.hasRepositoryPermission(applicationUser, repository, Permission.REPO_ADMIN)).thenReturn(true);
-
-            Response response = resource.getRecentHistory(request, "PROJ", "repo", 1L, null, null);
-
-            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
-        } finally {
-            if (previous == null) {
-                System.clearProperty("ai.reviewer.progress.iteration2.enabled");
-            } else {
-                System.setProperty("ai.reviewer.progress.iteration2.enabled", previous);
-            }
-        }
     }
 }

@@ -29,7 +29,7 @@ Deliver a polished, informative, and accessible AI review progress experience di
 - [x] Ensure registry snapshots carry enough information for the cache to pre-populate the panel (include final summary strings and run timestamps).
 - [x] Instrument progress polling to log cache hit/miss ratios and average hydration times so we can verify the cache actually improves perceived latency.
 - [x] Add REST contract tests guarding the new `/progress/history` schema to avoid regressions once consumers start depending on the dropdown data.
-- [x] Ship feature behind a dedicated `ai.reviewer.progress.iteration2` flag with kill-switch documentation.
+- [x] Retire the temporary `ai.reviewer.progress.iteration2` flag so the dropdown experience is always available without a JVM toggle.
 - [ ] Define rollout metrics (progress view open rate, dropdown usage) and wire them into analytics if available.
 - [ ] Prepare customer-facing release notes summarising the drill-down capabilities and migration steps.
 
@@ -41,7 +41,7 @@ Deliver a polished, informative, and accessible AI review progress experience di
 - Refresh: refresh button re-fetches list without switching view mode; live mode resumes poller, history mode keeps paused state.
 - Instrumentation: console debug logs report cache hits/misses and hydration averages every few updates; metrics exposed on `window.AIReviewer.PrProgress.metrics`.
 - Event details: timeline rows now expand in-place, showing key/value diagnostics with JSON fallback; toggles update `aria-expanded` and chevron states.
-- Feature flag: disable Iteration 2 via JVM property `-Dai.reviewer.progress.iteration2.enabled=false` (or matching environment variable). UI automatically collapses to live-only mode and hides history controls when the flag is off.
+- Feature flag: no longer required; history controls and drill-down are always on so environments stay consistent without extra configuration.
 
 #### Iteration 1 – Documentation & Verification
 
