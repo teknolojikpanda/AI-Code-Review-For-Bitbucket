@@ -10,6 +10,7 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
+import com.example.bitbucket.aireviewer.feature.FeatureFlags;
 import com.example.bitbucket.aireviewer.progress.ProgressEvent;
 import com.example.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.example.bitbucket.aireviewer.service.Page;
@@ -107,7 +108,9 @@ public class ProgressResource {
                     .entity(error("No active review progress for the requested pull request."))
                     .build();
         }
-        return Response.ok(toDto(snapshot.get())).build();
+        Map<String, Object> payload = toDto(snapshot.get());
+        payload.put("iteration2Enabled", FeatureFlags.isProgressIteration2Enabled());
+        return Response.ok(payload).build();
     }
 
     @GET
@@ -121,6 +124,12 @@ public class ProgressResource {
         Access access = requireRepositoryAccess(request, projectKey, repositorySlug);
         if (!access.allowed) {
             return access.response;
+        }
+
+        if (!FeatureFlags.isProgressIteration2Enabled()) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(error("Progress history drill-down is currently disabled."))
+                    .build();
         }
 
         Response limited = enforceRateLimit(request, access.profile,

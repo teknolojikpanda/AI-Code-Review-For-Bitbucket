@@ -113,6 +113,7 @@ public class ProgressResourceIntegrationTest {
         assertEquals(1, payload.get("eventCount"));
         assertTrue(payload.get("summary").toString().contains("Running"));
         assertTrue(payload.get("completedAt") == null);
+        assertEquals(Boolean.TRUE, payload.get("iteration2Enabled"));
     }
 
     @Test
@@ -196,5 +197,24 @@ public class ProgressResourceIntegrationTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> entries = (List<Map<String, Object>>) payload.get("entries");
         assertEquals(31L, entries.get(0).get("id"));
+    }
+
+    @Test
+    public void recentHistoryDisabledByFlag() {
+        String previous = System.getProperty("ai.reviewer.progress.iteration2.enabled");
+        System.setProperty("ai.reviewer.progress.iteration2.enabled", "false");
+        try {
+            when(profile.getUserKey()).thenReturn(new UserKey("history-disabled"));
+
+            Response response = resource.getRecentHistory(request, "PROJ1", "repo", 42L, null, null);
+
+            assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("ai.reviewer.progress.iteration2.enabled");
+            } else {
+                System.setProperty("ai.reviewer.progress.iteration2.enabled", previous);
+            }
+        }
     }
 }
