@@ -12,6 +12,7 @@ import com.atlassian.sal.api.user.UserProfile;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.example.bitbucket.aireviewer.progress.ProgressEvent;
 import com.example.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.example.bitbucket.aireviewer.service.Page;
 import com.example.bitbucket.aireviewer.service.ReviewHistoryService;
 
 import javax.inject.Inject;
@@ -21,10 +22,15 @@ import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,6 +53,9 @@ public class ProgressResource {
     private static final long LIVE_WINDOW_MS = TimeUnit.SECONDS.toMillis(60);
     private static final int HISTORY_REQUEST_LIMIT = 20;
     private static final long HISTORY_WINDOW_MS = TimeUnit.SECONDS.toMillis(60);
+    private static final int HISTORY_LIST_REQUEST_LIMIT = 20;
+    private static final long HISTORY_LIST_WINDOW_MS = TimeUnit.SECONDS.toMillis(60);
+    private static final int MAX_HISTORY_LIST_LIMIT = 50;
     private static final RateLimiter RATE_LIMITER = new RateLimiter();
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
 
@@ -99,6 +108,49 @@ public class ProgressResource {
                     .build();
         }
         return Response.ok(toDto(snapshot.get())).build();
+    }
+
+    @GET
+    @Path("/{projectKey}/{repositorySlug}/{pullRequestId}/history")
+    public Response getRecentHistory(@Context HttpServletRequest request,
+                                     @PathParam("projectKey") String projectKey,
+                                     @PathParam("repositorySlug") String repositorySlug,
+                                     @PathParam("pullRequestId") long pullRequestId,
+                                     @QueryParam("limit") Integer limitParam,
+                                     @QueryParam("offset") Integer offsetParam) {
+        Access access = requireRepositoryAccess(request, projectKey, repositorySlug);
+        if (!access.allowed) {
+            return access.response;
+        }
+
+        Response limited = enforceRateLimit(request, access.profile,
+                "history:list:" + projectKey + "/" + repositorySlug + "/" + pullRequestId,
+                HISTORY_LIST_REQUEST_LIMIT,
+                HISTORY_LIST_WINDOW_MS,
+                "history lookup requests");
+        if (limited != null) {
+            return limited;
+        }
+
+        int limit = sanitizeHistoryLimit(limitParam);
+        int offset = offsetParam == null ? 0 : Math.max(offsetParam, 0);
+
+        Page<Map<String, Object>> page = reviewHistoryService.getRecentSummaries(
+                projectKey,
+                repositorySlug,
+                pullRequestId,
+                limit,
+                offset);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("entries", page.getValues());
+        payload.put("count", page.getValues().size());
+        payload.put("total", page.getTotal());
+        payload.put("limit", page.getLimit());
+        payload.put("offset", page.getOffset());
+        payload.put("nextOffset", computeNextOffset(page));
+        payload.put("prevOffset", computePrevOffset(page));
+        return Response.ok(payload).build();
     }
 
     @GET
@@ -165,6 +217,9 @@ public class ProgressResource {
                 .map(ProgressEvent::toMap)
                 .collect(Collectors.toList());
         map.put("events", events);
+        map.put("eventCount", snapshot.getEventCount());
+        map.put("completedAt", snapshot.getCompletedAt() > 0 ? snapshot.getCompletedAt() : null);
+        map.put("summary", buildSummary(snapshot));
         return map;
     }
 
@@ -230,6 +285,88 @@ public class ProgressResource {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("error", message);
         return map;
+    }
+
+    private int sanitizeHistoryLimit(Integer param) {
+        if (param == null) {
+            return 10;
+        }
+        return Math.min(Math.max(param, 1), MAX_HISTORY_LIST_LIMIT);
+    }
+
+    private Integer computeNextOffset(Page<?> page) {
+        if (page.getValues().isEmpty()) {
+            return null;
+        }
+        int next = page.getOffset() + page.getValues().size();
+        return next >= page.getTotal() ? null : next;
+    }
+
+    private Integer computePrevOffset(Page<?> page) {
+        if (page.getOffset() <= 0) {
+            return null;
+        }
+        int prev = Math.max(page.getOffset() - page.getLimit(), 0);
+        return prev == page.getOffset() ? null : prev;
+    }
+
+    private String buildSummary(ProgressRegistry.ProgressSnapshot snapshot) {
+        List<String> parts = new ArrayList<>();
+        if (snapshot.isCompleted()) {
+            if (snapshot.getFinalStatus() != null) {
+                parts.add(humanizeState(snapshot.getFinalStatus().getValue()));
+            } else {
+                parts.add("Completed");
+            }
+        } else {
+            parts.add("Running");
+        }
+
+        long referenceTime = snapshot.isCompleted() && snapshot.getCompletedAt() > 0
+                ? snapshot.getCompletedAt()
+                : snapshot.getLastUpdatedAt();
+        if (referenceTime > 0) {
+            parts.add("Updated " + formatTimestamp(referenceTime));
+        }
+
+        int eventCount = snapshot.getEventCount();
+        if (eventCount > 0) {
+            parts.add(eventCount == 1 ? "1 event" : eventCount + " events");
+        } else if (!snapshot.isCompleted()) {
+            parts.add("Awaiting first milestone");
+        }
+        return String.join(" · ", parts);
+    }
+
+    private String humanizeState(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "Completed";
+        }
+        String normalized = value.replace('_', ' ').replace('-', ' ').trim();
+        String[] tokens = normalized.split("\\s+");
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < tokens.length; i++) {
+            if (tokens[i].isEmpty()) {
+                continue;
+            }
+            if (i > 0) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(tokens[i].charAt(0)));
+            if (tokens[i].length() > 1) {
+                builder.append(tokens[i].substring(1).toLowerCase());
+            }
+        }
+        return builder.length() == 0 ? "Completed" : builder.toString();
+    }
+
+    private String formatTimestamp(long epochMillis) {
+        try {
+            return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(
+                    Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()));
+        } catch (Exception ex) {
+            return Long.toString(epochMillis);
+        }
     }
 
     private static final class Access {

@@ -160,19 +160,25 @@ public class ProgressRegistry {
         private final ReviewResult.Status finalStatus;
         private final long startedAt;
         private final long lastUpdatedAt;
+        private final long completedAt;
+        private final int eventCount;
 
         private ProgressSnapshot(ProgressMetadata metadata,
                                  List<ProgressEvent> events,
                                  boolean completed,
                                  ReviewResult.Status finalStatus,
                                  long startedAt,
-                                 long lastUpdatedAt) {
+                                 long lastUpdatedAt,
+                                 long completedAt,
+                                 int eventCount) {
             this.metadata = metadata;
             this.events = Collections.unmodifiableList(events);
             this.completed = completed;
             this.finalStatus = finalStatus;
             this.startedAt = startedAt;
             this.lastUpdatedAt = lastUpdatedAt;
+            this.completedAt = completedAt;
+            this.eventCount = Math.max(eventCount, 0);
         }
 
         public ProgressMetadata getMetadata() {
@@ -199,6 +205,14 @@ public class ProgressRegistry {
             return lastUpdatedAt;
         }
 
+        public long getCompletedAt() {
+            return completedAt;
+        }
+
+        public int getEventCount() {
+            return eventCount;
+        }
+
         public String getState() {
             if (completed) {
                 return finalStatus != null ? finalStatus.getValue() : "completed";
@@ -214,6 +228,7 @@ public class ProgressRegistry {
         private volatile long lastUpdatedAt;
         private volatile boolean completed;
         private volatile ReviewResult.Status finalStatus;
+        private volatile long completedAt;
 
         ProgressContext(ProgressMetadata metadata) {
             this.metadata = metadata;
@@ -233,7 +248,9 @@ public class ProgressRegistry {
         void markCompleted(ReviewResult.Status status) {
             this.completed = true;
             this.finalStatus = status;
-            lastUpdatedAt = System.currentTimeMillis();
+            long now = System.currentTimeMillis();
+            this.completedAt = now;
+            lastUpdatedAt = now;
         }
 
         boolean isExpired() {
@@ -252,7 +269,9 @@ public class ProgressRegistry {
                     completed,
                     finalStatus,
                     startedAt,
-                    lastUpdatedAt);
+                    lastUpdatedAt,
+                    completedAt,
+                    events.size());
         }
     }
 
@@ -266,6 +285,26 @@ public class ProgressRegistry {
                                                   @Nullable ReviewResult.Status finalStatus,
                                                   long startedAt,
                                                   long lastUpdatedAt) {
-        return new ProgressSnapshot(metadata, new ArrayList<>(events), completed, finalStatus, startedAt, lastUpdatedAt);
+        long computedCompletedAt = completed ? lastUpdatedAt : 0L;
+        return createSnapshot(metadata, events, completed, finalStatus, startedAt, lastUpdatedAt, computedCompletedAt);
+    }
+
+    @Nonnull
+    public static ProgressSnapshot createSnapshot(@Nonnull ProgressMetadata metadata,
+                                                  @Nonnull List<ProgressEvent> events,
+                                                  boolean completed,
+                                                  @Nullable ReviewResult.Status finalStatus,
+                                                  long startedAt,
+                                                  long lastUpdatedAt,
+                                                  long completedAt) {
+        return new ProgressSnapshot(
+                metadata,
+                new ArrayList<>(events),
+                completed,
+                finalStatus,
+                startedAt,
+                lastUpdatedAt,
+                completedAt,
+                events.size());
     }
 }

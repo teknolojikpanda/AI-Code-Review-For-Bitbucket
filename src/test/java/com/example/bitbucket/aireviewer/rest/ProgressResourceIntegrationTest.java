@@ -21,6 +21,7 @@ import org.junit.Test;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Response;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,6 +110,9 @@ public class ProgressResourceIntegrationTest {
         List<Map<String, Object>> events = (List<Map<String, Object>>) payload.get("events");
         assertEquals(1, events.size());
         assertEquals("review.started", events.get(0).get("stage"));
+        assertEquals(1, payload.get("eventCount"));
+        assertTrue(payload.get("summary").toString().contains("Running"));
+        assertTrue(payload.get("completedAt") == null);
     }
 
     @Test
@@ -171,5 +175,26 @@ public class ProgressResourceIntegrationTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> progress = (List<Map<String, Object>>) payload.get("progress");
         assertTrue(progress.stream().anyMatch(item -> "review.completed".equals(item.get("stage"))));
+    }
+
+    @Test
+    public void recentHistoryReturnsSummaries() {
+        when(profile.getUserKey()).thenReturn(new UserKey("history-list"));
+
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("id", 31L);
+        entry.put("reviewStatus", "COMPLETED");
+        when(historyService.getRecentSummaries("PROJ1", "repo", 42L, 10, 0))
+                .thenReturn(new com.example.bitbucket.aireviewer.service.Page<>(List.of(entry), 1, 10, 0));
+
+        Response response = resource.getRecentHistory(request, "PROJ1", "repo", 42L, null, null);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals(1, payload.get("count"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) payload.get("entries");
+        assertEquals(31L, entries.get(0).get("id"));
     }
 }

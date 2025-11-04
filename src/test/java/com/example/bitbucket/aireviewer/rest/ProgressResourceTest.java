@@ -12,6 +12,7 @@ import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.example.bitbucket.aireviewer.dto.ReviewResult;
 import com.example.bitbucket.aireviewer.progress.ProgressEvent;
 import com.example.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.example.bitbucket.aireviewer.service.Page;
 import com.example.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.junit.Before;
 import org.junit.Test;
@@ -19,6 +20,7 @@ import org.junit.Test;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Response;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -104,6 +106,9 @@ public class ProgressResourceTest {
         assertEquals(1L, payload.get("pullRequestId"));
         assertEquals("in_progress", payload.get("state"));
         assertTrue(payload.containsKey("events"));
+        assertEquals(1, payload.get("eventCount"));
+        assertTrue(payload.get("summary").toString().contains("Running"));
+        assertTrue(payload.get("completedAt") == null);
     }
 
     @Test
@@ -144,5 +149,30 @@ public class ProgressResourceTest {
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertEquals(456L, payload.get("historyId"));
         assertTrue(payload.containsKey("progress"));
+    }
+
+    @Test
+    public void getRecentHistoryReturnsEntries() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userService.getUserBySlug(profile.getUsername())).thenReturn(applicationUser);
+        when(repositoryService.getBySlug("PROJ", "repo")).thenReturn(repository);
+        when(permissionService.hasRepositoryPermission(applicationUser, repository, Permission.REPO_READ)).thenReturn(true);
+        when(permissionService.hasRepositoryPermission(applicationUser, repository, Permission.REPO_ADMIN)).thenReturn(true);
+
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("id", 99L);
+        entry.put("reviewStatus", "COMPLETED");
+        when(historyService.getRecentSummaries("PROJ", "repo", 1L, 10, 0))
+                .thenReturn(new Page<>(List.of(entry), 1, 10, 0));
+
+        Response response = resource.getRecentHistory(request, "PROJ", "repo", 1L, null, null);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals(1, payload.get("count"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) payload.get("entries");
+        assertEquals(99L, entries.get(0).get("id"));
     }
 }

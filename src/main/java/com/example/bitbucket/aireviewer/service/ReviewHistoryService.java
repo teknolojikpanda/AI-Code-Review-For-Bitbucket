@@ -17,6 +17,7 @@ import javax.inject.Named;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -118,6 +119,42 @@ public class ReviewHistoryService {
                     .map(this::toMap)
                     .collect(Collectors.toList());
             return new Page<>(data, total, fetchAll ? 0 : pageSize, start);
+        });
+    }
+
+    @Nonnull
+    public Page<Map<String, Object>> getRecentSummaries(@Nonnull String projectKey,
+                                                        @Nonnull String repositorySlug,
+                                                        long pullRequestId,
+                                                        int limit,
+                                                        int offset) {
+        if (pullRequestId <= 0) {
+            final int pageSize = Math.min(Math.max(limit, 1), 50);
+            final int start = Math.max(offset, 0);
+            return new Page<>(Collections.emptyList(), 0, pageSize, start);
+        }
+
+        String normalizedProjectKey = projectKey.trim();
+        String normalizedSlug = repositorySlug.trim();
+        final int pageSize = Math.min(Math.max(limit, 1), 50);
+        final int start = Math.max(offset, 0);
+
+        return ao.executeInTransaction(() -> {
+            String whereClause = "PROJECT_KEY = ? AND REPOSITORY_SLUG = ? AND PULL_REQUEST_ID = ?";
+            Object[] params = { normalizedProjectKey, normalizedSlug, pullRequestId };
+
+            int total = ao.count(AIReviewHistory.class, Query.select().where(whereClause, params));
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
+                    Query.select()
+                            .where(whereClause, params)
+                            .order("REVIEW_START_TIME DESC")
+                            .limit(pageSize)
+                            .offset(start));
+
+            List<Map<String, Object>> values = Arrays.stream(histories)
+                    .map(this::toSummary)
+                    .collect(Collectors.toList());
+            return new Page<>(values, total, pageSize, start);
         });
     }
 
@@ -534,6 +571,85 @@ public class ReviewHistoryService {
         map.put("updateReview", history.isUpdateReview());
 
         return map;
+    }
+
+    private Map<String, Object> toSummary(@Nonnull AIReviewHistory history) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", history.getID());
+        map.put("pullRequestId", history.getPullRequestId());
+        map.put("projectKey", history.getProjectKey());
+        map.put("repositorySlug", history.getRepositorySlug());
+        map.put("reviewStatus", history.getReviewStatus());
+        map.put("reviewOutcome", history.getReviewOutcome());
+        long start = history.getReviewStartTime();
+        long end = history.getReviewEndTime();
+        map.put("startedAt", start > 0 ? start : null);
+        map.put("completedAt", end > 0 ? end : null);
+        map.put("durationSeconds", (start > 0 && end > start) ? (end - start) / 1000 : null);
+        int totalIssues = history.getTotalIssuesFound();
+        map.put("totalIssuesFound", totalIssues);
+        map.put("criticalIssues", history.getCriticalIssues());
+        map.put("highIssues", history.getHighIssues());
+        map.put("hasBlockingIssues", history.getCriticalIssues() > 0 || history.getHighIssues() > 0);
+        map.put("updateReview", history.isUpdateReview());
+        map.put("summary", buildHistorySummary(history, totalIssues));
+        return map;
+    }
+
+    private String buildHistorySummary(AIReviewHistory history, int totalIssues) {
+        List<String> parts = new ArrayList<>();
+        String status = history.getReviewStatus();
+        if (status != null && !status.trim().isEmpty()) {
+            parts.add(humanizeStatus(status));
+        }
+        long end = history.getReviewEndTime();
+        long start = history.getReviewStartTime();
+        if (end > 0) {
+            parts.add("Finished " + formatTimestamp(end));
+        } else if (start > 0) {
+            parts.add("Started " + formatTimestamp(start));
+        }
+        if (totalIssues > 0) {
+            parts.add(totalIssues == 1 ? "1 issue" : totalIssues + " issues");
+        } else {
+            parts.add("No issues");
+        }
+        if (history.isUpdateReview()) {
+            parts.add("Re-review");
+        }
+        return String.join(" · ", parts);
+    }
+
+    private String humanizeStatus(String status) {
+        String normalized = status.replace('_', ' ').replace('-', ' ').trim();
+        if (normalized.isEmpty()) {
+            return "Completed";
+        }
+        String[] tokens = normalized.split("\\s+");
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < tokens.length; i++) {
+            if (tokens[i].isEmpty()) {
+                continue;
+            }
+            if (i > 0) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(tokens[i].charAt(0)));
+            if (tokens[i].length() > 1) {
+                builder.append(tokens[i].substring(1).toLowerCase());
+            }
+        }
+        return builder.toString();
+    }
+
+    private String formatTimestamp(long epochMillis) {
+        try {
+            return Instant.ofEpochMilli(epochMillis)
+                    .atZone(zoneId)
+                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+        } catch (Exception ex) {
+            return Long.toString(epochMillis);
+        }
     }
 
     private String safeMetrics(String metricsJson) {
