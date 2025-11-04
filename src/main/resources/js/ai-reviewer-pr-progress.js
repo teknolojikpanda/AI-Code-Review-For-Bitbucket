@@ -10,6 +10,11 @@
         hydrationLastMs: null,
         hydrationLastSource: null
     };
+    var analytics = {
+        events: [],
+        counters: {},
+        once: {}
+    };
 
     function now() {
         if (typeof window !== 'undefined' && window.performance && typeof window.performance.now === 'function') {
@@ -66,6 +71,46 @@
         return formatState(value);
     }
 
+    function recordAnalytics(eventName, attributes, options) {
+        if (typeof window === 'undefined' || !eventName) {
+            return;
+        }
+        analytics.events = Array.isArray(analytics.events) ? analytics.events : [];
+        analytics.counters = analytics.counters || {};
+        analytics.once = analytics.once || {};
+
+        var opts = options || {};
+        if (opts.once && analytics.once[eventName]) {
+            return;
+        }
+        if (opts.once) {
+            analytics.once[eventName] = true;
+        }
+
+        var payload = attributes && typeof attributes === 'object' ? attributes : {};
+        analytics.counters[eventName] = (analytics.counters[eventName] || 0) + 1;
+        analytics.events.push({
+            name: eventName,
+            attributes: payload,
+            timestamp: Date.now()
+        });
+
+        try {
+            if (window.AJS && typeof window.AJS.trigger === 'function') {
+                window.AJS.trigger('analyticsEvent', {
+                    name: 'aiReviewer.' + eventName,
+                    data: payload
+                });
+            } else if (window.analytics && typeof window.analytics.track === 'function') {
+                window.analytics.track('aiReviewer.' + eventName, payload);
+            }
+        } catch (err) {
+            if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+                console.debug('[AI Reviewer] Analytics dispatch failed for %s', eventName, err);
+            }
+        }
+    }
+
     function ensureGlobalHelpers() {
         if (typeof window === 'undefined') {
             return;
@@ -77,9 +122,18 @@
         } else {
             namespace.PrProgress.metrics = metrics;
         }
+        if (namespace.PrProgress.analytics) {
+            analytics = namespace.PrProgress.analytics;
+            analytics.events = Array.isArray(analytics.events) ? analytics.events : [];
+            analytics.counters = analytics.counters || {};
+            analytics.once = analytics.once || {};
+        } else {
+            namespace.PrProgress.analytics = analytics;
+        }
         namespace.PrProgress.emitMetrics = emitMetrics;
         namespace.PrProgress.formatState = formatState;
         namespace.PrProgress.humanizeState = humanizeState;
+        namespace.PrProgress.trackEvent = recordAnalytics;
         window.AIReviewerFormatState = formatState;
         if (typeof window.formatState !== 'function') {
             window.formatState = formatState;
@@ -109,6 +163,9 @@
             $panel = buildFloatingPanel(locationContext.projectKey, locationContext.repositorySlug, locationContext.pullRequestId);
         }
         $panel = ensurePanelStructure($panel);
+        recordAnalytics('panel.view.opened', {
+            variant: $panel.hasClass('ai-reviewer-floating') ? 'floating' : 'inline'
+        }, { once: true });
 
         var projectKey = $panel.data('projectKey');
         var repositorySlug = $panel.data('repositorySlug');
@@ -407,6 +464,9 @@
             if (!$historySelect.length) {
                 return;
             }
+            recordAnalytics('history.list.requested', {
+                manual: !!manual
+            });
             $.ajax({
                 url: historyUrl,
                 type: 'GET',
@@ -416,6 +476,10 @@
                 var entries = data && Array.isArray(data.entries) ? data.entries : [];
                 panelState.historyEntries = entries;
                 renderHistoryOptions();
+                recordAnalytics('history.list.loaded', {
+                    manual: !!manual,
+                    count: entries.length
+                });
                 if (manual) {
                     if (entries.length) {
                         setStatus('info', 'Recent AI review runs refreshed.');
@@ -427,6 +491,10 @@
                 if (Common && typeof Common.logAjaxError === 'function') {
                     Common.logAjaxError('Failed to load history list', xhr, status, error);
                 }
+                recordAnalytics('history.list.failed', {
+                    manual: !!manual,
+                    status: xhr ? xhr.status : null
+                });
                 if (manual) {
                     var message = error || status || 'Unable to load recent runs.';
                     if (Common && typeof Common.composeErrorDetails === 'function') {
@@ -486,6 +554,9 @@
             stopPolling('Live polling paused while viewing a completed run.');
             setStatus('info', 'Loading AI review run #' + numericId + '...');
             var requestStartedAt = now();
+            recordAnalytics('history.detail.requested', {
+                historyId: numericId
+            });
             $.ajax({
                 url: historyDetailUrl + encodeURIComponent(numericId),
                 type: 'GET',
@@ -495,6 +566,10 @@
                 var entry = findHistoryEntry(numericId);
                 renderHistoryView(entry, events, data, requestStartedAt);
             }).fail(function(xhr, status, error) {
+                recordAnalytics('history.detail.failed', {
+                    historyId: numericId,
+                    status: xhr ? xhr.status : null
+                });
                 var message = error || status || 'Unable to load selected run.';
                 if (Common && typeof Common.composeErrorDetails === 'function') {
                     message = Common.composeErrorDetails(xhr, message);
@@ -514,6 +589,11 @@
                 completedAt: entry && entry.completedAt ? entry.completedAt : null,
                 events: events
             };
+            recordAnalytics('history.entry.viewed', {
+                historyId: panelState.selectedHistoryId,
+                status: summaryResponse.finalStatus,
+                eventCount: Array.isArray(events) ? events.length : 0
+            });
             renderProgress(summaryResponse, {
                 source: 'history',
                 forceRender: true,
@@ -542,6 +622,7 @@
         }
 
         function switchToLive(message) {
+            var previousMode = panelState.viewMode;
             panelState.viewMode = 'live';
             panelState.selectedHistoryId = null;
             if ($historySelect.length) {
@@ -559,6 +640,10 @@
                 Progress.renderTimeline($timeline, []);
                 updateSummary(null, []);
             }
+            recordAnalytics('history.view.live', {
+                previousMode: previousMode,
+                message: message || null
+            });
             startPolling(false);
         }
 
@@ -601,6 +686,9 @@
                 poller.stop();
                 poller = null;
             }
+            recordAnalytics('live.polling.started', {
+                manual: !!manual
+            });
             poller = Progress.createPoller({
                 url: progressUrl,
                 onStart: function() {
@@ -628,6 +716,9 @@
                 poller.stop();
                 poller = null;
             }
+            recordAnalytics('live.polling.stopped', {
+                message: message || null
+            });
             updateButtons(false);
             if (message) {
                 setStatus('info', message);
@@ -640,6 +731,9 @@
                 return;
             }
             setStatus('info', 'Fetching latest progress...');
+            recordAnalytics('live.progress.manualFetch', {
+                reason: 'manual-refresh'
+            });
             var fetchStartedAt = now();
             $.ajax({
                 url: progressUrl,
@@ -676,20 +770,35 @@
             $historySelect.on('change', function() {
                 var value = $(this).val();
                 if (!value) {
+                    recordAnalytics('history.dropdown.liveSelected', {
+                        previousMode: panelState.viewMode
+                    });
                     switchToLive('Showing live progress.');
                     return;
                 }
                 var historyId = parseInt(value, 10);
                 if (isNaN(historyId)) {
+                    recordAnalytics('history.dropdown.invalidSelected', {
+                        inputLength: value ? String(value).length : 0
+                    });
                     switchToLive('Showing live progress.');
                     return;
                 }
+                var entry = findHistoryEntry(historyId);
+                recordAnalytics('history.dropdown.entrySelected', {
+                    historyId: historyId,
+                    status: entry ? (entry.reviewStatus || entry.reviewOutcome || null) : null,
+                    hasSummary: !!(entry && entry.summary)
+                });
                 loadHistoryDetail(historyId);
             });
         }
 
         if ($historyRefreshBtn.length) {
             $historyRefreshBtn.on('click', function() {
+                recordAnalytics('history.dropdown.refreshClicked', {
+                    viewMode: panelState.viewMode
+                });
                 loadHistoryList(true);
             });
         }
