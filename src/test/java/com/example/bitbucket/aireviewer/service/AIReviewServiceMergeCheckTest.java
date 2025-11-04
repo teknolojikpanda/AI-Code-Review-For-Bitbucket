@@ -1,0 +1,113 @@
+package com.example.bitbucket.aireviewer.service;
+
+import com.atlassian.activeobjects.external.ActiveObjects;
+import com.atlassian.bitbucket.comment.CommentService;
+import com.atlassian.bitbucket.hook.repository.EnableRepositoryHookRequest;
+import com.atlassian.bitbucket.hook.repository.RepositoryHook;
+import com.atlassian.bitbucket.hook.repository.RepositoryHookService;
+import com.atlassian.bitbucket.pull.PullRequestService;
+import com.atlassian.bitbucket.repository.Repository;
+import com.atlassian.bitbucket.project.Project;
+import com.atlassian.bitbucket.server.ApplicationPropertiesService;
+import com.example.bitbucket.aicode.api.ChunkPlanner;
+import com.example.bitbucket.aicode.api.DiffProvider;
+import com.example.bitbucket.aicode.api.ReviewOrchestrator;
+import com.example.bitbucket.aicode.core.ReviewConfigFactory;
+import com.example.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck;
+import com.example.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.example.bitbucket.aireviewer.service.AIReviewerConfigService;
+import com.example.bitbucket.aireviewer.service.ReviewHistoryService;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.MockitoAnnotations;
+
+import java.lang.reflect.Method;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+public class AIReviewServiceMergeCheckTest {
+
+    private PullRequestService pullRequestService;
+    private CommentService commentService;
+    private ActiveObjects activeObjects;
+    private ApplicationPropertiesService applicationPropertiesService;
+    private AIReviewerConfigService configService;
+    private DiffProvider diffProvider;
+    private ChunkPlanner chunkPlanner;
+    private ReviewOrchestrator reviewOrchestrator;
+    private ReviewConfigFactory configFactory;
+    private ReviewHistoryService reviewHistoryService;
+    private ProgressRegistry progressRegistry;
+    private RepositoryHookService repositoryHookService;
+
+    private AIReviewServiceImpl service;
+
+    @Before
+    public void setUp() {
+        MockitoAnnotations.openMocks(this);
+        pullRequestService = mock(PullRequestService.class);
+        commentService = mock(CommentService.class);
+        activeObjects = mock(ActiveObjects.class);
+        applicationPropertiesService = mock(ApplicationPropertiesService.class);
+        configService = mock(AIReviewerConfigService.class);
+        diffProvider = mock(DiffProvider.class);
+        chunkPlanner = mock(ChunkPlanner.class);
+        reviewOrchestrator = mock(ReviewOrchestrator.class);
+        configFactory = mock(ReviewConfigFactory.class);
+        reviewHistoryService = mock(ReviewHistoryService.class);
+        progressRegistry = mock(ProgressRegistry.class);
+        repositoryHookService = mock(RepositoryHookService.class);
+
+        service = new AIReviewServiceImpl(
+                pullRequestService,
+                commentService,
+                activeObjects,
+                applicationPropertiesService,
+                configService,
+                diffProvider,
+                chunkPlanner,
+                reviewOrchestrator,
+                configFactory,
+                reviewHistoryService,
+                progressRegistry,
+                repositoryHookService);
+    }
+
+    @Test
+    public void ensureMergeCheckEnabled_autoEnablesWhenMissing() throws Exception {
+        Repository repository = mock(Repository.class);
+        Project project = mock(Project.class);
+        when(project.getKey()).thenReturn("PROJ");
+        when(repository.getProject()).thenReturn(project);
+        when(repository.getSlug()).thenReturn("repo");
+        when(repositoryHookService.getByKey(any(), eq(AIReviewInProgressMergeCheck.MODULE_KEY))).thenReturn(null);
+
+        invokeEnsureMergeCheck(repository);
+
+        verify(repositoryHookService).enable(any(EnableRepositoryHookRequest.class));
+    }
+
+    @Test
+    public void ensureMergeCheckEnabled_skipsWhenAlreadyEnabled() throws Exception {
+        Repository repository = mock(Repository.class);
+        Project project = mock(Project.class);
+        when(project.getKey()).thenReturn("PROJ");
+        when(repository.getProject()).thenReturn(project);
+        when(repository.getSlug()).thenReturn("repo");
+        RepositoryHook hook = mock(RepositoryHook.class);
+        when(hook.isEnabled()).thenReturn(true);
+        when(repositoryHookService.getByKey(any(), eq(AIReviewInProgressMergeCheck.MODULE_KEY))).thenReturn(hook);
+
+        invokeEnsureMergeCheck(repository);
+
+        verify(repositoryHookService, never()).enable(any());
+    }
+
+    private void invokeEnsureMergeCheck(Repository repository) throws Exception {
+        Method method = AIReviewServiceImpl.class.getDeclaredMethod("ensureMergeCheckEnabled", Repository.class);
+        method.setAccessible(true);
+        method.invoke(service, repository);
+    }
+}

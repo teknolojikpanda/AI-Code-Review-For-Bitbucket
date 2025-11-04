@@ -103,6 +103,13 @@
             <scope>provided</scope>
         </dependency>
 
+        <dependency>
+            <groupId>com.atlassian.plugins</groupId>
+            <artifactId>atlassian-plugins-webfragment-api</artifactId>
+            <version>7.2.0</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Servlet API -->
         <dependency>
             <groupId>javax.servlet</groupId>

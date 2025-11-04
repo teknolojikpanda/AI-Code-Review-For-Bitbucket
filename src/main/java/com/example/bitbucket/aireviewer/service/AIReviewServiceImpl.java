@@ -9,15 +9,25 @@ import com.atlassian.bitbucket.comment.CommentSeverity;
 import com.atlassian.bitbucket.comment.CommentThreadDiffAnchorType;
 import com.atlassian.bitbucket.content.DiffFileType;
 import com.atlassian.bitbucket.content.DiffSegmentType;
+import com.atlassian.bitbucket.hook.repository.EnableRepositoryHookRequest;
+import com.atlassian.bitbucket.hook.repository.RepositoryHook;
+import com.atlassian.bitbucket.hook.repository.RepositoryHookService;
 import com.atlassian.bitbucket.pull.PullRequest;
 import com.atlassian.bitbucket.pull.PullRequestService;
 import com.atlassian.bitbucket.repository.Repository;
+import com.atlassian.bitbucket.scope.Scope;
+import com.atlassian.bitbucket.scope.Scopes;
 import com.atlassian.bitbucket.server.ApplicationPropertiesService;
+import com.atlassian.bitbucket.validation.FormValidationException;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.example.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.example.bitbucket.aireviewer.dto.ReviewIssue;
 import com.example.bitbucket.aireviewer.dto.ReviewResult;
+import com.example.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck;
+import com.example.bitbucket.aireviewer.progress.ProgressEvent;
+import com.example.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.example.bitbucket.aireviewer.progress.ProgressTracker;
 import com.example.bitbucket.aireviewer.util.*;
 import com.example.bitbucket.aicode.api.ChunkPlanner;
 import com.example.bitbucket.aicode.api.DiffProvider;
@@ -37,6 +47,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.nio.charset.StandardCharsets;
@@ -80,7 +91,10 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ReviewOrchestrator reviewOrchestrator;
     private final ReviewConfigFactory configFactory;
     private final ReviewHistoryService reviewHistoryService;
-    private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(ReviewRun::initial);
+    private final RepositoryHookService repositoryHookService;
+    private final ProgressRegistry progressRegistry;
+    private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
+    private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
     @Inject
     public AIReviewServiceImpl(
@@ -93,7 +107,9 @@ public class AIReviewServiceImpl implements AIReviewService {
             ChunkPlanner chunkPlanner,
             ReviewOrchestrator reviewOrchestrator,
             ReviewConfigFactory configFactory,
-            ReviewHistoryService reviewHistoryService) {
+            ReviewHistoryService reviewHistoryService,
+            ProgressRegistry progressRegistry,
+            @ComponentImport RepositoryHookService repositoryHookService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -104,6 +120,8 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.reviewOrchestrator = Objects.requireNonNull(reviewOrchestrator, "reviewOrchestrator cannot be null");
         this.configFactory = Objects.requireNonNull(configFactory, "configFactory cannot be null");
         this.reviewHistoryService = Objects.requireNonNull(reviewHistoryService, "reviewHistoryService cannot be null");
+        this.progressRegistry = Objects.requireNonNull(progressRegistry, "progressRegistry cannot be null");
+        this.repositoryHookService = Objects.requireNonNull(repositoryHookService, "repositoryHookService cannot be null");
 
     }
 
@@ -111,7 +129,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Override
     public ReviewResult reviewPullRequest(@Nonnull PullRequest pullRequest) {
         Objects.requireNonNull(pullRequest, "pullRequest");
-        return executeWithRun(ReviewRun.initial(), () -> reviewPullRequestInternal(pullRequest));
+        return executeWithRun(ReviewRun.initial(pullRequest), () -> reviewPullRequestInternal(pullRequest));
     }
 
     @Nonnull
@@ -133,16 +151,33 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (treatAsUpdate) {
             return runReReview(pullRequest, force, true);
         }
-        return executeWithRun(ReviewRun.manualInitial(force), () -> reviewPullRequestInternal(pullRequest));
+        return executeWithRun(ReviewRun.manualInitial(pullRequest, force), () -> reviewPullRequestInternal(pullRequest));
     }
 
     private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {
         ReviewRun previous = REVIEW_RUN_CONTEXT.get();
+        ProgressTracker previousTracker = PROGRESS_TRACKER.get();
+        ProgressTracker tracker = new ProgressTracker();
         REVIEW_RUN_CONTEXT.set(run);
+        PROGRESS_TRACKER.set(tracker);
+        ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
+        if (metadata != null) {
+            ensureMergeCheckEnabled(run.getRepository());
+            progressRegistry.start(metadata);
+        }
         try {
             return action.get();
         } finally {
-            REVIEW_RUN_CONTEXT.set(previous);
+            if (previous != null) {
+                REVIEW_RUN_CONTEXT.set(previous);
+            } else {
+                REVIEW_RUN_CONTEXT.remove();
+            }
+            if (previousTracker != null) {
+                PROGRESS_TRACKER.set(previousTracker);
+            } else {
+                PROGRESS_TRACKER.remove();
+            }
         }
     }
 
@@ -184,7 +219,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
 
-        ReviewRun run = manual ? ReviewRun.manualUpdate(force) : ReviewRun.update(force);
+        ReviewRun run = manual ? ReviewRun.manualUpdate(pullRequest, force) : ReviewRun.update(pullRequest, force);
         return executeWithRun(run, () -> reviewPullRequestInternal(pullRequest));
     }
 
@@ -208,6 +243,11 @@ public class AIReviewServiceImpl implements AIReviewService {
         metrics.setGauge("review.manual", run.manual ? 1 : 0);
         metrics.setGauge("review.forced", run.force ? 1 : 0);
         metrics.setGauge("review.mode", run.update ? 1 : 0);
+        recordProgress("review.started", 0, progressDetails(
+                "mode", modeLabel,
+                "manual", run.manual,
+                "update", run.update,
+                "forced", run.force));
 
         try {
             logPullRequestInfo(pullRequest);
@@ -217,44 +257,84 @@ public class AIReviewServiceImpl implements AIReviewService {
             String repositorySlug = repository.getSlug();
 
             if (!configService.isRepositoryWithinScope(projectKey, repositorySlug)) {
+                recordProgress("review.skipped.scope", 5, progressDetails(
+                        "projectKey", projectKey,
+                        "repositorySlug", repositorySlug));
+                recordProgress("review.completed", 100, progressDetails(
+                        "status", "skipped",
+                        "reason", "out-of-scope"));
                 log.info("Skipping PR #{} in {}/{} - repository out of configured AI review scope", pullRequestId, projectKey, repositorySlug);
                 metrics.setGauge("review.skipped.reason", "out-of-scope");
                 Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
-                return buildSkippedResult(pullRequestId, "Repository is not selected for AI review scope", metricsSnapshot);
+                ReviewResult skipped = buildSkippedResult(pullRequestId, "Repository is not selected for AI review scope", metricsSnapshot);
+                completeCurrentRun(skipped.getStatus());
+                return skipped;
             }
+            recordProgress("review.scopeValidated", 5, progressDetails(
+                    "projectKey", projectKey,
+                    "repositorySlug", repositorySlug));
 
             Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
             ReviewConfig reviewConfig = configFactory.from(configMap);
             metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());
             metrics.setGauge("config.maxChunks", reviewConfig.getMaxChunks());
+            recordProgress("config.resolved", 10, progressDetails(
+                    "primaryModel", reviewConfig.getPrimaryModel(),
+                    "parallelThreads", reviewConfig.getParallelThreads(),
+                    "maxChunks", reviewConfig.getMaxChunks()));
 
             ReviewContext context = diffProvider.collect(pullRequest, reviewConfig, recorder);
             String rawDiff = context.getRawDiff();
+            long diffBytes = 0;
+            long diffLines = 0;
             if (rawDiff != null) {
-                metrics.setGauge("diff.sizeBytes", rawDiff.getBytes(StandardCharsets.UTF_8).length);
-                long lineCount = rawDiff.chars().filter(ch -> ch == '\n').count();
-                metrics.setGauge("diff.lineCount", lineCount);
+                diffBytes = rawDiff.getBytes(StandardCharsets.UTF_8).length;
+                diffLines = rawDiff.chars().filter(ch -> ch == '\n').count();
+                metrics.setGauge("diff.sizeBytes", diffBytes);
+                metrics.setGauge("diff.lineCount", diffLines);
             }
+            recordProgress("diff.collected", 20, progressDetails(
+                    "hasDiff", rawDiff != null && !rawDiff.trim().isEmpty(),
+                    "diffBytes", diffBytes,
+                    "diffLines", diffLines));
             if (rawDiff == null || rawDiff.trim().isEmpty()) {
+                recordProgress("review.skipped.diff", 25, progressDetails(
+                        "reason", "empty-diff"));
+                recordProgress("review.completed", 100, progressDetails(
+                        "status", "skipped",
+                        "reason", "empty-diff"));
                 Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
-                return buildSkippedResult(pullRequestId, "No changes to review", metricsSnapshot);
+                ReviewResult skipped = buildSkippedResult(pullRequestId, "No changes to review", metricsSnapshot);
+                completeCurrentRun(skipped.getStatus());
+                return skipped;
             }
 
             ReviewPreparation preparation = chunkPlanner.prepare(context, recorder);
             Map<String, FileChange> fileChanges = buildFileChanges(context, preparation);
             log.info("AI Review: collected {} file(s) with diff content, {} file(s) selected for review", fileChanges.size(), preparation.getOverview().getTotalFiles());
+            recordProgress("chunks.prepared", 40, progressDetails(
+                    "chunkCount", preparation.getChunks().size(),
+                    "filesReviewable", preparation.getOverview().getTotalFiles(),
+                    "truncated", preparation.isTruncated()));
 
             if (preparation.getChunks().isEmpty()) {
                 log.warn("AI Review: no chunks were generated for PR #{}; check filters/extensions configuration ({} file(s) lacked textual hunks)",
                         pullRequestId, preparation.getSkippedFiles().size());
+                recordProgress("review.skipped.chunks", 45, progressDetails(
+                        "filesWithoutHunks", preparation.getSkippedFiles().size()));
+                recordProgress("review.completed", 100, progressDetails(
+                        "status", "skipped",
+                        "reason", "no-reviewable-chunks"));
                 Map<String, Integer> reasons = analyzeFilterReasons(
                         context,
                         preparation.getOverview().getFileStats().keySet(),
                         preparation.getSkippedFiles());
                 log.warn("AI Review: filter breakdown for PR #{} -> {}", pullRequestId, reasons);
                 Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
-                return buildSuccessResult(pullRequestId, "No reviewable files found (all filtered)",
+                ReviewResult skipped = buildSuccessResult(pullRequestId, "No reviewable files found (all filtered)",
                         0, fileChanges.size(), metricsSnapshot);
+                completeCurrentRun(skipped.getStatus());
+                return skipped;
             }
 
             metrics.setGauge("files.total", fileChanges.size());
@@ -262,6 +342,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             metrics.setGauge("chunks.planned", preparation.getChunks().size());
             metrics.setGauge("chunks.truncated", preparation.isTruncated());
             log.debug("AI Review: {} chunk(s) prepared (truncated={})", preparation.getChunks().size(), preparation.isTruncated());
+            recordProgress("analysis.started", 55, progressDetails(
+                    "chunkCount", preparation.getChunks().size()));
 
             ReviewSummary summary = reviewOrchestrator.runReview(preparation, recorder);
             List<ReviewIssue> issues = convertFindings(summary.getFindings());
@@ -271,6 +353,9 @@ public class AIReviewServiceImpl implements AIReviewService {
             } else {
                 log.info("AI Review: AI returned {} finding(s) (truncated={})", summary.totalCount(), summary.isTruncated());
             }
+            recordProgress("analysis.completed", 70, progressDetails(
+                    "findings", summary.totalCount(),
+                    "truncated", summary.isTruncated()));
 
             List<ReviewIssue> validated = new ArrayList<>();
             int invalidIssues = 0;
@@ -288,9 +373,18 @@ public class AIReviewServiceImpl implements AIReviewService {
             ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
             int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
                     overallStart, comparison, metrics, configMap);
+            recordProgress("comments.completed", 85, progressDetails(
+                    "commentsPosted", commentsPosted,
+                    "issuesCommented", validated.isEmpty() ? 0 : validated.size()));
 
             boolean approved = handleAutoApproval(validated, pullRequest, metrics, configMap);
+            recordProgress("autoApproval.completed", 90, progressDetails(
+                    "autoApproved", approved));
             Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
+            recordProgress("review.completed", 100, progressDetails(
+                    "issues", validated.size(),
+                    "commentsPosted", commentsPosted,
+                    "autoApproved", approved));
             ReviewResult result = buildFinalResult(pullRequestId, validated,
                     preparation.getOverview().getTotalFiles(),
                     fileChanges.size(), commentsPosted, approved, metricsSnapshot);
@@ -298,6 +392,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                     pullRequestId, validated.size(), commentsPosted, approved);
 
             saveReviewHistory(pullRequest, validated, result, configMap);
+            completeCurrentRun(result.getStatus());
             return result;
 
         } catch (Exception e) {
@@ -498,48 +593,52 @@ public class AIReviewServiceImpl implements AIReviewService {
         String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
                 issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted + (issues.isEmpty() ? 0 : 1), approvalStatus);
 
-        return ReviewResult.builder()
+        return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(status)
                 .message(message)
                 .issues(issues)
                 .filesReviewed(filesReviewed)
                 .filesSkipped(totalFiles - filesReviewed)
-                .metrics(metricsSnapshot)
+                .metrics(metricsSnapshot))
                 .build();
     }
 
+    private ReviewResult.Builder applyProgress(ReviewResult.Builder builder) {
+        return builder.progressEvents(snapshotProgressEvents());
+    }
+
     private ReviewResult buildSkippedResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {
-        return ReviewResult.builder()
+        return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.SKIPPED)
                 .message(message)
                 .filesReviewed(0)
                 .filesSkipped(0)
-                .metrics(metricsSnapshot)
+                .metrics(metricsSnapshot))
                 .build();
     }
 
     private ReviewResult buildFailedResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {
-        return ReviewResult.builder()
+        return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.FAILED)
                 .message(message)
                 .filesReviewed(0)
                 .filesSkipped(0)
-                .metrics(metricsSnapshot)
+                .metrics(metricsSnapshot))
                 .build();
     }
 
     private ReviewResult buildSuccessResult(long pullRequestId, @Nonnull String message, int filesReviewed,
             int filesSkipped, @Nonnull Map<String, Object> metricsSnapshot) {
-        return ReviewResult.builder()
+        return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.SUCCESS)
                 .message(message)
                 .filesReviewed(filesReviewed)
                 .filesSkipped(filesSkipped)
-                .metrics(metricsSnapshot)
+                .metrics(metricsSnapshot))
                 .build();
     }
 
@@ -558,14 +657,18 @@ public class AIReviewServiceImpl implements AIReviewService {
 
         Map<String, Object> snapshot = finalizeMetricsSnapshot(metrics, overallStart);
         String failureMessage = buildFailureSummary(e, correlationId);
+        recordProgress("review.failed", 100, progressDetails(
+                "errorType", e.getClass().getSimpleName(),
+                "correlationId", correlationId));
 
-        return ReviewResult.builder()
+        completeCurrentRun(ReviewResult.Status.FAILED);
+        return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.FAILED)
                 .message(failureMessage)
                 .filesReviewed(0)
                 .filesSkipped(0)
-                .metrics(snapshot)
+                .metrics(snapshot))
                 .build();
     }
 
@@ -603,27 +706,48 @@ public class AIReviewServiceImpl implements AIReviewService {
         final boolean update;
         final boolean force;
         final boolean manual;
+        final long pullRequestId;
+        final Repository repository;
+        final String projectKey;
+        final String repositorySlug;
+        final String runId;
 
-        private ReviewRun(boolean update, boolean force, boolean manual) {
+        private ReviewRun(@Nonnull PullRequest pullRequest, boolean update, boolean force, boolean manual) {
             this.update = update;
             this.force = force;
             this.manual = manual;
+            this.pullRequestId = pullRequest.getId();
+            this.repository = pullRequest.getToRef() != null ? pullRequest.getToRef().getRepository() : null;
+            this.projectKey = repository != null && repository.getProject() != null ? repository.getProject().getKey() : null;
+            this.repositorySlug = repository != null ? repository.getSlug() : null;
+            this.runId = UUID.randomUUID().toString();
         }
 
-        static ReviewRun initial() {
-            return new ReviewRun(false, false, false);
+        static ReviewRun initial(@Nonnull PullRequest pullRequest) {
+            return new ReviewRun(pullRequest, false, false, false);
         }
 
-        static ReviewRun update(boolean force) {
-            return new ReviewRun(true, force, false);
+        static ReviewRun update(@Nonnull PullRequest pullRequest, boolean force) {
+            return new ReviewRun(pullRequest, true, force, false);
         }
 
-        static ReviewRun manualInitial(boolean force) {
-            return new ReviewRun(false, force, true);
+        static ReviewRun manualInitial(@Nonnull PullRequest pullRequest, boolean force) {
+            return new ReviewRun(pullRequest, false, force, true);
         }
 
-        static ReviewRun manualUpdate(boolean force) {
-            return new ReviewRun(true, force, true);
+        static ReviewRun manualUpdate(@Nonnull PullRequest pullRequest, boolean force) {
+            return new ReviewRun(pullRequest, true, force, true);
+        }
+
+        ProgressRegistry.ProgressMetadata toProgressMetadata() {
+            if (projectKey == null || repositorySlug == null) {
+                return null;
+            }
+            return new ProgressRegistry.ProgressMetadata(projectKey, repositorySlug, pullRequestId, runId, manual, update, force);
+        }
+
+        Repository getRepository() {
+            return repository;
         }
     }
 
@@ -1408,6 +1532,8 @@ public class AIReviewServiceImpl implements AIReviewService {
 
                 // Store metrics snapshot as JSON string
                 history.setMetricsJson(serializeMetrics(metricsMap));
+                List<Map<String, Object>> progressEntries = convertProgressEvents(result.getProgressEvents());
+                history.setProgressJson(progressEntries.isEmpty() ? null : serializeProgress(progressEntries));
 
                 history.save();
 
@@ -1564,6 +1690,20 @@ public class AIReviewServiceImpl implements AIReviewService {
         return defaultValue;
     }
 
+    private String safeProjectKey(@Nullable Repository repository) {
+        if (repository == null || repository.getProject() == null || repository.getProject().getKey() == null) {
+            return "?";
+        }
+        return repository.getProject().getKey();
+    }
+
+    private String safeSlug(@Nullable Repository repository) {
+        if (repository == null || repository.getSlug() == null) {
+            return "?";
+        }
+        return repository.getSlug();
+    }
+
     private String truncate(String value, int maxLength) {
         if (value == null) {
             return null;
@@ -1591,10 +1731,105 @@ public class AIReviewServiceImpl implements AIReviewService {
         return "REVIEWED";
     }
 
+    private List<ProgressEvent> snapshotProgressEvents() {
+        ProgressTracker tracker = progressTracker();
+        return tracker != null ? tracker.snapshot() : Collections.emptyList();
+    }
+
+    private void ensureMergeCheckEnabled(@Nullable Repository repository) {
+        if (repository == null) {
+            return;
+        }
+        try {
+            Scope scope = Scopes.repository(repository);
+            RepositoryHook hook = repositoryHookService.getByKey(scope, AIReviewInProgressMergeCheck.MODULE_KEY);
+            if (hook == null || !hook.isEnabled()) {
+                EnableRepositoryHookRequest.Builder builder =
+                        new EnableRepositoryHookRequest.Builder(scope, AIReviewInProgressMergeCheck.MODULE_KEY);
+                repositoryHookService.enable(builder.build());
+                if (log.isDebugEnabled()) {
+                    log.debug("Enabled AI review merge check for {}/{}", safeProjectKey(repository), safeSlug(repository));
+                }
+            }
+        } catch (FormValidationException e) {
+            log.warn("Unable to enable AI review merge check for {}/{}: {}", safeProjectKey(repository), safeSlug(repository), e.getMessage());
+        } catch (Exception e) {
+            log.warn("Failed to ensure AI review merge check for {}/{}", safeProjectKey(repository), safeSlug(repository), e);
+        }
+    }
+
+    private void recordProgress(String stage, int percentComplete, Map<String, Object> details) {
+        if (stage == null || stage.isEmpty()) {
+            return;
+        }
+        ProgressEvent event;
+        ProgressTracker tracker = progressTracker();
+        if (tracker != null) {
+            event = tracker.record(stage, percentComplete, details == null ? Collections.emptyMap() : details);
+        } else {
+            event = ProgressEvent.builder(stage)
+                    .percentComplete(percentComplete)
+                    .details(details == null ? Collections.emptyMap() : details)
+                    .build();
+        }
+        ReviewRun run = REVIEW_RUN_CONTEXT.get();
+        if (run != null) {
+            ProgressRegistry.ProgressMetadata metadata = run.toProgressMetadata();
+            if (metadata != null) {
+                progressRegistry.record(metadata, event);
+            }
+        }
+    }
+
+    private void completeCurrentRun(ReviewResult.Status status) {
+        ReviewRun run = REVIEW_RUN_CONTEXT.get();
+        if (run == null) {
+            return;
+        }
+        ProgressRegistry.ProgressMetadata metadata = run.toProgressMetadata();
+        if (metadata != null) {
+            progressRegistry.complete(metadata, status);
+        }
+    }
+
+    private ProgressTracker progressTracker() {
+        return PROGRESS_TRACKER.get();
+    }
+
+    private Map<String, Object> progressDetails(Object... keyValues) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        if (keyValues == null) {
+            return map;
+        }
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            Object key = keyValues[i];
+            Object value = keyValues[i + 1];
+            if (key instanceof String && value != null) {
+                map.put((String) key, value);
+            }
+        }
+        return map;
+    }
+
     private String serializeMetrics(Map<String, Object> metrics) {
         StringBuilder sb = new StringBuilder();
         appendJsonValue(sb, metrics);
         return sb.toString();
+    }
+
+    private String serializeProgress(List<Map<String, Object>> events) {
+        StringBuilder sb = new StringBuilder();
+        appendJsonValue(sb, events);
+        return sb.toString();
+    }
+
+    private List<Map<String, Object>> convertProgressEvents(List<ProgressEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return events.stream()
+                .map(ProgressEvent::toMap)
+                .collect(Collectors.toList());
     }
 
     private void appendJsonValue(StringBuilder sb, Object value) {

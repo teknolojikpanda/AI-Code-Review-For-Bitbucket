@@ -5,6 +5,8 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.example.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.example.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.example.bitbucket.aireviewer.util.ChunkTelemetryUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,6 +39,8 @@ import net.java.ao.Query;
 public class ReviewHistoryService {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewHistoryService.class);
+    private static final ObjectMapper PROGRESS_MAPPER = new ObjectMapper();
+    private static final TypeReference<List<Map<String, Object>>> PROGRESS_TYPE = new TypeReference<List<Map<String, Object>>>() {};
 
     private final ActiveObjects ao;
     private final ZoneId zoneId = ZoneId.systemDefault();
@@ -216,6 +220,15 @@ public class ReviewHistoryService {
                             .limit(1));
             return histories.length > 0 ? Optional.of(histories[0]) : Optional.empty();
         });
+    }
+
+    @Nonnull
+    public Optional<AIReviewHistory> findEntityById(long historyId) {
+        if (historyId <= 0 || historyId > Integer.MAX_VALUE) {
+            return Optional.empty();
+        }
+        int id = (int) historyId;
+        return ao.executeInTransaction(() -> Optional.ofNullable(ao.get(AIReviewHistory.class, id)));
     }
 
     @Nonnull
@@ -506,6 +519,7 @@ public class ReviewHistoryService {
         map.put("fallbackModelFailures", history.getFallbackModelFailures());
         map.put("fallbackTriggered", history.getFallbackTriggered());
         map.put("metricsSnapshot", safeMetrics(history.getMetricsJson()));
+        map.put("progress", safeProgress(history.getProgressJson()));
 
         long start = history.getReviewStartTime();
         long end = history.getReviewEndTime();
@@ -529,6 +543,18 @@ public class ReviewHistoryService {
         return metricsJson.length() > 10_000
                 ? metricsJson.substring(0, 10_000)
                 : metricsJson;
+    }
+
+    private List<Map<String, Object>> safeProgress(String progressJson) {
+        if (progressJson == null || progressJson.trim().isEmpty()) {
+            return Collections.emptyList();
+        }
+        try {
+            return PROGRESS_MAPPER.readValue(progressJson, PROGRESS_TYPE);
+        } catch (Exception ex) {
+            log.debug("Failed to parse progress JSON: {}", ex.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     private int countChunks(long historyId) {

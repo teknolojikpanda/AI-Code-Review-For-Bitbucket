@@ -169,6 +169,10 @@ public interface AIReviewHistory extends Entity {
     String getMetricsJson();
     void setMetricsJson(String json);
 
+    @StringLength(StringLength.UNLIMITED)
+    String getProgressJson();
+    void setProgressJson(String progressJson);
+
     // Configuration Used
     @StringLength(StringLength.UNLIMITED)
     String getConfigurationSnapshot();

@@ -971,6 +971,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setReviewDraftPRs(DEFAULT_REVIEW_DRAFT_PRS);
         config.setSkipGeneratedFiles(DEFAULT_SKIP_GENERATED);
         config.setSkipTests(DEFAULT_SKIP_TESTS);
+        config.setAutoApprove(DEFAULT_AUTO_APPROVE);
         config.setGlobalDefault(true);
         long now = System.currentTimeMillis();
         config.setCreatedDate(now);

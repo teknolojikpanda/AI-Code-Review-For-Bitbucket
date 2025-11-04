@@ -1,5 +1,7 @@
 package com.example.bitbucket.aireviewer.dto;
 
+import com.example.bitbucket.aireviewer.progress.ProgressEvent;
+
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -52,6 +54,7 @@ public class ReviewResult {
     private final long pullRequestId;
     private final int filesReviewed;
     private final int filesSkipped;
+    private final List<ProgressEvent> progressEvents;
 
     private ReviewResult(Builder builder) {
         this.issues = Collections.unmodifiableList(new ArrayList<>(builder.issues));
@@ -61,6 +64,7 @@ public class ReviewResult {
         this.pullRequestId = builder.pullRequestId;
         this.filesReviewed = builder.filesReviewed;
         this.filesSkipped = builder.filesSkipped;
+        this.progressEvents = Collections.unmodifiableList(new ArrayList<>(builder.progressEvents));
     }
 
     /**
@@ -128,6 +132,16 @@ public class ReviewResult {
      */
     public int getFilesSkipped() {
         return filesSkipped;
+    }
+
+    /**
+     * Gets the recorded progress events for this review.
+     *
+     * @return unmodifiable list of progress events
+     */
+    @Nonnull
+    public List<ProgressEvent> getProgressEvents() {
+        return progressEvents;
     }
 
     /**
@@ -224,6 +238,7 @@ public class ReviewResult {
         private long pullRequestId;
         private int filesReviewed = 0;
         private int filesSkipped = 0;
+        private final List<ProgressEvent> progressEvents = new ArrayList<>();
 
         private Builder() {
         }
@@ -293,6 +308,19 @@ public class ReviewResult {
         @Nonnull
         public Builder filesSkipped(int filesSkipped) {
             this.filesSkipped = filesSkipped;
+            return this;
+        }
+
+        @Nonnull
+        public Builder progressEvents(@Nonnull List<ProgressEvent> events) {
+            this.progressEvents.clear();
+            this.progressEvents.addAll(events);
+            return this;
+        }
+
+        @Nonnull
+        public Builder addProgressEvent(@Nonnull ProgressEvent event) {
+            this.progressEvents.add(event);
             return this;
         }
 

@@ -36,6 +36,7 @@
     <component-import key="applicationPropertiesService" interface="com.atlassian.bitbucket.server.ApplicationPropertiesService"/>
     <component-import key="permissionService" interface="com.atlassian.bitbucket.permission.PermissionService"/>
     <component-import key="userService" interface="com.atlassian.bitbucket.user.UserService"/>
+    <component-import key="repositoryHookService" interface="com.atlassian.bitbucket.hook.repository.RepositoryHookService"/>
 
 
     <!--
@@ -103,6 +104,17 @@
         <description>Provides access to stored AI review history</description>
     </component>
 
+    <component key="progressRegistry"
+               class="com.example.bitbucket.aireviewer.progress.ProgressRegistry">
+        <description>Tracks live AI review progress state for polling endpoints</description>
+    </component>
+
+    <repository-merge-check key="ai-reviewer-in-progress-merge-check"
+                            name="AI Review In-Progress Merge Check"
+                            class="com.example.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck">
+        <description>Prevents pull requests from being merged while the AI review is still running.</description>
+    </repository-merge-check>
+
     <!-- REST API for Configuration -->
     <rest key="aiReviewerRestEndpoints"
           path="/ai-reviewer"
@@ -154,6 +166,7 @@
         <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
 
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-progress.css" location="/css/ai-reviewer-progress.css"/>
         <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
         <resource type="download" name="ai-reviewer-scope-tree.js" location="/js/ai-reviewer-scope-tree.js"/>
         <resource type="download" name="ai-reviewer-admin.js" location="/js/ai-reviewer-admin.js"/>
@@ -165,8 +178,22 @@
         <dependency>com.atlassian.auiplugin:ajs</dependency>
         <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-progress.css" location="/css/ai-reviewer-progress.css"/>
         <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-progress.js" location="/js/ai-reviewer-progress.js"/>
         <resource type="download" name="ai-reviewer-history.js" location="/js/ai-reviewer-history.js"/>
         <context>ai-reviewer-history</context>
     </web-resource>
+
+    <web-resource key="ai-reviewer-pr-progress-resources" name="AI Reviewer PR Progress Resources">
+        <description>Resources for the pull request progress panel</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <resource type="download" name="ai-reviewer-progress.css" location="/css/ai-reviewer-progress.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-progress.js" location="/js/ai-reviewer-progress.js"/>
+        <resource type="download" name="ai-reviewer-pr-progress.js" location="/js/ai-reviewer-pr-progress.js"/>
+        <context>atl.general</context>
+    </web-resource>
+
+    <!-- PR progress resources are injected via global context and the script renders the panel dynamically -->
 </atlassian-plugin>

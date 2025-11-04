@@ -7,6 +7,7 @@
 
     var historyUrl = baseUrl + '/rest/ai-reviewer/1.0/history';
     var selectedHistoryId = null;
+    var Common = (window.AIReviewer && window.AIReviewer.Common) || null;
 
     function init() {
         $('#refresh-history-btn').on('click', function() {
@@ -539,7 +540,10 @@
             var issues = formatIssues(entry);
             var model = entry.modelUsed || '—';
 
-            var row = '<tr class="history-row" data-history-id="' + entry.id + '">' +
+            var row = '<tr class="history-row" data-history-id="' + entry.id + '"' +
+                    ' data-project="' + escapeHtml(entry.projectKey || '') + '"' +
+                    ' data-repo="' + escapeHtml(entry.repositorySlug || '') + '"' +
+                    ' data-pr="' + escapeHtml(entry.pullRequestId != null ? entry.pullRequestId : '') + '">' +
                     '<td>' + started + '</td>' +
                     '<td>' + repo + '</td>' +
                     '<td>' + status + '</td>' +
@@ -560,6 +564,7 @@
                 selectedHistoryId = null;
                 return;
             }
+            updateProgressFiltersFromRow($row);
             expandRow($row, false);
         });
 
@@ -570,6 +575,24 @@
             } else {
                 selectedHistoryId = null;
             }
+        }
+    }
+
+    function updateProgressFiltersFromRow($row) {
+        if (!$row || !$row.length) {
+            return;
+        }
+        var project = $row.data('project');
+        var repo = $row.data('repo');
+        var pr = $row.data('pr');
+        if (project) {
+            $('#filter-project').val(project);
+        }
+        if (repo) {
+            $('#filter-repo').val(repo);
+        }
+        if (pr) {
+            $('#filter-pr').val(pr);
         }
     }
 
@@ -639,6 +662,16 @@
         var html = buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload);
         $detailRow.find('td').html(html);
 
+        var Progress = window.AIReviewer && window.AIReviewer.Progress;
+        if (Progress) {
+            var progressEvents = (entry && Array.isArray(entry.progress)) ? entry.progress : [];
+            var $timeline = $detailRow.find('.history-progress-timeline');
+            Progress.renderTimeline($timeline, progressEvents);
+        } else {
+            $detailRow.find('.history-progress-timeline')
+                .html('<div class="progress-empty">Progress timeline unavailable.</div>');
+        }
+
         if (!suppressScroll) {
             scrollToRow($detailRow.prev());
         }
@@ -666,6 +699,10 @@
                     '<h4>Model Summary</h4>' +
                     buildDetailListHtml(modelItems) +
                 '</div>' +
+            '</div>' +
+            '<div class="history-detail-progress">' +
+                '<h4>Progress Timeline</h4>' +
+                '<div class="progress-timeline history-progress-timeline"></div>' +
             '</div>' +
             '<div class="history-detail-chunks">' +
                 '<div class="chunk-summary">' + escapeHtml(chunkSummary) + '</div>' +
@@ -798,6 +835,18 @@
 
     function clearHistoryMessage() {
         setHistoryMessage(null, null, false);
+    }
+
+    function formatStageLabel(value) {
+        if (value == null) {
+            return 'Unknown';
+        }
+        return String(value)
+            .replace(/[_\s-]+/g, ' ')
+            .replace(/\b([a-zA-Z])/g, function(match) {
+                return match.toUpperCase();
+            })
+            .trim();
     }
 
     function escapeHtml(value) {

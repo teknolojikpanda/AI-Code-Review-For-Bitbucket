@@ -113,6 +113,9 @@ public interface AIReviewConfiguration extends Entity {
     boolean isAutoApprove();
     void setAutoApprove(boolean autoApprove);
 
+    boolean isProgressPanelEnabled();
+    void setProgressPanelEnabled(boolean enabled);
+
     @StringLength(20)
     String getScopeMode();
     void setScopeMode(String scopeMode);
