@@ -156,6 +156,20 @@
             <scope>provided</scope>
         </dependency>
 
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+            <version>${jackson.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- HTTP Client for Ollama API calls -->
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
@@ -283,11 +297,7 @@
                     <skipRestDocGeneration>true</skipRestDocGeneration>
                     <instructions>
                         <Export-Package/>
-                        <Import-Package>
-                            org.springframework.osgi.*;resolution:="optional",
-                            org.eclipse.gemini.blueprint.*;resolution:="optional",
-                            *
-                        </Import-Package>
+                        <Import-Package>*</Import-Package>
                         <Spring-Context>*</Spring-Context>
                     </instructions>
                 </configuration>
