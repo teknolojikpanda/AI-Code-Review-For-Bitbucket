@@ -310,26 +310,44 @@
                             <div class="description">Skip analysis of test files</div>
                         </div>
 
-                        <div class="field-group">
-                            <label for="ai-reviewer-user">AI Reviewer Account</label>
-                            <input type="text" id="ai-reviewer-user-search" class="text medium-field" placeholder="Search users by name or username">
-                            <select id="ai-reviewer-user" name="aiReviewerUser" class="long-field">
-                                <option value=""></option>
-                                #if($aiReviewerUser)
-                                    <option value="$aiReviewerUser" selected="selected">
-                                        #if($aiReviewerUserDisplayName)
-                                            $aiReviewerUserDisplayName
-                                        #else
-                                            $aiReviewerUser
-                                        #end
-                                    </option>
-                                #end
-                            </select>
-                            <div id="ai-reviewer-user-results" class="user-search-results"></div>
+                        <div class="field-group ai-reviewer-account-group">
+                            <label for="ai-reviewer-user-search">AI Reviewer Account</label>
+                            <input type="hidden" id="ai-reviewer-user" name="aiReviewerUser" value="$!aiReviewerUser">
+                            <div class="ai-reviewer-account">
+                                <div class="ai-reviewer-account__current" id="ai-reviewer-user-selected">
+                                    <div class="ai-reviewer-account__empty" data-role="empty">
+                                        <div class="ai-reviewer-account__avatar" data-role="initials">AI</div>
+                                        <div class="ai-reviewer-account__empty-copy">
+                                            <strong>No reviewer selected</strong>
+                                            <span>Assign a Bitbucket user to represent the AI reviewer.</span>
+                                        </div>
+                                    </div>
+                                    <div class="ai-reviewer-account__details hidden" data-role="details">
+                                        <div class="ai-reviewer-account__header">
+                                            <div class="ai-reviewer-account__avatar" data-role="initials">AI</div>
+                                            <div class="ai-reviewer-account__info">
+                                                <div class="ai-reviewer-account__name" data-role="name"></div>
+                                                <div class="ai-reviewer-account__meta">
+                                                    <span class="ai-reviewer-account__username" data-role="username"></span>
+                                                    <span class="ai-reviewer-account__email" data-role="email"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="aui-button aui-button-link ai-reviewer-account__clear" id="ai-reviewer-user-clear">
+                                            <span class="aui-icon aui-iconfont-remove"></span>Remove
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="ai-reviewer-account__search">
+                                    <div class="ai-reviewer-account__search-bar">
+                                        <span class="aui-icon aui-iconfont-search"></span>
+                                        <input type="text" id="ai-reviewer-user-search" class="text" placeholder="Search users by name or username">
+                                    </div>
+                                    <div id="ai-reviewer-user-results" class="user-search-results"></div>
+                                </div>
+                            </div>
                             <div class="description">
-                                Select the Bitbucket user that will appear as the AI reviewer and record auto-approvals.
-                                Leave blank to use the default technical user.
-                                Type in the search box above to look up additional users.
+                                Choose the Bitbucket identity that should post AI-generated comments and approvals. Leave blank to use the default technical account.
                             </div>
                         </div>
 

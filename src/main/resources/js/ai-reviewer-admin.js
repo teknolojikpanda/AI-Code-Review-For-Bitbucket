@@ -36,7 +36,6 @@
     var catalogCacheKey = 'aiReviewerRepoCatalog::v1';
     var catalogCacheTtlMs = 5 * 60 * 1000;
     var catalogFetchInFlight = null;
-    var reviewerSelectInitialized = false;
 
     /**
      * Initialize the admin configuration page
@@ -182,128 +181,162 @@
         updateProfileDetails(key);
     }
 
+    var reviewerAccountState = null;
+
     function initializeReviewerUserSelect(config) {
-        var $select = $('#ai-reviewer-user');
-        if (!$select.length) {
+        var $hidden = $('#ai-reviewer-user');
+        if (!$hidden.length) {
+            reviewerAccountState = null;
             return;
         }
 
-        var $search = $('#ai-reviewer-user-search');
-        var $results = $('#ai-reviewer-user-results');
-        var initialSlug = config.aiReviewerUser || '';
-        var initialLabel = config.aiReviewerUserDisplayName || config.aiReviewerUser || '';
-        var latestUsers = [];
+        var state = reviewerAccountState || {};
+        state.$hidden = $hidden;
+        state.$search = $('#ai-reviewer-user-search');
+        state.$results = $('#ai-reviewer-user-results');
+        state.$card = $('#ai-reviewer-user-selected');
+        state.$empty = state.$card.find('[data-role="empty"]');
+        state.$details = state.$card.find('[data-role="details"]');
+        state.$name = state.$card.find('[data-role="name"]');
+        state.$username = state.$card.find('[data-role="username"]');
+        state.$email = state.$card.find('[data-role="email"]');
+        state.$initials = state.$card.find('[data-role="initials"]');
+        state.$clear = $('#ai-reviewer-user-clear');
+        state.latestUsers = state.latestUsers || [];
+        state.pendingRequest = null;
+        state.debounceTimer = null;
 
-        populateReviewerOptions($select, initialSlug, initialLabel, []);
-        $select.val(initialSlug || '');
-        if ($search.length) {
-            $search.val(initialLabel || '');
+        state.selectedUser = {
+            slug: config.aiReviewerUser || '',
+            displayName: config.aiReviewerUserDisplayName || config.aiReviewerUser || '',
+            name: '',
+            email: ''
+        };
+
+        reviewerAccountState = state;
+
+        function selectUser(user) {
+            if (user && user.slug) {
+                state.selectedUser = {
+                    slug: user.slug,
+                    displayName: user.displayName || user.name || user.slug,
+                    name: user.name || '',
+                    email: user.email || ''
+                };
+            } else {
+                state.selectedUser = { slug: '', displayName: '', name: '', email: '' };
+            }
+            renderSelectedReviewer(state);
+            if (state.$results.length) {
+                renderReviewerSearchResults(state, {
+                    users: state.latestUsers,
+                    selectedSlug: state.selectedUser.slug,
+                    onSelect: selectUser
+                });
+            }
         }
 
-        if (!reviewerSelectInitialized) {
-            var pendingRequest = null;
-            var debounceTimer = null;
-
-            function performSearch(term) {
-                if ($results.length) {
-                    renderReviewerSearchResults($results, null, null, '<span class="aui-icon aui-icon-wait"></span> Searching…');
-                }
-                if (pendingRequest && pendingRequest.readyState && pendingRequest.readyState !== 4) {
-                    pendingRequest.abort();
-                }
-                pendingRequest = $.ajax({
-                    url: userSearchUrl,
-                    type: 'GET',
-                    dataType: 'json',
-                    data: {
-                        q: term || '',
-                        limit: 20
-                    }
-                }).done(function(data) {
-                    var users = Array.isArray(data.users) ? data.users : [];
-                    latestUsers = users;
-                    var currentValue = $select.val();
-                    var currentLabel = $select.find('option:selected').text();
-                    populateReviewerOptions($select, currentValue, currentLabel, users);
-                    renderReviewerSearchResults($results, users, currentValue);
-                }).fail(function(xhr, status, error) {
-                    console.error('Failed to search users:', error || status);
-                    if ($results.length) {
-                        renderReviewerSearchResults($results, [], null, 'Failed to search users.');
-                    }
+        function performSearch(term) {
+            if (state.$results.length) {
+                renderReviewerSearchResults(state, {
+                    messageHtml: '<div class="user-search-status"><span class="aui-icon aui-icon-wait"></span> Searching…</div>'
                 });
             }
-
-            if ($search.length) {
-                $search.on('input', function() {
-                    var term = $(this).val();
-                    if (debounceTimer) {
-                        clearTimeout(debounceTimer);
-                    }
-                    debounceTimer = setTimeout(function() {
-                        performSearch(term);
-                    }, 300);
-                });
+            if (state.pendingRequest && state.pendingRequest.readyState && state.pendingRequest.readyState !== 4) {
+                state.pendingRequest.abort();
             }
-
-            $select.on('change', function() {
-                if ($search.length) {
-                    var selectedText = $select.find('option:selected').text();
-                    $search.val(selectedText || '');
+            state.pendingRequest = $.ajax({
+                url: userSearchUrl,
+                type: 'GET',
+                dataType: 'json',
+                data: {
+                    q: term || '',
+                    limit: 20
                 }
-                if ($results.length && latestUsers.length) {
-                    highlightSelectedReviewer($results, $select.val());
+            }).done(function(data) {
+                state.latestUsers = Array.isArray(data.users) ? data.users : [];
+                if (state.selectedUser.slug) {
+                    var match = state.latestUsers.find(function(user) { return user.slug === state.selectedUser.slug; });
+                    if (match) {
+                        state.selectedUser.displayName = match.displayName || match.name || match.slug;
+                        state.selectedUser.name = match.name || '';
+                        state.selectedUser.email = match.email || '';
+                        renderSelectedReviewer(state);
+                    }
                 }
+                renderReviewerSearchResults(state, {
+                    users: state.latestUsers,
+                    selectedSlug: state.selectedUser.slug,
+                    onSelect: selectUser
+                });
+            }).fail(function(xhr, status, error) {
+                console.error('Failed to search users:', error || status);
+                renderReviewerSearchResults(state, {
+                    message: 'Failed to search users. Please try again.'
+                });
             });
-
-            performSearch('');
-            reviewerSelectInitialized = true;
-        } else {
-            populateReviewerOptions($select, initialSlug, initialLabel, []);
-            $select.val(initialSlug || '');
         }
+
+        state.performSearch = performSearch;
+        state.selectUser = selectUser;
+
+        if (state.$clear.length) {
+            state.$clear.off('.aiReviewer').on('click.aiReviewer', function(e) {
+                e.preventDefault();
+                selectUser(null);
+            });
+        }
+
+        if (state.$search.length) {
+            state.$search.off('.aiReviewer').on('input.aiReviewer', function() {
+                var term = $(this).val();
+                if (state.debounceTimer) {
+                    clearTimeout(state.debounceTimer);
+                }
+                state.debounceTimer = setTimeout(function() {
+                    performSearch(term);
+                }, 250);
+            });
+        }
+
+        renderSelectedReviewer(state);
+        if (state.$results.length) {
+            renderReviewerSearchResults(state, { message: 'Start typing to explore users.' });
+        }
+        performSearch('');
     }
 
-    function populateReviewerOptions($select, selectedSlug, selectedLabel, users) {
-        $select.empty();
-        $select.append($('<option>').attr('value', ''));
-
-        var seen = Object.create(null);
-        if (selectedSlug) {
-            seen[selectedSlug] = true;
-            $select.append($('<option>')
-                .attr('value', selectedSlug)
-                .text(selectedLabel || selectedSlug));
-        }
-
-        (users || []).forEach(function(user) {
-            if (!user || !user.slug) {
-                return;
-            }
-            if (seen[user.slug]) {
-                return;
-            }
-            var text = user.displayName || user.name || user.slug;
-            $select.append($('<option>').attr('value', user.slug).text(text));
-        });
-
-        if (selectedSlug) {
-            $select.val(selectedSlug);
-        }
-    }
-
-    function renderReviewerSearchResults($container, users, selectedSlug, message) {
-        if (!$container || !$container.length) {
+    function renderReviewerSearchResults(state, options) {
+        if (!state.$results || !state.$results.length) {
             return;
         }
-        if (message) {
-            $container.html('<div class="user-search-status">' + message + '</div>');
+
+        var opts = options || {};
+        if (typeof opts === 'string') {
+            opts = { message: opts };
+        }
+
+        if (opts.messageHtml) {
+            state.$results.html(opts.messageHtml);
             return;
         }
-        if (!users || !users.length) {
-            $container.html('<div class="user-search-empty">No matching users found.</div>');
+
+        if (opts.message) {
+            state.$results.html('<div class="user-search-status">' + escapeHtml(opts.message) + '</div>');
             return;
         }
+
+        var users = opts.users || [];
+        if (!users.length) {
+            state.$results.html('<div class="user-search-empty">No matching users found.</div>');
+            return;
+        }
+
+        var selectedSlug = typeof opts.selectedSlug !== 'undefined'
+                ? opts.selectedSlug
+                : (state.selectedUser ? state.selectedUser.slug : '');
+        var onSelect = typeof opts.onSelect === 'function' ? opts.onSelect : function() {};
+
         var $list = $('<ul class="user-search-list"></ul>');
         users.forEach(function(user) {
             if (!user || !user.slug) {
@@ -313,34 +346,86 @@
             var $item = $('<li class="user-search-item"></li>')
                 .attr('data-slug', user.slug)
                 .append($('<span class="user-name"></span>').text(text));
+
             if (user.email) {
-                $item.append($('<span class="user-email"></span>').text(' · ' + user.email));
+                $item.append($('<span class="user-email"></span>').text(user.email));
             }
             if (user.name && user.name !== text) {
-                $item.append($('<span class="user-username"></span>').text(' (' + user.name + ')'));
+                $item.append($('<span class="user-username"></span>').text('@' + user.name));
             }
             if (selectedSlug && selectedSlug === user.slug) {
                 $item.addClass('selected');
             }
             $item.on('click', function() {
-                $('#ai-reviewer-user').val(user.slug);
-                highlightSelectedReviewer($container, user.slug);
-                $('#ai-reviewer-user-search').val(text);
+                onSelect(user);
             });
             $list.append($item);
         });
-        $container.empty().append($list);
+
+        state.$results.empty().append($list);
+        highlightSelectedReviewer(state, selectedSlug);
     }
 
-    function highlightSelectedReviewer($container, slug) {
-        if (!$container || !$container.length) {
+    function highlightSelectedReviewer(state, slug) {
+        if (!state.$results || !state.$results.length) {
             return;
         }
-        $container.find('.user-search-item').removeClass('selected');
+        state.$results.find('.user-search-item').removeClass('selected');
         if (!slug) {
             return;
         }
-        $container.find('.user-search-item[data-slug="' + slug + '"]').addClass('selected');
+        state.$results.find('.user-search-item[data-slug="' + slug + '"]').addClass('selected');
+    }
+
+    function renderSelectedReviewer(state) {
+        var user = state.selectedUser || { slug: '', displayName: '', name: '', email: '' };
+        var hasUser = user.slug && user.slug.trim().length > 0;
+
+        state.$hidden.val(hasUser ? user.slug : '');
+        if (state.$search && state.$search.length) {
+            state.$search.val(hasUser ? (user.displayName || user.slug) : '');
+        }
+
+        if (!state.$card.length) {
+            return;
+        }
+
+        if (hasUser) {
+            state.$empty.addClass('hidden');
+            state.$details.removeClass('hidden');
+            var display = user.displayName || user.name || user.slug;
+            state.$name.text(display);
+            if (user.name && user.name !== display) {
+                state.$username.text('@' + user.name).show();
+            } else {
+                state.$username.text('').hide();
+            }
+            if (user.email) {
+                state.$email.text(user.email).show();
+            } else {
+                state.$email.text('').hide();
+            }
+            state.$initials.text(computeInitials(display, user.slug));
+        } else {
+            state.$empty.removeClass('hidden');
+            state.$details.addClass('hidden');
+            state.$name.text('');
+            state.$username.text('').hide();
+            state.$email.text('').hide();
+            state.$initials.text('AI');
+        }
+    }
+
+    function computeInitials(value, fallback) {
+        var source = (value || fallback || '').trim();
+        if (!source) {
+            return 'AI';
+        }
+        var parts = source.split(/\s+/).slice(0, 2);
+        var initials = parts.map(function(part) {
+            return part.charAt(0);
+        }).join('');
+        return initials.toUpperCase().substring(0, 2) || 'AI';
     }
 
     function handleProfileChange() {
