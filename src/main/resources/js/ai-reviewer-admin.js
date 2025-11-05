@@ -192,6 +192,7 @@
         var label = config.aiReviewerUserDisplayName || config.aiReviewerUser || '';
 
         var hasSelect2 = $.fn && typeof $.fn.auiSelect2 === 'function';
+        var pendingSearch = null;
 
         if (!reviewerSelectInitialized) {
             $select.empty();
@@ -201,35 +202,48 @@
             }
             $select.val(value);
             if (hasSelect2) {
-                $select.auiSelect2({
-                    placeholder: 'Search for a user…',
-                    allowClear: true,
-                    minimumInputLength: 2,
-                    ajax: {
-                        url: userSearchUrl,
-                        dataType: 'json',
-                        delay: 300,
-                        data: function(params) {
-                            return {
-                                q: params.term || '',
-                                limit: 10
-                            };
-                        },
-                        processResults: function(data) {
-                            var results = [];
-                            if (data && Array.isArray(data.users)) {
-                                results = data.users.map(function(user) {
-                                    return {
-                                        id: user.slug,
-                                        text: user.displayName || user.name || user.slug
-                                    };
-                                });
+                try {
+                    $select.auiSelect2({
+                        placeholder: 'Search for a user…',
+                        allowClear: true,
+                        minimumInputLength: 2,
+                        query: function(query) {
+                            var term = query.term || '';
+                            if (pendingSearch && pendingSearch.readyState && pendingSearch.readyState !== 4) {
+                                pendingSearch.abort();
                             }
-                            return { results: results };
-                        }
-                    },
-                    width: '100%'
-                });
+                            pendingSearch = $.ajax({
+                                url: userSearchUrl,
+                                type: 'GET',
+                                dataType: 'json',
+                                data: {
+                                    q: term,
+                                    limit: 10
+                                }
+                            }).done(function(data) {
+                                var results = [];
+                                if (data && Array.isArray(data.users)) {
+                                    results = data.users.map(function(user) {
+                                        return {
+                                            id: user.slug,
+                                            text: user.displayName || user.name || user.slug
+                                        };
+                                    });
+                                }
+                                query.callback({ results: results });
+                            }).fail(function(xhr, status, error) {
+                                console.error('Failed to search users:', error || status);
+                                query.callback({ results: [] });
+                            }).always(function() {
+                                pendingSearch = null;
+                            });
+                        },
+                        width: '100%'
+                    });
+                } catch (e) {
+                    console.warn('Select2 initialisation failed, falling back to basic select', e);
+                    hasSelect2 = false;
+                }
             } else {
                 console.warn('AUI Select2 not available; falling back to basic select for reviewer picker.');
             }
