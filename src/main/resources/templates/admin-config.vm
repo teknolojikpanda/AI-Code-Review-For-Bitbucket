@@ -4,7 +4,7 @@
     <title>AI Code Reviewer - Configuration</title>
     <meta name="decorator" content="atl.admin">
     <meta name="application-base-url" content="$baseUrl">
-    $webResourceManager.requireResource("com.example.bitbucket.ai-code-reviewer:ai-reviewer-admin-resources")
+    $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-admin-resources")
 </head>
 <body>
     <header class="aui-page-header" style="padding-bottom: 20px;">

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<atlassian-plugin key="com.example.bitbucket.ai-code-reviewer" name="${project.name}" plugins-version="2">
+<atlassian-plugin key="com.teknolojikpanda.bitbucket.ai-code-reviewer" name="${project.name}" plugins-version="2">
     <plugin-info>
         <description>${project.description}</description>
         <version>${project.version}</version>
@@ -13,10 +13,10 @@
     <!-- Active Objects Entity Definitions -->
     <ao key="ao-module">
         <description>Active Objects module for AI Code Reviewer</description>
-        <entity>com.example.bitbucket.aireviewer.ao.AIReviewConfiguration</entity>
-        <entity>com.example.bitbucket.aireviewer.ao.AIReviewHistory</entity>
-        <entity>com.example.bitbucket.aireviewer.ao.AIReviewChunk</entity>
-        <entity>com.example.bitbucket.aireviewer.ao.AIReviewRepoConfiguration</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration</entity>
     </ao>
 
     <!--
@@ -46,72 +46,72 @@
 
     <!-- Explicit component declarations for services -->
     <component key="aiReviewerConfigService" 
-               class="com.example.bitbucket.aireviewer.service.AIReviewerConfigServiceImpl" 
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigServiceImpl" 
                public="true">
         <description>AI Reviewer Configuration Service</description>
-        <interface>com.example.bitbucket.aireviewer.service.AIReviewerConfigService</interface>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService</interface>
     </component>
 
     <component key="aiReviewService" 
-               class="com.example.bitbucket.aireviewer.service.AIReviewServiceImpl" 
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewServiceImpl" 
                public="true">
         <description>AI Review Service</description>
-        <interface>com.example.bitbucket.aireviewer.service.AIReviewService</interface>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewService</interface>
     </component>
 
     <component key="pullRequestAIReviewListener" 
-               class="com.example.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
+               class="com.teknolojikpanda.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
         <description>Pull Request AI Review Event Listener</description>
     </component>
 
     <component key="aiDiffProvider"
-               class="com.example.bitbucket.aicode.core.DefaultDiffProvider">
+               class="com.teknolojikpanda.bitbucket.aicode.core.DefaultDiffProvider">
         <description>Diff provider for AI review pipeline</description>
-        <interface>com.example.bitbucket.aicode.api.DiffProvider</interface>
+        <interface>com.teknolojikpanda.bitbucket.aicode.api.DiffProvider</interface>
     </component>
 
     <component key="aiChunkPlanner"
-               class="com.example.bitbucket.aicode.core.HeuristicChunkPlanner">
+               class="com.teknolojikpanda.bitbucket.aicode.core.HeuristicChunkPlanner">
         <description>Chunk planner for AI review pipeline</description>
-        <interface>com.example.bitbucket.aicode.api.ChunkPlanner</interface>
+        <interface>com.teknolojikpanda.bitbucket.aicode.api.ChunkPlanner</interface>
     </component>
 
     <component key="sizeFirstChunkStrategy"
-               class="com.example.bitbucket.aicode.core.SizeFirstChunkStrategy">
+               class="com.teknolojikpanda.bitbucket.aicode.core.SizeFirstChunkStrategy">
         <description>Default size-based chunk strategy</description>
-        <interface>com.example.bitbucket.aicode.api.ChunkStrategy</interface>
+        <interface>com.teknolojikpanda.bitbucket.aicode.api.ChunkStrategy</interface>
     </component>
 
     <component key="aiReviewClient"
-               class="com.example.bitbucket.aicode.core.OllamaAiReviewClient">
+               class="com.teknolojikpanda.bitbucket.aicode.core.OllamaAiReviewClient">
         <description>Ollama-backed AI review client</description>
-        <interface>com.example.bitbucket.aicode.api.AiReviewClient</interface>
+        <interface>com.teknolojikpanda.bitbucket.aicode.api.AiReviewClient</interface>
     </component>
 
     <component key="aiReviewOrchestrator"
-               class="com.example.bitbucket.aicode.core.TwoPassReviewOrchestrator">
+               class="com.teknolojikpanda.bitbucket.aicode.core.TwoPassReviewOrchestrator">
         <description>Two-pass AI review orchestrator</description>
-        <interface>com.example.bitbucket.aicode.api.ReviewOrchestrator</interface>
+        <interface>com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator</interface>
     </component>
 
     <component key="aiReviewConfigFactory"
-               class="com.example.bitbucket.aicode.core.ReviewConfigFactory">
+               class="com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory">
         <description>Factory for building review configuration snapshots</description>
     </component>
 
     <component key="reviewHistoryService"
-               class="com.example.bitbucket.aireviewer.service.ReviewHistoryService">
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService">
         <description>Provides access to stored AI review history</description>
     </component>
 
     <component key="progressRegistry"
-               class="com.example.bitbucket.aireviewer.progress.ProgressRegistry">
+               class="com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry">
         <description>Tracks live AI review progress state for polling endpoints</description>
     </component>
 
     <repository-merge-check key="ai-reviewer-in-progress-merge-check"
                             name="AI Review In-Progress Merge Check"
-                            class="com.example.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck">
+                            class="com.teknolojikpanda.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck">
         <description>Prevents pull requests from being merged while the AI review is still running.</description>
     </repository-merge-check>
 
@@ -120,7 +120,7 @@
           path="/ai-reviewer"
           version="1.0">
         <description>REST API for AI Code Reviewer configuration</description>
-        <package>com.example.bitbucket.aireviewer.rest</package>
+        <package>com.teknolojikpanda.bitbucket.aireviewer.rest</package>
     </rest>
 
     <!-- Admin Configuration Page -->
@@ -145,14 +145,14 @@
     <!-- Admin Configuration Servlet -->
     <servlet key="ai-reviewer-admin-servlet"
              name="AI Reviewer Admin Servlet"
-             class="com.example.bitbucket.aireviewer.servlet.AdminConfigServlet">
+             class="com.teknolojikpanda.bitbucket.aireviewer.servlet.AdminConfigServlet">
         <description>Admin configuration page for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/admin</url-pattern>
     </servlet>
 
     <servlet key="ai-reviewer-history-servlet"
              name="AI Reviewer History Servlet"
-             class="com.example.bitbucket.aireviewer.servlet.ReviewHistoryServlet">
+             class="com.teknolojikpanda.bitbucket.aireviewer.servlet.ReviewHistoryServlet">
         <description>Admin history page for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/history</url-pattern>
     </servlet>
