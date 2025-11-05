@@ -49,6 +49,7 @@
         $('#reset-config-btn').on('click', resetToDefaults);
         $('#review-profile').on('change', handleProfileChange);
         $('#auto-approve-apply-btn').on('click', applyAutoApproveToggle);
+        $('#auto-approve').on('change', updateReviewerAccountAvailability);
         $('#repository-scope-tree').on('click', '.scope-node-toggle', handleNodeToggle);
         $('#repository-scope-tree').on('change', '.scope-checkbox', handleScopeCheckboxChange);
         $('#repository-overrides-body').on('click', '.override-toggle', handleOverrideToggle);
@@ -119,6 +120,7 @@
         $('#skip-generated-files').prop('checked', config.skipGeneratedFiles !== false);
         $('#skip-tests').prop('checked', config.skipTests === true);
         initializeReviewerUserSelect(config);
+        updateReviewerAccountAvailability();
 
         updateProfileDetails($('#review-profile').val());
 
@@ -426,6 +428,19 @@
             return part.charAt(0);
         }).join('');
         return initials.toUpperCase().substring(0, 2) || 'AI';
+    }
+
+    function updateReviewerAccountAvailability() {
+        var autoApproveEnabled = $('#auto-approve').is(':checked');
+        var $container = $('.ai-reviewer-account');
+        if (!$container.length) {
+            return;
+        }
+        if (autoApproveEnabled) {
+            $container.removeClass('disabled');
+        } else {
+            $container.addClass('disabled');
+        }
     }
 
     function handleProfileChange() {

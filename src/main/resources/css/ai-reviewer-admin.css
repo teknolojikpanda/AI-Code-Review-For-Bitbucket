@@ -199,6 +199,13 @@
     align-items: stretch;
 }
 
+.ai-reviewer-account.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+    filter: grayscale(0.1);
+    transition: opacity 0.2s ease;
+}
+
 .ai-reviewer-account__current {
     flex: 0 0 260px;
     background-color: #f4f5f7;
