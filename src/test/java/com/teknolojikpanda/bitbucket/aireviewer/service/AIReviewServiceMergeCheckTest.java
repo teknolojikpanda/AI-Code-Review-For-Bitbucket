@@ -9,14 +9,14 @@ import com.atlassian.bitbucket.pull.PullRequestService;
 import com.atlassian.bitbucket.repository.Repository;
 import com.atlassian.bitbucket.project.Project;
 import com.atlassian.bitbucket.server.ApplicationPropertiesService;
+import com.atlassian.bitbucket.user.SecurityService;
+import com.atlassian.bitbucket.user.UserService;
 import com.teknolojikpanda.bitbucket.aicode.api.ChunkPlanner;
 import com.teknolojikpanda.bitbucket.aicode.api.DiffProvider;
 import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import com.teknolojikpanda.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
-import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
-import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockitoAnnotations;
@@ -41,6 +41,8 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewHistoryService reviewHistoryService;
     private ProgressRegistry progressRegistry;
     private RepositoryHookService repositoryHookService;
+    private UserService userService;
+    private SecurityService securityService;
 
     private AIReviewServiceImpl service;
 
@@ -59,6 +61,8 @@ public class AIReviewServiceMergeCheckTest {
         reviewHistoryService = mock(ReviewHistoryService.class);
         progressRegistry = mock(ProgressRegistry.class);
         repositoryHookService = mock(RepositoryHookService.class);
+        userService = mock(UserService.class);
+        securityService = mock(SecurityService.class);
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -70,6 +74,8 @@ public class AIReviewServiceMergeCheckTest {
                 chunkPlanner,
                 reviewOrchestrator,
                 configFactory,
+                userService,
+                securityService,
                 reviewHistoryService,
                 progressRegistry,
                 repositoryHookService);

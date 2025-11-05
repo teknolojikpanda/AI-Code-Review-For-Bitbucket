@@ -82,15 +82,4 @@ public interface AIReviewService {
      * @return true if Ollama is accessible and responding correctly
      */
     boolean testOllamaConnection();
-
-    /**
-     * Gets a detailed explanation for a specific code issue.
-     *
-     * Can be triggered when a user requests more details about an issue.
-     *
-     * @param issueId the ID of the issue
-     * @return detailed explanation from the AI
-     */
-    @Nonnull
-    String getDetailedExplanation(@Nonnull String issueId);
 }

@@ -123,6 +123,8 @@ public class AdminConfigServlet extends HttpServlet {
         context.put("skipGeneratedFiles", configValues.get("skipGeneratedFiles"));
         context.put("skipTests", configValues.get("skipTests"));
         context.put("autoApprove", configValues.get("autoApprove"));
+        context.put("aiReviewerUser", configValues.get("aiReviewerUser"));
+        context.put("aiReviewerUserDisplayName", configValues.get("aiReviewerUserDisplayName"));
         templateRenderer.render("/templates/admin-config.vm", context, resp.getWriter());
     }
 

@@ -14,11 +14,16 @@ import com.atlassian.bitbucket.hook.repository.RepositoryHook;
 import com.atlassian.bitbucket.hook.repository.RepositoryHookService;
 import com.atlassian.bitbucket.pull.PullRequest;
 import com.atlassian.bitbucket.pull.PullRequestService;
+import com.atlassian.bitbucket.pull.PullRequestParticipantStatus;
+import com.atlassian.bitbucket.pull.PullRequestParticipantStatusRequest;
 import com.atlassian.bitbucket.repository.Repository;
 import com.atlassian.bitbucket.scope.Scope;
 import com.atlassian.bitbucket.scope.Scopes;
 import com.atlassian.bitbucket.server.ApplicationPropertiesService;
 import com.atlassian.bitbucket.validation.FormValidationException;
+import com.atlassian.bitbucket.user.ApplicationUser;
+import com.atlassian.bitbucket.user.SecurityService;
+import com.atlassian.bitbucket.user.UserService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory;
@@ -56,6 +61,7 @@ import java.util.*;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.concurrent.Callable;
 
 import net.java.ao.DBParam;
 
@@ -80,6 +86,7 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(AIReviewServiceImpl.class);
     private static final Set<String> TEST_KEYWORDS = new HashSet<>(Arrays.asList("test", "spec", "fixture"));
+    private static final String IMPERSONATION_REASON = "AI Reviewer service operation";
 
     private final PullRequestService pullRequestService;
     private final CommentService commentService;
@@ -91,6 +98,8 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ReviewOrchestrator reviewOrchestrator;
     private final ReviewConfigFactory configFactory;
     private final ReviewHistoryService reviewHistoryService;
+    private final UserService userService;
+    private final SecurityService securityService;
     private final RepositoryHookService repositoryHookService;
     private final ProgressRegistry progressRegistry;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
@@ -107,6 +116,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             ChunkPlanner chunkPlanner,
             ReviewOrchestrator reviewOrchestrator,
             ReviewConfigFactory configFactory,
+            @ComponentImport UserService userService,
+            @ComponentImport SecurityService securityService,
             ReviewHistoryService reviewHistoryService,
             ProgressRegistry progressRegistry,
             @ComponentImport RepositoryHookService repositoryHookService) {
@@ -119,6 +130,8 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.chunkPlanner = Objects.requireNonNull(chunkPlanner, "chunkPlanner cannot be null");
         this.reviewOrchestrator = Objects.requireNonNull(reviewOrchestrator, "reviewOrchestrator cannot be null");
         this.configFactory = Objects.requireNonNull(configFactory, "configFactory cannot be null");
+        this.userService = Objects.requireNonNull(userService, "userService cannot be null");
+        this.securityService = Objects.requireNonNull(securityService, "securityService cannot be null");
         this.reviewHistoryService = Objects.requireNonNull(reviewHistoryService, "reviewHistoryService cannot be null");
         this.progressRegistry = Objects.requireNonNull(progressRegistry, "progressRegistry cannot be null");
         this.repositoryHookService = Objects.requireNonNull(repositoryHookService, "repositoryHookService cannot be null");
@@ -275,6 +288,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                     "repositorySlug", repositorySlug));
 
             Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
+            ApplicationUser reviewerUser = resolveReviewerUser(configMap);
             ReviewConfig reviewConfig = configFactory.from(configMap);
             metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());
             metrics.setGauge("config.maxChunks", reviewConfig.getMaxChunks());
@@ -372,12 +386,12 @@ public class AIReviewServiceImpl implements AIReviewService {
 
             ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
             int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
-                    overallStart, comparison, metrics, configMap);
+                    overallStart, comparison, metrics, configMap, reviewerUser);
             recordProgress("comments.completed", 85, progressDetails(
                     "commentsPosted", commentsPosted,
                     "issuesCommented", validated.isEmpty() ? 0 : validated.size()));
 
-            boolean approved = handleAutoApproval(validated, pullRequest, metrics, configMap);
+            boolean approved = handleAutoApproval(validated, pullRequest, metrics, configMap, reviewerUser);
             recordProgress("autoApproval.completed", 90, progressDetails(
                     "autoApproved", approved));
             Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
@@ -507,15 +521,20 @@ public class AIReviewServiceImpl implements AIReviewService {
                                      @Nonnull Instant overallStart,
                                      @Nonnull ReviewComparison comparison,
                                      @Nonnull MetricsCollector metrics,
-                                     @Nonnull Map<String, Object> configMap) {
+                                     @Nonnull Map<String, Object> configMap,
+                                     @Nullable ApplicationUser reviewerUser) {
         Instant commentStart = metrics.recordStart("postComments");
         int commentsPosted = 0;
-        
+
         if (!issues.isEmpty()) {
             try {
                 long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
-                
-                commentsPosted = postIssueComments(issues, pr, configMap);
+
+                if (reviewerUser != null) {
+                    ensureReviewerParticipant(pr, reviewerUser);
+                }
+
+                commentsPosted = postIssueComments(issues, pr, configMap, reviewerUser);
                 log.info("✓ Posted {} issue comment(s)", commentsPosted);
 
                 String summaryText = buildSummaryComment(
@@ -527,7 +546,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                         comparison.resolvedIssues,
                         comparison.newIssues,
                         configMap);
-                Comment summaryComment = addPRComment(pr, summaryText);
+                Comment summaryComment = addPRComment(pr, summaryText, reviewerUser);
                 log.info("Posted summary comment with ID: {}", summaryComment.getId());
             } catch (Exception e) {
                 log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
@@ -544,24 +563,33 @@ public class AIReviewServiceImpl implements AIReviewService {
     private boolean handleAutoApproval(@Nonnull List<ReviewIssue> issues,
                                        @Nonnull PullRequest pr,
                                        @Nonnull MetricsCollector metrics,
-                                       @Nonnull Map<String, Object> config) {
+                                       @Nonnull Map<String, Object> config,
+                                       @Nullable ApplicationUser reviewerUser) {
         boolean approved = false;
 
-        if (shouldApprovePR(issues, config)) {
-            log.info("Attempting to auto-approve PR #{}", pr.getId());
-            approved = approvePR(pr);
-            if (approved) {
-                log.info("✅ PR #{} auto-approved - no critical/high issues found", pr.getId());
-                metrics.setGauge("autoApprove.applied", 1);
-            } else {
-                log.warn("Failed to auto-approve PR #{}", pr.getId());
-                metrics.setGauge("autoApprove.failed", 1);
-            }
-        } else {
+        if (!shouldApprovePR(issues, config)) {
             log.info("PR #{} not auto-approved - critical/high issues present or auto-approve disabled", pr.getId());
             metrics.setGauge("autoApprove.applied", 0);
+            return false;
         }
-        
+
+        if (reviewerUser == null) {
+            log.warn("Auto-approve enabled but no AI reviewer user configured; skipping approval for PR #{}", pr.getId());
+            metrics.setGauge("autoApprove.applied", 0);
+            return false;
+        }
+
+        log.info("Attempting to auto-approve PR #{} as {}", pr.getId(), reviewerUser.getDisplayName());
+        approved = approvePR(pr, reviewerUser);
+        if (approved) {
+            log.info("✅ PR #{} auto-approved - no critical/high issues found", pr.getId());
+            metrics.setGauge("autoApprove.applied", 1);
+            metrics.setGauge("autoApprove.failed", 0);
+        } else {
+            log.warn("Failed to auto-approve PR #{}", pr.getId());
+            metrics.setGauge("autoApprove.failed", 1);
+        }
+
         return approved;
     }
     
@@ -773,15 +801,6 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
     }
 
-    @Nonnull
-    @Override
-    public String getDetailedExplanation(@Nonnull String issueId) {
-        log.info("Getting detailed explanation for issue: {}", issueId);
-
-        // TODO: Phase 2 - Implement detailed explanation retrieval
-        return "Detailed explanation not yet implemented for issue: " + issueId;
-    }
-
     /**
      * Validates that the PR size is within configured limits.
      *
@@ -989,10 +1008,14 @@ public class AIReviewServiceImpl implements AIReviewService {
      * @return the created comment
      */
     @Nonnull
-    private Comment addPRComment(@Nonnull PullRequest pullRequest, @Nonnull String text) {
+    private Comment addPRComment(@Nonnull PullRequest pullRequest,
+                                 @Nonnull String text,
+                                 @Nullable ApplicationUser reviewerUser) {
         try {
             AddCommentRequest request = new AddCommentRequest.Builder(pullRequest, text).build();
-            Comment comment = commentService.addComment(request);
+            Comment comment = runAsReviewer(reviewerUser,
+                    "AI reviewer summary comment",
+                    () -> commentService.addComment(request));
             log.info("Posted PR comment, ID: {}", comment.getId());
             return comment;
         } catch (Exception e) {
@@ -1011,7 +1034,8 @@ public class AIReviewServiceImpl implements AIReviewService {
      */
     private int postIssueComments(@Nonnull List<ReviewIssue> issues,
                                    @Nonnull PullRequest pullRequest,
-                                   @Nonnull Map<String, Object> configMap) {
+                                   @Nonnull Map<String, Object> configMap,
+                                   @Nullable ApplicationUser reviewerUser) {
         // Pre-fetch pull request data to avoid lazy loading issues in AddLineCommentRequest.Builder
         // Force initialization of pull request properties that might be lazy-loaded
         long prId = pullRequest.getId();
@@ -1091,7 +1115,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                 );
 
                 log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
-                Comment comment = commentService.addComment(request);
+                Comment comment = runAsReviewer(reviewerUser,
+                        "AI reviewer line comment",
+                        () -> commentService.addComment(request));
                 // Log with multiline information
                 String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
                         ? "multiline comment" : "line comment";
@@ -1341,18 +1367,94 @@ public class AIReviewServiceImpl implements AIReviewService {
     /**
      * Approves the pull request.
      */
-    private boolean approvePR(@Nonnull PullRequest pullRequest) {
-        try {
-            log.info("Auto-approval requested for PR #{} (placeholder implementation)", pullRequest.getId());
-            
-            // TODO: Implement actual approval when correct API is available
-            log.info("✅ PR #{} would be approved (placeholder)", pullRequest.getId());
-            return true;
-            
-        } catch (Exception e) {
-            log.error("Failed to approve PR #{}: {}", pullRequest.getId(), e);
+    private boolean approvePR(@Nonnull PullRequest pullRequest,
+                              @Nonnull ApplicationUser reviewerUser) {
+        if (securityService == null) {
+            log.warn("SecurityService unavailable; cannot auto-approve PR #{}", pullRequest.getId());
             return false;
         }
+
+        try {
+            return runAsReviewer(reviewerUser, IMPERSONATION_REASON, () -> {
+                int repositoryId = pullRequest.getToRef().getRepository().getId();
+                PullRequest latest = pullRequestService.getById(repositoryId, pullRequest.getId());
+                if (latest == null) {
+                    throw new IllegalStateException("Pull request not found for auto-approval");
+                }
+
+                ensureReviewerParticipantInternal(latest, reviewerUser);
+
+                PullRequestParticipantStatusRequest request = new PullRequestParticipantStatusRequest.Builder(latest)
+                        .status(PullRequestParticipantStatus.APPROVED)
+                        .build();
+                pullRequestService.setReviewerStatus(request);
+                return true;
+            });
+        } catch (Exception e) {
+            log.error("Failed to approve PR #{} as {}: {}",
+                    pullRequest.getId(), reviewerUser.getName(), e.getMessage(), e);
+            return false;
+        }
+    }
+
+    private void ensureReviewerParticipant(@Nonnull PullRequest pullRequest,
+                                           @Nonnull ApplicationUser reviewerUser) {
+        try {
+            runAsReviewer(reviewerUser, IMPERSONATION_REASON, () -> {
+                ensureReviewerParticipantInternal(pullRequest, reviewerUser);
+                return null;
+            });
+        } catch (Exception e) {
+            log.debug("Unable to ensure reviewer {} is a participant on PR #{}: {}",
+                    reviewerUser.getSlug(), pullRequest.getId(), e.getMessage());
+        }
+    }
+
+    private void ensureReviewerParticipantInternal(@Nonnull PullRequest pullRequest,
+                                                   @Nonnull ApplicationUser reviewerUser) {
+        try {
+            pullRequestService.addReviewer(
+                    pullRequest.getToRef().getRepository().getId(),
+                    pullRequest.getId(),
+                    reviewerUser.getSlug());
+        } catch (Exception e) {
+            log.debug("Reviewer {} may already be associated with PR #{}: {}",
+                    reviewerUser.getSlug(), pullRequest.getId(), e.getMessage());
+        }
+    }
+
+    private <T> T runAsReviewer(@Nullable ApplicationUser reviewerUser,
+                                @Nonnull String reason,
+                                @Nonnull Callable<T> callable) throws Exception {
+        if (reviewerUser == null || securityService == null) {
+            return callable.call();
+        }
+        return securityService.impersonating(reviewerUser, reason).call(callable::call);
+    }
+
+    @Nullable
+    private ApplicationUser resolveReviewerUser(@Nonnull Map<String, Object> configMap) {
+        if (userService == null) {
+            return null;
+        }
+        Object raw = configMap.get("aiReviewerUser");
+        if (!(raw instanceof String)) {
+            return null;
+        }
+        String slug = ((String) raw).trim();
+        if (slug.isEmpty()) {
+            return null;
+        }
+        ApplicationUser user = userService.getUserBySlug(slug);
+        if (user == null) {
+            log.warn("Configured AI reviewer user '{}' not found", slug);
+            return null;
+        }
+        if (!userService.isUserActive(user)) {
+            log.warn("Configured AI reviewer user '{}' is inactive", slug);
+            return null;
+        }
+        return user;
     }
 
     /**
@@ -1916,14 +2018,6 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
         return sb.toString();
-    }
-
-    /**
-     * Sanitizes log messages to prevent log injection attacks.
-     */
-    private String sanitizeLogMessage(String message) {
-        if (message == null) return "null";
-        return message.replaceAll("[\r\n\t]", "_");
     }
 
     private Map<String, Integer> analyzeFilterReasons(ReviewContext context,

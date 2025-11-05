@@ -1,5 +1,11 @@
 package com.teknolojikpanda.bitbucket.aireviewer.rest;
 
+import com.atlassian.bitbucket.user.ApplicationUser;
+import com.atlassian.bitbucket.user.UserSearchRequest;
+import com.atlassian.bitbucket.user.UserService;
+import com.atlassian.bitbucket.util.Page;
+import com.atlassian.bitbucket.util.PageRequest;
+import com.atlassian.bitbucket.util.PageRequestImpl;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
@@ -53,15 +59,21 @@ public class ConfigResource {
     private static final int CONFIG_WRITE_LIMIT = 12;
     private static final long TEST_CONNECTION_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
     private static final int TEST_CONNECTION_LIMIT = 4;
+    private static final long USER_SEARCH_WINDOW_MS = TimeUnit.SECONDS.toMillis(60);
+    private static final int USER_SEARCH_LIMIT = 40;
+    private static final int USER_SEARCH_PAGE_LIMIT = 25;
 
     private final UserManager userManager;
+    private final UserService userService;
     private final AIReviewerConfigService configService;
 
     @Inject
     public ConfigResource(
             @ComponentImport UserManager userManager,
+            @ComponentImport UserService userService,
             AIReviewerConfigService configService) {
         this.userManager = userManager;
+        this.userService = userService;
         this.configService = configService;
     }
 
@@ -183,6 +195,68 @@ public class ConfigResource {
             log.error("Error loading repository catalog", e);
             return Response.serverError()
                     .entity(error("Failed to load repository catalog: " + e.getMessage()))
+                    .build();
+        }
+    }
+
+    @GET
+    @Path("/users")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response searchUsers(@Context HttpServletRequest request,
+                                @QueryParam("q") String query,
+                                @QueryParam("limit") @DefaultValue("10") int limit) {
+        UserProfile profile = userManager.getRemoteUser(request);
+
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        Response limited = enforceRateLimit(request, profile,
+                "user-search",
+                "user search requests",
+                USER_SEARCH_LIMIT,
+                USER_SEARCH_WINDOW_MS);
+        if (limited != null) {
+            return limited;
+        }
+
+        int safeLimit = Math.max(1, Math.min(limit, USER_SEARCH_PAGE_LIMIT));
+        String filter = query == null ? "" : query.trim();
+
+        try {
+            UserSearchRequest.Builder builder = new UserSearchRequest.Builder();
+            if (!filter.isEmpty()) {
+                builder.filter(filter);
+            }
+
+            UserSearchRequest searchRequest = builder.build();
+            PageRequest pageRequest = new PageRequestImpl(0, safeLimit);
+            Page<ApplicationUser> page = userService.search(searchRequest, pageRequest);
+
+            List<Map<String, Object>> users = new ArrayList<>();
+            if (page != null) {
+                for (ApplicationUser user : page.getValues()) {
+                    if (user == null) {
+                        continue;
+                    }
+                    Map<String, Object> descriptor = new HashMap<>();
+                    descriptor.put("slug", user.getSlug());
+                    descriptor.put("name", user.getName());
+                    descriptor.put("displayName", user.getDisplayName());
+                    descriptor.put("email", user.getEmailAddress());
+                    users.add(descriptor);
+                }
+            }
+
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("users", users);
+            return Response.ok(payload).build();
+        } catch (Exception e) {
+            log.error("Error searching users for query '{}'", filter, e);
+            return Response.serverError()
+                    .entity(error("Failed to search users: " + e.getMessage()))
                     .build();
         }
     }

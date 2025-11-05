@@ -36,6 +36,7 @@
     <component-import key="applicationPropertiesService" interface="com.atlassian.bitbucket.server.ApplicationPropertiesService"/>
     <component-import key="permissionService" interface="com.atlassian.bitbucket.permission.PermissionService"/>
     <component-import key="userService" interface="com.atlassian.bitbucket.user.UserService"/>
+    <component-import key="securityService" interface="com.atlassian.bitbucket.user.SecurityService"/>
     <component-import key="repositoryHookService" interface="com.atlassian.bitbucket.hook.repository.RepositoryHookService"/>
 
 
@@ -164,6 +165,7 @@
         <dependency>com.atlassian.auiplugin:aui-flag</dependency>
         <dependency>com.atlassian.auiplugin:aui-form-validation</dependency>
         <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
+        <dependency>com.atlassian.auiplugin:aui-select2</dependency>
 
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
         <resource type="download" name="ai-reviewer-progress.css" location="/css/ai-reviewer-progress.css"/>

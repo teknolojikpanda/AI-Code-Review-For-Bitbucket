@@ -14,6 +14,7 @@
     console.log('Base URL:', baseUrl);
 
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
+    var userSearchUrl = apiUrl + '/users';
     var profilePresets = {};
     var suppressProfileChange = false;
     var repositoryOverrides = [];
@@ -35,6 +36,7 @@
     var catalogCacheKey = 'aiReviewerRepoCatalog::v1';
     var catalogCacheTtlMs = 5 * 60 * 1000;
     var catalogFetchInFlight = null;
+    var reviewerSelectInitialized = false;
 
     /**
      * Initialize the admin configuration page
@@ -117,6 +119,7 @@
         $('#review-draft-prs').prop('checked', config.reviewDraftPRs === true);
         $('#skip-generated-files').prop('checked', config.skipGeneratedFiles !== false);
         $('#skip-tests').prop('checked', config.skipTests === true);
+        initializeReviewerUserSelect(config);
 
         updateProfileDetails($('#review-profile').val());
 
@@ -177,6 +180,63 @@
         $select.val(key);
         suppressProfileChange = false;
         updateProfileDetails(key);
+    }
+
+    function initializeReviewerUserSelect(config) {
+        var $select = $('#ai-reviewer-user');
+        if (!$select.length) {
+            return;
+        }
+
+        var value = config.aiReviewerUser || '';
+        var label = config.aiReviewerUserDisplayName || config.aiReviewerUser || '';
+
+        if (!reviewerSelectInitialized) {
+            $select.empty();
+            $select.append($('<option>').attr('value', ''));
+            if (value) {
+                $select.append($('<option>').attr('value', value).text(label));
+            }
+            $select.val(value);
+            $select.auiSelect2({
+                placeholder: 'Search for a user…',
+                allowClear: true,
+                minimumInputLength: 2,
+                ajax: {
+                    url: userSearchUrl,
+                    dataType: 'json',
+                    delay: 300,
+                    data: function(params) {
+                        return {
+                            q: params.term || '',
+                            limit: 10
+                        };
+                    },
+                    processResults: function(data) {
+                        var results = [];
+                        if (data && Array.isArray(data.users)) {
+                            results = data.users.map(function(user) {
+                                return {
+                                    id: user.slug,
+                                    text: user.displayName || user.name || user.slug
+                                };
+                            });
+                        }
+                        return { results: results };
+                    }
+                },
+                width: '100%'
+            });
+            reviewerSelectInitialized = true;
+        } else {
+            if (value) {
+                var option = $select.find('option[value="' + value + '"]');
+                if (!option.length) {
+                    $select.append($('<option>').attr('value', value).text(label));
+                }
+            }
+            $select.val(value || '').trigger('change');
+        }
     }
 
     function handleProfileChange() {
@@ -1054,6 +1114,7 @@
      * Collect form data into configuration object
      */
     function collectFormData() {
+        var reviewerUser = $('#ai-reviewer-user').val();
         return {
             ollamaUrl: $('#ollama-url').val().trim(),
             ollamaModel: $('#ollama-model').val().trim(),
@@ -1081,7 +1142,8 @@
             reviewDraftPRs: $('#review-draft-prs').is(':checked'),
             skipGeneratedFiles: $('#skip-generated-files').is(':checked'),
             skipTests: $('#skip-tests').is(':checked'),
-            autoApprove: $('#auto-approve').is(':checked')
+            autoApprove: $('#auto-approve').is(':checked'),
+            aiReviewerUser: reviewerUser && reviewerUser.length ? reviewerUser : null
         };
     }
 

@@ -116,6 +116,10 @@ public interface AIReviewConfiguration extends Entity {
     boolean isProgressPanelEnabled();
     void setProgressPanelEnabled(boolean enabled);
 
+    @StringLength(255)
+    String getReviewerUserSlug();
+    void setReviewerUserSlug(String userSlug);
+
     @StringLength(20)
     String getScopeMode();
     void setScopeMode(String scopeMode);

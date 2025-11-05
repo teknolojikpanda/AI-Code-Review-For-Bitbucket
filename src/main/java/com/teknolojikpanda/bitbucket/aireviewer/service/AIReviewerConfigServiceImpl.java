@@ -10,14 +10,14 @@ import com.atlassian.bitbucket.repository.RepositoryService;
 import com.atlassian.bitbucket.util.Page;
 import com.atlassian.bitbucket.util.PageRequest;
 import com.atlassian.bitbucket.util.PageRequestImpl;
+import com.atlassian.bitbucket.user.ApplicationUser;
+import com.atlassian.bitbucket.user.UserService;
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfilePreset;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.util.HttpClientUtil;
-import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
-import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -59,6 +59,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private final ActiveObjects ao;
     private final ProjectService projectService;
     private final RepositoryService repositoryService;
+    private final UserService userService;
     private final HttpClientUtil httpClientUtil;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -89,6 +90,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     )));
 
     private static final Set<String> SUPPORTED_KEYS;
+    private static final Set<String> DERIVED_KEYS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
+            "aiReviewerUserDisplayName"
+    )));
 
     // Default configuration values
     private static final String DEFAULT_OLLAMA_URL = "http://0.0.0.0:11434";
@@ -149,6 +153,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "skipGeneratedFiles",
                 "skipTests",
                 "autoApprove",
+                "aiReviewerUser",
                 "scopeMode"
         ));
         SUPPORTED_KEYS = Collections.unmodifiableSet(keys);
@@ -158,21 +163,24 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     public AIReviewerConfigServiceImpl(
             @ComponentImport ActiveObjects ao,
             @ComponentImport ProjectService projectService,
-            @ComponentImport RepositoryService repositoryService) {
-        this(ao, projectService, repositoryService, new HttpClientUtil());
+            @ComponentImport RepositoryService repositoryService,
+            @ComponentImport UserService userService) {
+        this(ao, projectService, repositoryService, userService, new HttpClientUtil());
     }
 
     AIReviewerConfigServiceImpl(ActiveObjects ao) {
-        this(ao, null, null, new HttpClientUtil());
+        this(ao, null, null, null, new HttpClientUtil());
     }
 
     AIReviewerConfigServiceImpl(ActiveObjects ao,
                                 ProjectService projectService,
                                 RepositoryService repositoryService,
+                                UserService userService,
                                 HttpClientUtil httpClientUtil) {
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
         this.projectService = projectService;
         this.repositoryService = repositoryService;
+        this.userService = userService;
         this.httpClientUtil = httpClientUtil != null ? httpClientUtil : new HttpClientUtil();
     }
 
@@ -235,7 +243,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         configMap.keySet().stream()
                 .filter(Objects::nonNull)
                 .map(Object::toString)
-                .filter(key -> !SUPPORTED_KEYS.contains(key))
+                .filter(key -> !SUPPORTED_KEYS.contains(key) && !DERIVED_KEYS.contains(key))
                 .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
 
         validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
@@ -264,6 +272,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "baseRetryDelay", 100, 60_000, errors);
         validateIntegerRange(configMap, "ollamaTimeout", 5_000, 600_000, errors);
         validateIntegerRange(configMap, "connectTimeout", 1_000, 120_000, errors);
+        validateString(configMap, "aiReviewerUser", false, 255, errors, null);
 
         String minSeverity = trimToNull(configMap.get("minSeverity"));
         if (minSeverity != null && !isValidSeverity(minSeverity)) {
@@ -307,7 +316,16 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             }
         });
 
+        String reviewerUser = trimToNull(configMap.get("aiReviewerUser"));
+        if (reviewerUser != null && userService != null) {
+            ApplicationUser user = userService.getUserBySlug(reviewerUser);
+            if (user == null || !userService.isUserActive(user)) {
+                errors.put("aiReviewerUser", "User '" + reviewerUser + "' not found or inactive");
+            }
+        }
+
         if (!errors.isEmpty()) {
+            log.warn("Configuration validation errors: {}", errors);
             throw new ConfigurationValidationException(errors);
         }
     }
@@ -414,6 +432,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("skipGeneratedFiles", DEFAULT_SKIP_GENERATED);
         defaults.put("skipTests", DEFAULT_SKIP_TESTS);
         defaults.put("autoApprove", DEFAULT_AUTO_APPROVE);
+        defaults.put("aiReviewerUser", null);
         return Collections.unmodifiableMap(defaults);
     }
 
@@ -972,6 +991,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setSkipGeneratedFiles(DEFAULT_SKIP_GENERATED);
         config.setSkipTests(DEFAULT_SKIP_TESTS);
         config.setAutoApprove(DEFAULT_AUTO_APPROVE);
+        config.setReviewerUserSlug(null);
         config.setGlobalDefault(true);
         long now = System.currentTimeMillis();
         config.setCreatedDate(now);
@@ -1064,6 +1084,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("autoApprove")) {
             config.setAutoApprove(getBooleanValue(configMap, "autoApprove"));
+        }
+        if (configMap.containsKey("aiReviewerUser")) {
+            config.setReviewerUserSlug(trimToNull(configMap.get("aiReviewerUser")));
         }
         if (configMap.containsKey("scopeMode")) {
             ScopeMode mode = ScopeMode.fromString(String.valueOf(configMap.get("scopeMode")));
@@ -1229,6 +1252,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("skipGeneratedFiles", defaultBoolean(config.isSkipGeneratedFiles(), DEFAULT_SKIP_GENERATED));
         map.put("skipTests", defaultBoolean(config.isSkipTests(), DEFAULT_SKIP_TESTS));
         map.put("autoApprove", defaultBoolean(config.isAutoApprove(), DEFAULT_AUTO_APPROVE));
+        map.put("aiReviewerUser", trimToNull(config.getReviewerUserSlug()));
+        map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
         return map;
     }
@@ -1309,6 +1334,22 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             return Boolean.parseBoolean((String) value);
         }
         throw new IllegalArgumentException("Cannot convert " + key + " to boolean: " + value);
+    }
+
+    private String resolveUserDisplayName(String userSlug) {
+        if (userSlug == null || userSlug.trim().isEmpty() || userService == null) {
+            return null;
+        }
+        try {
+            ApplicationUser user = userService.getUserBySlug(userSlug);
+            if (user == null) {
+                return null;
+            }
+            return user.getDisplayName();
+        } catch (Exception e) {
+            log.debug("Failed to resolve display name for user slug {}", userSlug, e);
+            return null;
+        }
     }
 
     private String trimToNull(Object value) {
