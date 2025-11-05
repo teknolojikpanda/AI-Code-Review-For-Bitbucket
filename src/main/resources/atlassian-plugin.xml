@@ -127,8 +127,8 @@
     <!-- Admin Configuration Navigation -->
     <web-section key="ai-reviewer-admin-section"
                  name="AI Code Reviewer"
-                 location="atl.admin/admin-plugins-section"
-                 weight="200">
+                 location="atl.admin.menu"
+                 weight="100">
         <description>AI Code Reviewer administration links</description>
         <label>AI Code Reviewer</label>
     </web-section>
@@ -136,20 +136,30 @@
     <!-- Admin Configuration Page -->
     <web-item key="ai-reviewer-admin-link"
               name="AI Code Reviewer"
-              section="atl.admin/admin-plugins-section/ai-reviewer-admin-section"
+              section="atl.admin.menu/ai-reviewer-admin-section"
               weight="10">
-        <description>Link to AI Code Reviewer configuration</description>
+        <description>Link to AI Code Reviewer Configuration</description>
         <label key="ai.reviewer.admin.link"/>
         <link>/plugins/servlet/ai-reviewer/admin</link>
+        <conditions>
+            <condition class="com.atlassian.bitbucket.web.conditions.HasGlobalPermissionCondition">
+                <permission>ADMIN</permission>
+            </condition>
+        </conditions>
     </web-item>
 
     <web-item key="ai-reviewer-history-link"
               name="AI Review History"
-              section="atl.admin/admin-plugins-section/ai-reviewer-admin-section"
+              section="atl.admin.menu/ai-reviewer-admin-section"
               weight="20">
         <description>Link to AI Code Reviewer history</description>
         <label key="ai.reviewer.history.link"/>
         <link>/plugins/servlet/ai-reviewer/history</link>
+        <conditions>
+            <condition class="com.atlassian.bitbucket.web.conditions.HasGlobalPermissionCondition">
+                <permission>ADMIN</permission>
+            </condition>
+        </conditions>
     </web-item>
 
     <!-- Admin Configuration Servlet -->
