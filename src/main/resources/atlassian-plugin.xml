@@ -141,11 +141,9 @@
         <description>Link to AI Code Reviewer Configuration</description>
         <label key="ai.reviewer.admin.link"/>
         <link>/plugins/servlet/ai-reviewer/admin</link>
-        <conditions>
-            <condition class="com.atlassian.bitbucket.web.conditions.HasGlobalPermissionCondition">
-                <permission>ADMIN</permission>
-            </condition>
-        </conditions>
+        <condition class="com.atlassian.bitbucket.web.conditions.HasGlobalPermissionCondition">
+            <param name="permission">ADMIN</param>
+        </condition>
     </web-item>
 
     <web-item key="ai-reviewer-history-link"
@@ -155,11 +153,9 @@
         <description>Link to AI Code Reviewer history</description>
         <label key="ai.reviewer.history.link"/>
         <link>/plugins/servlet/ai-reviewer/history</link>
-        <conditions>
-            <condition class="com.atlassian.bitbucket.web.conditions.HasGlobalPermissionCondition">
-                <permission>ADMIN</permission>
-            </condition>
-        </conditions>
+        <condition class="com.atlassian.bitbucket.web.conditions.HasGlobalPermissionCondition">
+            <param name="permission">ADMIN</param>
+        </condition>
     </web-item>
 
     <!-- Admin Configuration Servlet -->
