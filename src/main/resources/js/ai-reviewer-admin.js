@@ -188,78 +188,159 @@
             return;
         }
 
-        var value = config.aiReviewerUser || '';
-        var label = config.aiReviewerUserDisplayName || config.aiReviewerUser || '';
+        var $search = $('#ai-reviewer-user-search');
+        var $results = $('#ai-reviewer-user-results');
+        var initialSlug = config.aiReviewerUser || '';
+        var initialLabel = config.aiReviewerUserDisplayName || config.aiReviewerUser || '';
+        var latestUsers = [];
 
-        var hasSelect2 = $.fn && typeof $.fn.auiSelect2 === 'function';
-        var pendingSearch = null;
+        populateReviewerOptions($select, initialSlug, initialLabel, []);
+        $select.val(initialSlug || '');
+        if ($search.length) {
+            $search.val(initialLabel || '');
+        }
 
         if (!reviewerSelectInitialized) {
-            $select.empty();
-            $select.append($('<option>').attr('value', ''));
-            if (value) {
-                $select.append($('<option>').attr('value', value).text(label));
-            }
-            $select.val(value);
-            if (hasSelect2) {
-                try {
-                    $select.auiSelect2({
-                        placeholder: 'Search for a user…',
-                        allowClear: true,
-                        minimumInputLength: 2,
-                        query: function(query) {
-                            var term = query.term || '';
-                            if (pendingSearch && pendingSearch.readyState && pendingSearch.readyState !== 4) {
-                                pendingSearch.abort();
-                            }
-                            pendingSearch = $.ajax({
-                                url: userSearchUrl,
-                                type: 'GET',
-                                dataType: 'json',
-                                data: {
-                                    q: term,
-                                    limit: 10
-                                }
-                            }).done(function(data) {
-                                var results = [];
-                                if (data && Array.isArray(data.users)) {
-                                    results = data.users.map(function(user) {
-                                        return {
-                                            id: user.slug,
-                                            text: user.displayName || user.name || user.slug
-                                        };
-                                    });
-                                }
-                                query.callback({ results: results });
-                            }).fail(function(xhr, status, error) {
-                                console.error('Failed to search users:', error || status);
-                                query.callback({ results: [] });
-                            }).always(function() {
-                                pendingSearch = null;
-                            });
-                        },
-                        width: '100%'
-                    });
-                } catch (e) {
-                    console.warn('Select2 initialisation failed, falling back to basic select', e);
-                    hasSelect2 = false;
+            var pendingRequest = null;
+            var debounceTimer = null;
+
+            function performSearch(term) {
+                if ($results.length) {
+                    renderReviewerSearchResults($results, null, null, '<span class="aui-icon aui-icon-wait"></span> Searching…');
                 }
-            } else {
-                console.warn('AUI Select2 not available; falling back to basic select for reviewer picker.');
+                if (pendingRequest && pendingRequest.readyState && pendingRequest.readyState !== 4) {
+                    pendingRequest.abort();
+                }
+                pendingRequest = $.ajax({
+                    url: userSearchUrl,
+                    type: 'GET',
+                    dataType: 'json',
+                    data: {
+                        q: term || '',
+                        limit: 20
+                    }
+                }).done(function(data) {
+                    var users = Array.isArray(data.users) ? data.users : [];
+                    latestUsers = users;
+                    var currentValue = $select.val();
+                    var currentLabel = $select.find('option:selected').text();
+                    populateReviewerOptions($select, currentValue, currentLabel, users);
+                    renderReviewerSearchResults($results, users, currentValue);
+                }).fail(function(xhr, status, error) {
+                    console.error('Failed to search users:', error || status);
+                    if ($results.length) {
+                        renderReviewerSearchResults($results, [], null, 'Failed to search users.');
+                    }
+                });
             }
+
+            if ($search.length) {
+                $search.on('input', function() {
+                    var term = $(this).val();
+                    if (debounceTimer) {
+                        clearTimeout(debounceTimer);
+                    }
+                    debounceTimer = setTimeout(function() {
+                        performSearch(term);
+                    }, 300);
+                });
+            }
+
+            $select.on('change', function() {
+                if ($search.length) {
+                    var selectedText = $select.find('option:selected').text();
+                    $search.val(selectedText || '');
+                }
+                if ($results.length && latestUsers.length) {
+                    highlightSelectedReviewer($results, $select.val());
+                }
+            });
+
+            performSearch('');
             reviewerSelectInitialized = true;
         } else {
-            if (value) {
-                var option = $select.find('option[value="' + value + '"]');
-                if (!option.length) {
-                    $select.append($('<option>').attr('value', value).text(label));
-                }
-            }
-            $select.val(value || '');
-            if (hasSelect2) {
-                $select.trigger('change');
-            }
+            populateReviewerOptions($select, initialSlug, initialLabel, []);
+            $select.val(initialSlug || '');
         }
+    }
+
+    function populateReviewerOptions($select, selectedSlug, selectedLabel, users) {
+        $select.empty();
+        $select.append($('<option>').attr('value', ''));
+
+        var seen = Object.create(null);
+        if (selectedSlug) {
+            seen[selectedSlug] = true;
+            $select.append($('<option>')
+                .attr('value', selectedSlug)
+                .text(selectedLabel || selectedSlug));
+        }
+
+        (users || []).forEach(function(user) {
+            if (!user || !user.slug) {
+                return;
+            }
+            if (seen[user.slug]) {
+                return;
+            }
+            var text = user.displayName || user.name || user.slug;
+            $select.append($('<option>').attr('value', user.slug).text(text));
+        });
+
+        if (selectedSlug) {
+            $select.val(selectedSlug);
+        }
+    }
+
+    function renderReviewerSearchResults($container, users, selectedSlug, message) {
+        if (!$container || !$container.length) {
+            return;
+        }
+        if (message) {
+            $container.html('<div class="user-search-status">' + message + '</div>');
+            return;
+        }
+        if (!users || !users.length) {
+            $container.html('<div class="user-search-empty">No matching users found.</div>');
+            return;
+        }
+        var $list = $('<ul class="user-search-list"></ul>');
+        users.forEach(function(user) {
+            if (!user || !user.slug) {
+                return;
+            }
+            var text = user.displayName || user.name || user.slug;
+            var $item = $('<li class="user-search-item"></li>')
+                .attr('data-slug', user.slug)
+                .append($('<span class="user-name"></span>').text(text));
+            if (user.email) {
+                $item.append($('<span class="user-email"></span>').text(' · ' + user.email));
+            }
+            if (user.name && user.name !== text) {
+                $item.append($('<span class="user-username"></span>').text(' (' + user.name + ')'));
+            }
+            if (selectedSlug && selectedSlug === user.slug) {
+                $item.addClass('selected');
+            }
+            $item.on('click', function() {
+                $('#ai-reviewer-user').val(user.slug);
+                highlightSelectedReviewer($container, user.slug);
+                $('#ai-reviewer-user-search').val(text);
+            });
+            $list.append($item);
+        });
+        $container.empty().append($list);
+    }
+
+    function highlightSelectedReviewer($container, slug) {
+        if (!$container || !$container.length) {
+            return;
+        }
+        $container.find('.user-search-item').removeClass('selected');
+        if (!slug) {
+            return;
+        }
+        $container.find('.user-search-item[data-slug="' + slug + '"]').addClass('selected');
     }
 
     function handleProfileChange() {

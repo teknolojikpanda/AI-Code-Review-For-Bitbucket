@@ -312,6 +312,7 @@
 
                         <div class="field-group">
                             <label for="ai-reviewer-user">AI Reviewer Account</label>
+                            <input type="text" id="ai-reviewer-user-search" class="text medium-field" placeholder="Search users by name or username">
                             <select id="ai-reviewer-user" name="aiReviewerUser" class="long-field">
                                 <option value=""></option>
                                 #if($aiReviewerUser)
@@ -324,9 +325,11 @@
                                     </option>
                                 #end
                             </select>
+                            <div id="ai-reviewer-user-results" class="user-search-results"></div>
                             <div class="description">
                                 Select the Bitbucket user that will appear as the AI reviewer and record auto-approvals.
                                 Leave blank to use the default technical user.
+                                Type in the search box above to look up additional users.
                             </div>
                         </div>
 

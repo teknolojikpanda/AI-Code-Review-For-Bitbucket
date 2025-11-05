@@ -188,6 +188,50 @@
     color: #97a0af;
 }
 
+.user-search-results {
+    margin-top: 6px;
+    border: 1px solid #dfe1e6;
+    border-radius: 3px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #fff;
+    font-size: 12px;
+}
+
+.user-search-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.user-search-item {
+    padding: 6px 8px;
+    cursor: pointer;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+}
+
+.user-search-item:hover {
+    background-color: #f4f5f7;
+}
+
+.user-search-item.selected {
+    background-color: #deebff;
+}
+
+.user-search-item .user-email,
+.user-search-item .user-username {
+    color: #6b778c;
+}
+
+.user-search-status,
+.user-search-empty {
+    padding: 6px 8px;
+    color: #6b778c;
+}
+
 .scope-node-toggle {
     width: 16px;
     height: 16px;
