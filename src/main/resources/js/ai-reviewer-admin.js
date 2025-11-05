@@ -191,6 +191,8 @@
         var value = config.aiReviewerUser || '';
         var label = config.aiReviewerUserDisplayName || config.aiReviewerUser || '';
 
+        var hasSelect2 = $.fn && typeof $.fn.auiSelect2 === 'function';
+
         if (!reviewerSelectInitialized) {
             $select.empty();
             $select.append($('<option>').attr('value', ''));
@@ -198,35 +200,39 @@
                 $select.append($('<option>').attr('value', value).text(label));
             }
             $select.val(value);
-            $select.auiSelect2({
-                placeholder: 'Search for a user…',
-                allowClear: true,
-                minimumInputLength: 2,
-                ajax: {
-                    url: userSearchUrl,
-                    dataType: 'json',
-                    delay: 300,
-                    data: function(params) {
-                        return {
-                            q: params.term || '',
-                            limit: 10
-                        };
-                    },
-                    processResults: function(data) {
-                        var results = [];
-                        if (data && Array.isArray(data.users)) {
-                            results = data.users.map(function(user) {
-                                return {
-                                    id: user.slug,
-                                    text: user.displayName || user.name || user.slug
-                                };
-                            });
+            if (hasSelect2) {
+                $select.auiSelect2({
+                    placeholder: 'Search for a user…',
+                    allowClear: true,
+                    minimumInputLength: 2,
+                    ajax: {
+                        url: userSearchUrl,
+                        dataType: 'json',
+                        delay: 300,
+                        data: function(params) {
+                            return {
+                                q: params.term || '',
+                                limit: 10
+                            };
+                        },
+                        processResults: function(data) {
+                            var results = [];
+                            if (data && Array.isArray(data.users)) {
+                                results = data.users.map(function(user) {
+                                    return {
+                                        id: user.slug,
+                                        text: user.displayName || user.name || user.slug
+                                    };
+                                });
+                            }
+                            return { results: results };
                         }
-                        return { results: results };
-                    }
-                },
-                width: '100%'
-            });
+                    },
+                    width: '100%'
+                });
+            } else {
+                console.warn('AUI Select2 not available; falling back to basic select for reviewer picker.');
+            }
             reviewerSelectInitialized = true;
         } else {
             if (value) {
@@ -235,7 +241,10 @@
                     $select.append($('<option>').attr('value', value).text(label));
                 }
             }
-            $select.val(value || '').trigger('change');
+            $select.val(value || '');
+            if (hasSelect2) {
+                $select.trigger('change');
+            }
         }
     }
 
