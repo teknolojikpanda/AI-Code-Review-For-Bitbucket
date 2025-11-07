@@ -2,6 +2,7 @@ package com.teknolojikpanda.bitbucket.aicode.core;
 
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.teknolojikpanda.bitbucket.aicode.api.AiReviewClient;
+import com.teknolojikpanda.bitbucket.aicode.api.ChunkProgressListener;
 import com.teknolojikpanda.bitbucket.aicode.api.MetricsRecorder;
 import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.model.ChunkReviewResult;
@@ -14,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.time.Instant;
@@ -44,7 +46,9 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
 
     @Nonnull
     @Override
-    public ReviewSummary runReview(@Nonnull ReviewPreparation preparation, @Nonnull MetricsRecorder metrics) {
+    public ReviewSummary runReview(@Nonnull ReviewPreparation preparation,
+                                   @Nonnull MetricsRecorder metrics,
+                                   @Nullable ChunkProgressListener chunkListener) {
         Objects.requireNonNull(preparation, "preparation");
         Objects.requireNonNull(metrics, "metrics");
 
@@ -72,7 +76,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
         try {
             for (int i = 0; i < preparation.getChunks().size(); i++) {
                 final int index = i;
-                futures.add(executor.submit(new ChunkTask(index, totalChunks, preparation, overview, metrics)));
+                futures.add(executor.submit(new ChunkTask(index, totalChunks, preparation, overview, metrics, chunkListener)));
             }
 
             List<ReviewFinding> findings = new ArrayList<>();
@@ -114,17 +118,20 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
         private final ReviewPreparation preparation;
         private final String overview;
         private final MetricsRecorder metrics;
+        private final ChunkProgressListener chunkListener;
 
         private ChunkTask(int index,
                           int total,
                           ReviewPreparation preparation,
                           String overview,
-                          MetricsRecorder metrics) {
+                          MetricsRecorder metrics,
+                          @Nullable ChunkProgressListener chunkListener) {
             this.index = index;
             this.total = total;
             this.preparation = preparation;
             this.overview = overview;
             this.metrics = metrics;
+            this.chunkListener = chunkListener;
         }
 
         @Override
@@ -138,8 +145,10 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                         chunk.getFiles().size(),
                         chunk.getContent() != null ? chunk.getContent().length() : 0);
             }
+            notifyChunkStarted(chunk);
             metrics.increment("chunks.started");
             Instant start = metrics.recordStart("ai.chunk." + index);
+            boolean success = false;
             try {
                 ChunkReviewResult result = aiClient.reviewChunk(
                         chunk,
@@ -155,6 +164,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                                 total,
                                 chunk.getId(),
                                 result.getFindings().size());
+                        success = true;
                     } else {
                         metrics.increment("chunks.failed");
                         log.warn("Chunk {}/{} [{}] returned failure: {}",
@@ -179,6 +189,30 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                         .success(false)
                         .error(ex.getMessage())
                         .build();
+            } finally {
+                notifyChunkCompleted(chunk, success);
+            }
+        }
+
+        private void notifyChunkStarted(ReviewChunk chunk) {
+            if (chunkListener == null) {
+                return;
+            }
+            try {
+                chunkListener.onChunkStarted(chunk, index, total);
+            } catch (Exception ex) {
+                log.debug("Chunk start listener failed for {}: {}", chunk.getId(), ex.getMessage(), ex);
+            }
+        }
+
+        private void notifyChunkCompleted(ReviewChunk chunk, boolean success) {
+            if (chunkListener == null) {
+                return;
+            }
+            try {
+                chunkListener.onChunkCompleted(chunk, index, total, success);
+            } catch (Exception ex) {
+                log.debug("Chunk completion listener failed for {}: {}", chunk.getId(), ex.getMessage(), ex);
             }
         }
     }

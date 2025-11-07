@@ -35,6 +35,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressTracker;
 import com.teknolojikpanda.bitbucket.aireviewer.util.*;
 import com.teknolojikpanda.bitbucket.aicode.api.ChunkPlanner;
+import com.teknolojikpanda.bitbucket.aicode.api.ChunkProgressListener;
 import com.teknolojikpanda.bitbucket.aicode.api.DiffProvider;
 import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.core.DiffPositionResolver;
@@ -43,6 +44,7 @@ import com.teknolojikpanda.bitbucket.aicode.core.MetricsRecorderAdapter;
 import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewConfig;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewContext;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewChunk;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewFinding;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewPreparation;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewSummary;
@@ -62,6 +64,8 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import net.java.ao.DBParam;
 
@@ -238,6 +242,7 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private ReviewResult reviewPullRequestInternal(@Nonnull PullRequest pullRequest) {
         ReviewRun run = REVIEW_RUN_CONTEXT.get();
+        ProgressTracker tracker = progressTracker();
         long pullRequestId = pullRequest.getId();
         String modeLabel = run.update ? "update" : "initial";
         if (run.manual) {
@@ -359,7 +364,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             recordProgress("analysis.started", 55, progressDetails(
                     "chunkCount", preparation.getChunks().size()));
 
-            ReviewSummary summary = reviewOrchestrator.runReview(preparation, recorder);
+            ChunkProgressListener chunkListener = buildChunkProgressListener(preparation, run, tracker);
+            ReviewSummary summary = reviewOrchestrator.runReview(preparation, recorder, chunkListener);
             List<ReviewIssue> issues = convertFindings(summary.getFindings());
             metrics.setGauge("issues.truncated", summary.isTruncated());
             if (summary.totalCount() == 0) {
@@ -1861,22 +1867,30 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private void recordProgress(String stage, int percentComplete, Map<String, Object> details) {
+        recordProgressInternal(REVIEW_RUN_CONTEXT.get(), progressTracker(), stage, percentComplete, details);
+    }
+
+    private void recordProgressInternal(@Nullable ReviewRun run,
+                                        @Nullable ProgressTracker tracker,
+                                        String stage,
+                                        int percentComplete,
+                                        Map<String, Object> details) {
         if (stage == null || stage.isEmpty()) {
             return;
         }
+        Map<String, Object> safeDetails = details == null ? Collections.emptyMap() : details;
         ProgressEvent event;
-        ProgressTracker tracker = progressTracker();
         if (tracker != null) {
-            event = tracker.record(stage, percentComplete, details == null ? Collections.emptyMap() : details);
+            event = tracker.record(stage, percentComplete, safeDetails);
         } else {
             event = ProgressEvent.builder(stage)
                     .percentComplete(percentComplete)
-                    .details(details == null ? Collections.emptyMap() : details)
+                    .details(safeDetails)
                     .build();
         }
-        ReviewRun run = REVIEW_RUN_CONTEXT.get();
-        if (run != null) {
-            ProgressRegistry.ProgressMetadata metadata = run.toProgressMetadata();
+        ReviewRun effectiveRun = run != null ? run : REVIEW_RUN_CONTEXT.get();
+        if (effectiveRun != null) {
+            ProgressRegistry.ProgressMetadata metadata = effectiveRun.toProgressMetadata();
             if (metadata != null) {
                 progressRegistry.record(metadata, event);
             }
@@ -1911,6 +1925,88 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
         return map;
+    }
+
+    @Nullable
+    private ChunkProgressListener buildChunkProgressListener(@Nonnull ReviewPreparation preparation,
+                                                             @Nullable ReviewRun run,
+                                                             @Nullable ProgressTracker tracker) {
+        Objects.requireNonNull(preparation, "preparation");
+        if (run == null || tracker == null) {
+            return null;
+        }
+        List<ReviewChunk> chunks = preparation.getChunks();
+        if (chunks.isEmpty()) {
+            return null;
+        }
+        List<ReviewChunk> orderedChunks = new ArrayList<>(chunks);
+        Map<String, String> chunkLabels = new LinkedHashMap<>();
+        for (ReviewChunk chunk : orderedChunks) {
+            chunkLabels.put(chunk.getId(), describeChunk(chunk));
+        }
+        Set<String> activeChunkIds = ConcurrentHashMap.newKeySet();
+        AtomicReference<String> lastSignature = new AtomicReference<>("");
+        emitActiveChunkState(run, tracker, orderedChunks, chunkLabels, activeChunkIds, lastSignature);
+        return new ChunkProgressListener() {
+            @Override
+            public void onChunkStarted(@Nonnull ReviewChunk chunk, int index, int total) {
+                activeChunkIds.add(chunk.getId());
+                emitActiveChunkState(run, tracker, orderedChunks, chunkLabels, activeChunkIds, lastSignature);
+            }
+
+            @Override
+            public void onChunkCompleted(@Nonnull ReviewChunk chunk, int index, int total, boolean success) {
+                activeChunkIds.remove(chunk.getId());
+                emitActiveChunkState(run, tracker, orderedChunks, chunkLabels, activeChunkIds, lastSignature);
+            }
+        };
+    }
+
+    private void emitActiveChunkState(@Nonnull ReviewRun run,
+                                      @Nonnull ProgressTracker tracker,
+                                      @Nonnull List<ReviewChunk> orderedChunks,
+                                      @Nonnull Map<String, String> chunkLabels,
+                                      @Nonnull Set<String> activeChunkIds,
+                                      @Nonnull AtomicReference<String> lastSignature) {
+        String summary = formatActiveChunkSummary(orderedChunks, chunkLabels, activeChunkIds);
+        String signature = summary + "|" + activeChunkIds.size();
+        String previous = lastSignature.getAndSet(signature);
+        if (signature.equals(previous)) {
+            return;
+        }
+        recordProgressInternal(run, tracker, "analysis.active", 55, progressDetails(
+                "chunkCount", orderedChunks.size(),
+                "activeChunkCount", activeChunkIds.size(),
+                "currentlyAnalyzing", summary));
+    }
+
+    private String formatActiveChunkSummary(@Nonnull List<ReviewChunk> orderedChunks,
+                                            @Nonnull Map<String, String> chunkLabels,
+                                            @Nonnull Set<String> activeChunkIds) {
+        if (activeChunkIds.isEmpty()) {
+            return "Idle (waiting for chunk execution)";
+        }
+        List<String> descriptors = new ArrayList<>();
+        for (ReviewChunk chunk : orderedChunks) {
+            if (activeChunkIds.contains(chunk.getId())) {
+                descriptors.add(chunkLabels.getOrDefault(chunk.getId(), chunk.getId()));
+            }
+        }
+        if (descriptors.isEmpty()) {
+            return "Idle (waiting for chunk execution)";
+        }
+        return String.join(", ", descriptors);
+    }
+
+    private String describeChunk(@Nonnull ReviewChunk chunk) {
+        List<String> files = chunk.getFiles();
+        String primaryFile = files.isEmpty() ? "(no files)" : files.get(0);
+        int extraFiles = Math.max(0, files.size() - 1);
+        String fileSummary = extraFiles > 0 ? primaryFile + " +" + extraFiles + " more" : primaryFile;
+        return String.format("Chunk %d [%s] %s",
+                chunk.getIndex() + 1,
+                chunk.getId(),
+                fileSummary);
     }
 
     private String serializeMetrics(Map<String, Object> metrics) {

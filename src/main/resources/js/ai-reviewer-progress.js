@@ -19,6 +19,7 @@
         }
         options = options || {};
         var data = Array.isArray(events) ? events : [];
+        data = decorateEvents(data);
         var containerKey = ensureContainerId($container);
 
         if (!data.length) {
@@ -111,6 +112,53 @@
             }
         };
     };
+
+    function decorateEvents(events) {
+        if (!Array.isArray(events)) {
+            return [];
+        }
+        var latestActivity = null;
+        var transformed = [];
+        events.forEach(function(event) {
+            if (!event) {
+                return;
+            }
+            if (event.stage === 'analysis.active') {
+                if (event.details && typeof event.details === 'object' && event.details.currentlyAnalyzing) {
+                    latestActivity = {
+                        text: event.details.currentlyAnalyzing,
+                        count: event.details.activeChunkCount
+                    };
+                }
+                return;
+            }
+            transformed.push(cloneEvent(event));
+        });
+
+        if (latestActivity) {
+            for (var i = transformed.length - 1; i >= 0; i--) {
+                var event = transformed[i];
+                if (event && event.stage === 'analysis.started') {
+                    var details = Object.assign({}, event.details || {});
+                    details.currentlyAnalyzing = latestActivity.text;
+                    if (typeof latestActivity.count === 'number') {
+                        details.activeChunkCount = latestActivity.count;
+                    }
+                    transformed[i] = Object.assign({}, event, { details: details });
+                    break;
+                }
+            }
+        }
+        return transformed;
+    }
+
+    function cloneEvent(event) {
+        var clone = Object.assign({}, event);
+        if (event.details && typeof event.details === 'object') {
+            clone.details = Object.assign({}, event.details);
+        }
+        return clone;
+    }
 
     function buildEventItem(event, options, uid) {
         var stage = formatStage(event.stage || 'Unknown Stage');
