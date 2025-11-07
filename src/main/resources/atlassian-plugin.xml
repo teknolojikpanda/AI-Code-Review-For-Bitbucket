@@ -78,6 +78,12 @@
         <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool</interface>
     </component>
 
+    <component key="overviewCache"
+               class="com.teknolojikpanda.bitbucket.aicode.core.OverviewCache">
+        <description>Caches AI overview prompts per commit</description>
+        <interface>com.teknolojikpanda.bitbucket.aicode.core.OverviewCache</interface>
+    </component>
+
     <component key="pullRequestAIReviewListener" 
                class="com.teknolojikpanda.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
         <description>Pull Request AI Review Event Listener</description>
