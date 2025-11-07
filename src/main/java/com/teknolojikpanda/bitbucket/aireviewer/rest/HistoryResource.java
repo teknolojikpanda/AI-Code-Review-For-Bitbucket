@@ -310,9 +310,22 @@ public class HistoryResource {
             return "Awaiting first milestone";
         }
         String stage = humanizeStage(event.getStage());
-        Object analyzing = event.getDetails().get("currentlyAnalyzing");
-        if (analyzing != null) {
-            stage = Objects.toString(analyzing, stage);
+        Map<String, Object> details = event.getDetails();
+        if (details != null) {
+            Object analyzing = details.get("currentlyAnalyzing");
+            if (analyzing == null || Objects.toString(analyzing, "").isBlank()) {
+                analyzing = details.get("chunkPlanSummary");
+            }
+            if (analyzing != null) {
+                stage = Objects.toString(analyzing, stage);
+            }
+            Object circuitState = details.get("circuitState");
+            if (circuitState != null) {
+                String stateText = Objects.toString(circuitState, "").trim();
+                if (!stateText.isEmpty() && !"CLOSED".equalsIgnoreCase(stateText)) {
+                    stage = stage + " · Circuit " + stateText;
+                }
+            }
         }
         Integer percent = event.getPercentComplete();
         if (percent != null && percent > 0) {

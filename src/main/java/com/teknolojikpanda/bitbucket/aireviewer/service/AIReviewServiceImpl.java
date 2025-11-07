@@ -93,6 +93,8 @@ public class AIReviewServiceImpl implements AIReviewService {
     private static final Logger log = LoggerFactory.getLogger(AIReviewServiceImpl.class);
     private static final Set<String> TEST_KEYWORDS = new HashSet<>(Arrays.asList("test", "spec", "fixture"));
     private static final String IMPERSONATION_REASON = "AI Reviewer service operation";
+    private static final int MAX_CHUNK_PREVIEW_ENTRIES = 12;
+    private static final String CIRCUIT_SNAPSHOT_GAUGE = "ai.model.circuit.snapshot";
 
     private final PullRequestService pullRequestService;
     private final CommentService commentService;
@@ -416,8 +418,12 @@ public class AIReviewServiceImpl implements AIReviewService {
             metrics.setGauge("chunks.planned", preparation.getChunks().size());
             metrics.setGauge("chunks.truncated", preparation.isTruncated());
             log.debug("AI Review: {} chunk(s) prepared (truncated={})", preparation.getChunks().size(), preparation.isTruncated());
-            recordProgress("analysis.started", 55, progressDetails(
-                    "chunkCount", preparation.getChunks().size()));
+            Map<String, Object> analysisStartedDetails = progressDetails(
+                    "chunkCount", preparation.getChunks().size(),
+                    "truncated", preparation.isTruncated());
+            addChunkPlanPreview(analysisStartedDetails, preparation.getChunks());
+            appendCircuitDetails(analysisStartedDetails, metrics);
+            recordProgress("analysis.started", 55, analysisStartedDetails);
 
             ChunkProgressListener chunkListener = buildChunkProgressListener(preparation, run, tracker);
             ReviewSummary summary = reviewOrchestrator.runReview(preparation, recorder, chunkListener);
@@ -428,9 +434,18 @@ public class AIReviewServiceImpl implements AIReviewService {
             } else {
                 log.info("AI Review: AI returned {} finding(s) (truncated={})", summary.totalCount(), summary.isTruncated());
             }
-            recordProgress("analysis.completed", 70, progressDetails(
+            Map<String, Object> analysisCompletedDetails = progressDetails(
                     "findings", summary.totalCount(),
-                    "truncated", summary.isTruncated()));
+                    "truncated", summary.isTruncated(),
+                    "criticalFindings", summary.countFor(SeverityLevel.CRITICAL),
+                    "highFindings", summary.countFor(SeverityLevel.HIGH),
+                    "mediumFindings", summary.countFor(SeverityLevel.MEDIUM),
+                    "lowFindings", summary.countFor(SeverityLevel.LOW),
+                    "chunksStarted", metrics.getCounter("chunks.started"),
+                    "chunksSucceeded", metrics.getCounter("chunks.succeeded"),
+                    "chunksFailed", metrics.getCounter("chunks.failed"));
+            appendCircuitDetails(analysisCompletedDetails, metrics);
+            recordProgress("analysis.completed", 70, analysisCompletedDetails);
 
             List<ReviewIssue> validated = new ArrayList<>();
             int invalidIssues = 0;
@@ -2087,6 +2102,95 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
         return map;
+    }
+
+    private void addChunkPlanPreview(@Nonnull Map<String, Object> details,
+                                     @Nonnull List<ReviewChunk> chunks) {
+        Objects.requireNonNull(details, "details");
+        Objects.requireNonNull(chunks, "chunks");
+        if (chunks.isEmpty()) {
+            details.put("chunkPlanSummary", "No chunks scheduled");
+            return;
+        }
+        List<String> preview = buildChunkPlanPreview(chunks);
+        if (!preview.isEmpty()) {
+            details.put("chunkPlanPreview", preview);
+            details.put("chunkPlanSummary", summarizeChunkPlanPreview(preview, chunks.size()));
+        }
+    }
+
+    @Nonnull
+    private List<String> buildChunkPlanPreview(@Nonnull List<ReviewChunk> chunks) {
+        List<String> preview = new ArrayList<>();
+        if (chunks.isEmpty()) {
+            return preview;
+        }
+        int limit = Math.min(MAX_CHUNK_PREVIEW_ENTRIES, chunks.size());
+        for (int i = 0; i < limit; i++) {
+            preview.add(describeChunk(chunks.get(i)));
+        }
+        if (chunks.size() > limit) {
+            preview.add("+" + (chunks.size() - limit) + " more chunk(s)");
+        }
+        return preview;
+    }
+
+    @Nonnull
+    private String summarizeChunkPlanPreview(@Nonnull List<String> preview, int totalChunks) {
+        if (preview.isEmpty()) {
+            return "Chunk analysis queued";
+        }
+        int display = Math.min(2, preview.size());
+        String summary = preview.subList(0, display).stream()
+                .collect(Collectors.joining("; "));
+        if (totalChunks > display) {
+            summary = summary + " …";
+        }
+        return summary;
+    }
+
+    private void appendCircuitDetails(@Nonnull Map<String, Object> details,
+                                      @Nonnull MetricsCollector metrics) {
+        Map<String, Object> snapshot = latestCircuitSnapshot(metrics);
+        if (snapshot.isEmpty()) {
+            return;
+        }
+        details.put("circuitSnapshot", snapshot);
+        Object state = snapshot.get("state");
+        if (state != null) {
+            details.put("circuitState", state);
+        }
+        putSnapshotNumber(details, "circuitFailureCount", snapshot.get("failureCount"));
+        putSnapshotNumber(details, "circuitOpenEvents", snapshot.get("openEvents"));
+        putSnapshotNumber(details, "circuitBlockedCalls", snapshot.get("blockedCalls"));
+        putSnapshotNumber(details, "circuitSucceededCalls", snapshot.get("succeededCalls"));
+        putSnapshotNumber(details, "circuitFailedCalls", snapshot.get("failedCalls"));
+        putSnapshotNumber(details, "circuitClientBlocked", snapshot.get("clientBlockedCalls"));
+        putSnapshotNumber(details, "circuitClientFailures", snapshot.get("clientHardFailures"));
+    }
+
+    private void putSnapshotNumber(@Nonnull Map<String, Object> details,
+                                   @Nonnull String key,
+                                   @Nullable Object value) {
+        if (value instanceof Number) {
+            details.put(key, ((Number) value).longValue());
+        }
+    }
+
+    @Nonnull
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> latestCircuitSnapshot(@Nonnull MetricsCollector metrics) {
+        Object gauge = metrics.getGauge(CIRCUIT_SNAPSHOT_GAUGE);
+        if (gauge instanceof Map) {
+            Map<String, Object> snapshot = new LinkedHashMap<>();
+            ((Map<?, ?>) gauge).forEach((k, v) -> {
+                if (k instanceof String && v != null) {
+                    snapshot.put((String) k, v);
+                }
+            });
+            return snapshot;
+        }
+        return Collections.emptyMap();
     }
 
     @Nullable

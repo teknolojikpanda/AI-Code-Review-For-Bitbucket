@@ -160,6 +160,46 @@
         return clone;
     }
 
+    function formatDetailValue(key, value) {
+        if (value === null || value === undefined) {
+            return '—';
+        }
+        if (Array.isArray(value)) {
+            return value.map(function(item) {
+                if (item === null || item === undefined) {
+                    return '';
+                }
+                if (typeof item === 'object') {
+                    return Object.keys(item).map(function(childKey) {
+                        return childKey + '=' + item[childKey];
+                    }).join(', ');
+                }
+                if (typeof item === 'boolean') {
+                    return item ? 'Yes' : 'No';
+                }
+                return String(item);
+            }).filter(function(entry) {
+                return entry && String(entry).trim().length;
+            }).join('; ');
+        }
+        if (typeof value === 'object') {
+            return Object.keys(value).map(function(childKey) {
+                var child = value[childKey];
+                if (child === null || child === undefined) {
+                    return childKey + '=—';
+                }
+                if (typeof child === 'boolean') {
+                    return childKey + '=' + (child ? 'Yes' : 'No');
+                }
+                return childKey + '=' + child;
+            }).join(', ');
+        }
+        if (typeof value === 'boolean') {
+            return value ? 'Yes' : 'No';
+        }
+        return String(value);
+    }
+
     function buildEventItem(event, options, uid) {
         var stage = formatStage(event.stage || 'Unknown Stage');
         var percent = typeof event.percentComplete === 'number' ? event.percentComplete : null;
@@ -181,7 +221,7 @@
                 '<span class="aui-icon aui-icon-small aui-iconfont-chevron-down toggle-icon" aria-hidden="true"></span>' +
                 '</button>';
             detailHtml = '<dl class="progress-event-details" id="' + detailsId + '" aria-hidden="' + (expanded ? 'false' : 'true') + '">' + Object.keys(details).map(function(key) {
-                return '<div><dt>' + escapeHtml(formatStage(key)) + '</dt><dd>' + escapeHtml(String(details[key])) + '</dd></div>';
+                return '<div><dt>' + escapeHtml(formatStage(key)) + '</dt><dd>' + escapeHtml(formatDetailValue(key, details[key])) + '</dd></div>';
             }).join('') + '</dl>';
         }
 
