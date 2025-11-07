@@ -61,10 +61,11 @@ public class ReviewSchedulerStateService {
             return rows[0];
         }
         long now = System.currentTimeMillis();
-        return ao.create(
-                AIReviewSchedulerState.class,
+        return ao.create(AIReviewSchedulerState.class,
                 new DBParam("STATE", SchedulerState.Mode.ACTIVE.name()),
-                new DBParam("UPDATED_AT", now));
+                new DBParam("UPDATED_AT", now),
+                new DBParam("UPDATED_BY", "system"),
+                new DBParam("UPDATED_BY_DISPLAY_NAME", "System"));
     }
 
     private SchedulerState toValue(AIReviewSchedulerState entity) {
