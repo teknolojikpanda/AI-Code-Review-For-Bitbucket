@@ -220,11 +220,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                 ProgressTracker tracker = new ProgressTracker();
                 REVIEW_RUN_CONTEXT.set(run);
                 PROGRESS_TRACKER.set(tracker);
-                ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
-                if (metadata != null) {
-                    ensureMergeCheckEnabled(run.getRepository());
-                    progressRegistry.start(metadata);
-                }
+            ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
+            if (metadata != null) {
+                progressRegistry.start(metadata);
+            }
                 try {
                     return action.get();
                 } finally {
@@ -347,7 +346,17 @@ public class AIReviewServiceImpl implements AIReviewService {
                     "parallelThreads", reviewConfig.getParallelThreads(),
                     "maxChunks", reviewConfig.getMaxChunks()));
 
-            ReviewContext context = diffProvider.collect(pullRequest, reviewConfig, recorder);
+            ApplicationUser actingUser = selectActingUser(reviewerUser, pullRequest);
+            try {
+                runWithUser(actingUser, () -> {
+                    ensureMergeCheckEnabled(repository);
+                    return null;
+                });
+            } catch (Exception ex) {
+                log.warn("Failed to ensure merge check for {}/{}: {}", projectKey, repositorySlug, ex.getMessage());
+            }
+
+            ReviewContext context = runWithUser(actingUser, () -> diffProvider.collect(pullRequest, reviewConfig, recorder));
             String rawDiff = context.getRawDiff();
             long diffBytes = 0;
             long diffLines = 0;
@@ -1546,10 +1555,16 @@ public class AIReviewServiceImpl implements AIReviewService {
     private <T> T runAsReviewer(@Nullable ApplicationUser reviewerUser,
                                 @Nonnull String reason,
                                 @Nonnull Callable<T> callable) throws Exception {
-        if (reviewerUser == null || securityService == null) {
+        return runAsUser(reviewerUser, reason, callable);
+    }
+
+    private <T> T runAsUser(@Nullable ApplicationUser user,
+                            @Nonnull String reason,
+                            @Nonnull Callable<T> callable) throws Exception {
+        if (user == null || securityService == null) {
             return callable.call();
         }
-        return securityService.impersonating(reviewerUser, reason).call(callable::call);
+        return securityService.impersonating(user, reason).call(callable::call);
     }
 
     @Nullable
@@ -1575,6 +1590,24 @@ public class AIReviewServiceImpl implements AIReviewService {
             return null;
         }
         return user;
+    }
+
+    private ApplicationUser selectActingUser(@Nullable ApplicationUser reviewerUser, @Nonnull PullRequest pullRequest) {
+        if (reviewerUser != null) {
+            return reviewerUser;
+        }
+        if (pullRequest.getAuthor() != null) {
+            return pullRequest.getAuthor().getUser();
+        }
+        return null;
+    }
+
+    private <T> T runWithUser(@Nullable ApplicationUser user, Callable<T> callable) {
+        try {
+            return runAsUser(user, IMPERSONATION_REASON, callable);
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     /**
