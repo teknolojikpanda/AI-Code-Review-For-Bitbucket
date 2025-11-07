@@ -16,7 +16,8 @@
 ### 4. AI Backend Resilience
 1. Wrap AI client calls with circuit breaker + retry/backoff policies; treat vendor 429/5xx separately. _(Existing `OllamaAiReviewClient` circuit breaker/rate limiter now tracked via plan)_
 2. Cache overview responses keyed by commit hash to avoid duplicate processing on re-reviews. _(Completed via `OverviewCache`)_
-3. Emit metrics for AI latency, error rates, and retry counts.
+3. Emit metrics for AI latency, error rates, retry counts, and circuit-breaker states (open/blocked/failure) by pushing structured snapshots through the shared `MetricsCollector`.
+4. Return breaker + limiter telemetry to `AIReviewServiceImpl` so progress timelines, history views, and admin panels can surface when analysis is throttled or retried.
 
 ### 5. Admin Controls (Pause/Cancel)
 1. Extend Progress REST resource with POST endpoints to pause/resume the scheduler and cancel individual queued/running reviews.
@@ -35,4 +36,4 @@
 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config).
 3. Update documentation: admin guide for new settings + troubleshooting playbook.
 
-> **Next Steps:** Expand AI backend resilience with structured retry analytics and expose breaker health via metrics before moving on to Admin controls.
+> **Next Steps:** Wire the new breaker/latency telemetry into Progress + `/metrics` endpoints, add regression coverage, and then proceed with the Admin Controls (pause/cancel) workstream.

@@ -15,6 +15,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewPreparation;
 import com.teknolojikpanda.bitbucket.aicode.model.SeverityLevel;
 import com.teknolojikpanda.bitbucket.aireviewer.util.CircuitBreaker;
 import com.teknolojikpanda.bitbucket.aireviewer.util.RateLimiter;
+import com.teknolojikpanda.bitbucket.aireviewer.util.CircuitBreaker.CircuitBreakerOpenException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -41,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -63,6 +65,9 @@ public class OllamaAiReviewClient implements AiReviewClient {
     private final Set<String> unavailableModels =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
     private final OverviewCache overviewCache;
+    private final AtomicInteger circuitOpenEvents = new AtomicInteger();
+    private final AtomicInteger circuitBlockedCalls = new AtomicInteger();
+    private final AtomicInteger hardFailures = new AtomicInteger();
 
     @Inject
     public OllamaAiReviewClient(OverviewCache overviewCache) {
@@ -89,7 +94,17 @@ public class OllamaAiReviewClient implements AiReviewClient {
             ChunkReviewResult result = circuitBreaker.execute(() -> doReview(chunk, overview, context, config, metrics));
             metrics.recordEnd("ai.chunk.call", start);
             return result;
+        } catch (CircuitBreakerOpenException ex) {
+            circuitBlockedCalls.incrementAndGet();
+            metrics.increment("ai.model.circuit.blocked");
+            metrics.recordEnd("ai.chunk.call", start);
+            return ChunkReviewResult.builder()
+                    .chunk(chunk)
+                    .success(false)
+                    .error(ex.getMessage())
+                    .build();
         } catch (Exception ex) {
+            hardFailures.incrementAndGet();
             metrics.recordEnd("ai.chunk.call", start);
             return ChunkReviewResult.builder()
                     .chunk(chunk)
@@ -216,6 +231,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
                         lastResponseBytes,
                         lastStatusCode,
                         false);
+                metrics.increment("ai.model." + modelRole + ".success");
+                recordBreakerMetrics(metrics);
                 return parsed;
             } catch (SocketTimeoutException ex) {
                 log.warn("Model {} timeout on attempt {}: {}", model, attempts, ex.getMessage());
@@ -260,6 +277,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     model, baseUrl, chunk.getId());
             unavailableModels.add(modelKey);
             metrics.increment("ai.model." + modelRole + ".failures");
+            recordBreakerMetrics(metrics);
             recordChunkInvocation(metrics,
                     chunk,
                     model,
@@ -281,6 +299,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     model, attempts, chunk.getId(), lastError.getMessage());
             log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
             metrics.increment("ai.model." + modelRole + ".failures");
+            recordBreakerMetrics(metrics);
             recordChunkInvocation(metrics,
                     chunk,
                     model,
@@ -351,6 +370,19 @@ public class OllamaAiReviewClient implements AiReviewClient {
             entry.put("lastError", abbreviate(lastErrorMessage, 512));
         }
         metrics.addListEntry("ai.chunk.invocations", entry);
+    }
+
+    private void recordBreakerMetrics(MetricsRecorder metrics) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("state", circuitBreaker.getState());
+        snapshot.put("failureCount", circuitBreaker.getFailureCount());
+        snapshot.put("openEvents", circuitBreaker.getOpenEvents());
+        snapshot.put("blockedCalls", circuitBreaker.getBlockedCalls());
+        snapshot.put("succeededCalls", circuitBreaker.getSucceededCalls());
+        snapshot.put("failedCalls", circuitBreaker.getFailedCalls());
+        snapshot.put("clientBlockedCalls", circuitBlockedCalls.get());
+        snapshot.put("clientHardFailures", hardFailures.get());
+        metrics.recordMetric("ai.model.circuit.snapshot", snapshot);
     }
 
     private String abbreviate(String value, int maxLength) {

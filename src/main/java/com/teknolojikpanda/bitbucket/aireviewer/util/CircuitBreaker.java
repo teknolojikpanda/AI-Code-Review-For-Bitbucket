@@ -35,6 +35,11 @@ public class CircuitBreaker {
     private final AtomicInteger failureCount;
     private final AtomicReference<State> state;
     private final AtomicReference<Instant> lastFailureTime;
+    private final AtomicInteger openEvents = new AtomicInteger();
+    private final AtomicInteger halfOpenEvents = new AtomicInteger();
+    private final AtomicInteger blockedCalls = new AtomicInteger();
+    private final AtomicInteger succeededCalls = new AtomicInteger();
+    private final AtomicInteger failedCalls = new AtomicInteger();
 
     /**
      * Creates a new circuit breaker.
@@ -85,15 +90,18 @@ public class CircuitBreaker {
      */
     public <T> T execute(@Nonnull Operation<T> operation) throws Exception {
         if (isOpen()) {
+            blockedCalls.incrementAndGet();
             throw new CircuitBreakerOpenException("Circuit breaker [" + name + "] is OPEN");
         }
 
         try {
             T result = operation.execute();
             onSuccess();
+            succeededCalls.incrementAndGet();
             return result;
         } catch (Exception e) {
             recordFailure();
+            failedCalls.incrementAndGet();
             throw e;
         }
     }
@@ -111,10 +119,12 @@ public class CircuitBreaker {
             // Any failure in half-open state immediately opens the circuit
             log.warn("Circuit breaker [{}] transitioning from HALF_OPEN to OPEN (failure during recovery test)", name);
             state.set(State.OPEN);
+            openEvents.incrementAndGet();
             failureCount.set(failureThreshold); // Ensure we stay open
         } else if (currentState == State.CLOSED && failures >= failureThreshold) {
             log.warn("Circuit breaker [{}] transitioning from CLOSED to OPEN (failures: {})", name, failures);
             state.set(State.OPEN);
+            openEvents.incrementAndGet();
         } else {
             log.debug("Circuit breaker [{}] recorded failure {}/{}", name, failures, failureThreshold);
         }
@@ -154,6 +164,26 @@ public class CircuitBreaker {
     @Nonnull
     public String getState() {
         return state.get().name();
+    }
+
+    public int getOpenEvents() {
+        return openEvents.get();
+    }
+
+    public int getHalfOpenEvents() {
+        return halfOpenEvents.get();
+    }
+
+    public int getBlockedCalls() {
+        return blockedCalls.get();
+    }
+
+    public int getSucceededCalls() {
+        return succeededCalls.get();
+    }
+
+    public int getFailedCalls() {
+        return failedCalls.get();
     }
 
     /**
