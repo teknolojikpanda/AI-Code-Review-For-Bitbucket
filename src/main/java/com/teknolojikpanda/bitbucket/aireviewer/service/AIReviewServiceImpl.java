@@ -106,6 +106,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final SecurityService securityService;
     private final RepositoryHookService repositoryHookService;
     private final ProgressRegistry progressRegistry;
+    private final ReviewConcurrencyController concurrencyController;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -124,7 +125,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             @ComponentImport SecurityService securityService,
             ReviewHistoryService reviewHistoryService,
             ProgressRegistry progressRegistry,
-            @ComponentImport RepositoryHookService repositoryHookService) {
+            @ComponentImport RepositoryHookService repositoryHookService,
+            ReviewConcurrencyController concurrencyController) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -139,6 +141,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.reviewHistoryService = Objects.requireNonNull(reviewHistoryService, "reviewHistoryService cannot be null");
         this.progressRegistry = Objects.requireNonNull(progressRegistry, "progressRegistry cannot be null");
         this.repositoryHookService = Objects.requireNonNull(repositoryHookService, "repositoryHookService cannot be null");
+        this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController cannot be null");
 
     }
 
@@ -146,7 +149,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Override
     public ReviewResult reviewPullRequest(@Nonnull PullRequest pullRequest) {
         Objects.requireNonNull(pullRequest, "pullRequest");
-        return executeWithRun(ReviewRun.initial(pullRequest), () -> reviewPullRequestInternal(pullRequest));
+        return executeWithQueueSafeguards(pullRequest, ReviewRun.initial(pullRequest), () -> reviewPullRequestInternal(pullRequest));
     }
 
     @Nonnull
@@ -168,32 +171,55 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (treatAsUpdate) {
             return runReReview(pullRequest, force, true);
         }
-        return executeWithRun(ReviewRun.manualInitial(pullRequest, force), () -> reviewPullRequestInternal(pullRequest));
+        return executeWithQueueSafeguards(pullRequest, ReviewRun.manualInitial(pullRequest, force), () -> reviewPullRequestInternal(pullRequest));
+    }
+
+    private ReviewResult executeWithQueueSafeguards(PullRequest pullRequest,
+                                                   ReviewRun run,
+                                                   Supplier<ReviewResult> action) {
+        try {
+            return executeWithRun(run, action);
+        } catch (ReviewQueueFullException ex) {
+            log.warn("AI review queue full for {}/{} PR #{} (waiting={}, maxConcurrent={}, maxQueued={})",
+                    run.getProjectKey(),
+                    run.getRepositorySlug(),
+                    pullRequest.getId(),
+                    ex.getWaitingCount(),
+                    ex.getMaxConcurrent(),
+                    ex.getMaxQueueSize());
+            return buildQueueFullResult(pullRequest.getId(), ex);
+        } catch (ReviewSchedulingInterruptedException ex) {
+            log.warn("AI review scheduling interrupted for PR #{}", pullRequest.getId(), ex);
+            Thread.currentThread().interrupt();
+            return buildQueueInterruptedResult(pullRequest.getId());
+        }
     }
 
     private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {
-        ReviewRun previous = REVIEW_RUN_CONTEXT.get();
-        ProgressTracker previousTracker = PROGRESS_TRACKER.get();
-        ProgressTracker tracker = new ProgressTracker();
-        REVIEW_RUN_CONTEXT.set(run);
-        PROGRESS_TRACKER.set(tracker);
-        ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
-        if (metadata != null) {
-            ensureMergeCheckEnabled(run.getRepository());
-            progressRegistry.start(metadata);
-        }
-        try {
-            return action.get();
-        } finally {
-            if (previous != null) {
-                REVIEW_RUN_CONTEXT.set(previous);
-            } else {
-                REVIEW_RUN_CONTEXT.remove();
+        try (ReviewConcurrencyController.Slot ignored = concurrencyController.acquire(run.toExecutionRequest())) {
+            ReviewRun previous = REVIEW_RUN_CONTEXT.get();
+            ProgressTracker previousTracker = PROGRESS_TRACKER.get();
+            ProgressTracker tracker = new ProgressTracker();
+            REVIEW_RUN_CONTEXT.set(run);
+            PROGRESS_TRACKER.set(tracker);
+            ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
+            if (metadata != null) {
+                ensureMergeCheckEnabled(run.getRepository());
+                progressRegistry.start(metadata);
             }
-            if (previousTracker != null) {
-                PROGRESS_TRACKER.set(previousTracker);
-            } else {
-                PROGRESS_TRACKER.remove();
+            try {
+                return action.get();
+            } finally {
+                if (previous != null) {
+                    REVIEW_RUN_CONTEXT.set(previous);
+                } else {
+                    REVIEW_RUN_CONTEXT.remove();
+                }
+                if (previousTracker != null) {
+                    PROGRESS_TRACKER.set(previousTracker);
+                } else {
+                    PROGRESS_TRACKER.remove();
+                }
             }
         }
     }
@@ -237,7 +263,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
 
         ReviewRun run = manual ? ReviewRun.manualUpdate(pullRequest, force) : ReviewRun.update(pullRequest, force);
-        return executeWithRun(run, () -> reviewPullRequestInternal(pullRequest));
+        return executeWithQueueSafeguards(pullRequest, run, () -> reviewPullRequestInternal(pullRequest));
     }
 
     private ReviewResult reviewPullRequestInternal(@Nonnull PullRequest pullRequest) {
@@ -653,6 +679,30 @@ public class AIReviewServiceImpl implements AIReviewService {
                 .build();
     }
 
+    private ReviewResult buildQueueFullResult(long pullRequestId, ReviewQueueFullException ex) {
+        Map<String, Object> metrics = queueMetrics("queue-full");
+        metrics.put("queue.maxConcurrent", ex.getMaxConcurrent());
+        metrics.put("queue.maxQueued", ex.getMaxQueueSize());
+        metrics.put("queue.waiting", ex.getWaitingCount());
+        return buildSkippedResult(pullRequestId, ex.getUserMessage(), metrics);
+    }
+
+    private ReviewResult buildQueueInterruptedResult(long pullRequestId) {
+        Map<String, Object> metrics = queueMetrics("queue-interrupted");
+        return buildFailedResult(pullRequestId,
+                "Review scheduling was interrupted before execution. Please retry shortly.",
+                metrics);
+    }
+
+    private Map<String, Object> queueMetrics(String reason) {
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        long now = System.currentTimeMillis();
+        metrics.put("review.startEpochMs", now);
+        metrics.put("review.endEpochMs", now);
+        metrics.put("review.skipped.reason", reason);
+        return metrics;
+    }
+
     private ReviewResult buildFailedResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {
         return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
@@ -771,6 +821,24 @@ public class AIReviewServiceImpl implements AIReviewService {
 
         static ReviewRun manualUpdate(@Nonnull PullRequest pullRequest, boolean force) {
             return new ReviewRun(pullRequest, true, force, true);
+        }
+
+        String getProjectKey() {
+            return projectKey;
+        }
+
+        String getRepositorySlug() {
+            return repositorySlug;
+        }
+
+        ReviewConcurrencyController.ReviewExecutionRequest toExecutionRequest() {
+            return new ReviewConcurrencyController.ReviewExecutionRequest(
+                    projectKey,
+                    repositorySlug,
+                    pullRequestId,
+                    manual,
+                    update,
+                    force);
         }
 
         ProgressRegistry.ProgressMetadata toProgressMetadata() {

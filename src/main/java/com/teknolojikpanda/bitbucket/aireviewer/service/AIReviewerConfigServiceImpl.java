@@ -70,6 +70,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "maxFilesPerChunk",
             "maxChunks",
             "parallelThreads",
+            "maxConcurrentReviews",
+            "maxQueuedReviews",
             "connectTimeout",
             "readTimeout",
             "ollamaTimeout",
@@ -102,6 +104,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final int DEFAULT_MAX_FILES_PER_CHUNK = 3;
     private static final int DEFAULT_MAX_CHUNKS = 20;
     private static final int DEFAULT_PARALLEL_THREADS = 4;
+    private static final int DEFAULT_MAX_CONCURRENT_REVIEWS = 2;
+    private static final int DEFAULT_MAX_QUEUED_REVIEWS = 25;
     private static final int DEFAULT_CONNECT_TIMEOUT = 10000;
     private static final int DEFAULT_READ_TIMEOUT = 30000;
     private static final int DEFAULT_OLLAMA_TIMEOUT = 300000;
@@ -133,6 +137,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "maxFilesPerChunk",
                 "maxChunks",
                 "parallelThreads",
+                "maxConcurrentReviews",
+                "maxQueuedReviews",
                 "connectTimeout",
                 "readTimeout",
                 "ollamaTimeout",
@@ -266,6 +272,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "maxFilesPerChunk", 1, 10, errors);
         validateIntegerRange(configMap, "maxChunks", 1, 50, errors);
         validateIntegerRange(configMap, "parallelThreads", 1, 16, errors);
+        validateIntegerRange(configMap, "maxConcurrentReviews", 1, 32, errors);
+        validateIntegerRange(configMap, "maxQueuedReviews", 0, 500, errors);
         validateIntegerRange(configMap, "maxIssuesPerFile", 1, 100, errors);
         validateIntegerRange(configMap, "maxIssueComments", 1, 100, errors);
         validateIntegerRange(configMap, "maxRetries", 0, 10, errors);
@@ -971,6 +979,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setMaxFilesPerChunk(DEFAULT_MAX_FILES_PER_CHUNK);
         config.setMaxChunks(DEFAULT_MAX_CHUNKS);
         config.setParallelChunkThreads(DEFAULT_PARALLEL_THREADS);
+        config.setMaxConcurrentReviews(DEFAULT_MAX_CONCURRENT_REVIEWS);
+        config.setMaxQueuedReviews(DEFAULT_MAX_QUEUED_REVIEWS);
         config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
         config.setReadTimeout(DEFAULT_READ_TIMEOUT);
         config.setOllamaTimeout(DEFAULT_OLLAMA_TIMEOUT);
@@ -1023,6 +1033,12 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("parallelThreads")) {
             config.setParallelChunkThreads(getIntValue(configMap, "parallelThreads"));
+        }
+        if (configMap.containsKey("maxConcurrentReviews")) {
+            config.setMaxConcurrentReviews(getIntValue(configMap, "maxConcurrentReviews"));
+        }
+        if (configMap.containsKey("maxQueuedReviews")) {
+            config.setMaxQueuedReviews(getIntValue(configMap, "maxQueuedReviews"));
         }
         if (configMap.containsKey("connectTimeout")) {
             config.setConnectTimeout(getIntValue(configMap, "connectTimeout"));
@@ -1141,6 +1157,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             config.setParallelChunkThreads(DEFAULT_PARALLEL_THREADS);
             updated = true;
         }
+        if (config.getMaxConcurrentReviews() <= 0) {
+            config.setMaxConcurrentReviews(DEFAULT_MAX_CONCURRENT_REVIEWS);
+            updated = true;
+        }
+        if (config.getMaxQueuedReviews() <= 0) {
+            config.setMaxQueuedReviews(DEFAULT_MAX_QUEUED_REVIEWS);
+            updated = true;
+        }
 
         if (config.getConnectTimeout() <= 0) {
             config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
@@ -1232,6 +1256,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("maxFilesPerChunk", defaultInt(config.getMaxFilesPerChunk(), DEFAULT_MAX_FILES_PER_CHUNK));
         map.put("maxChunks", defaultInt(config.getMaxChunks(), DEFAULT_MAX_CHUNKS));
         map.put("parallelThreads", defaultInt(config.getParallelChunkThreads(), DEFAULT_PARALLEL_THREADS));
+        map.put("maxConcurrentReviews", defaultInt(config.getMaxConcurrentReviews(), DEFAULT_MAX_CONCURRENT_REVIEWS));
+        map.put("maxQueuedReviews", defaultInt(config.getMaxQueuedReviews(), DEFAULT_MAX_QUEUED_REVIEWS));
         map.put("connectTimeout", defaultInt(config.getConnectTimeout(), DEFAULT_CONNECT_TIMEOUT));
         map.put("readTimeout", defaultInt(config.getReadTimeout(), DEFAULT_READ_TIMEOUT));
         map.put("ollamaTimeout", defaultInt(config.getOllamaTimeout(), DEFAULT_OLLAMA_TIMEOUT));

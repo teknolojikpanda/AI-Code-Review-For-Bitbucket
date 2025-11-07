@@ -71,6 +71,12 @@ public interface AIReviewConfiguration extends Entity {
     int getApiDelayMs();
     void setApiDelayMs(int delay);
 
+    int getMaxConcurrentReviews();
+    void setMaxConcurrentReviews(int maxConcurrent);
+
+    int getMaxQueuedReviews();
+    void setMaxQueuedReviews(int maxQueued);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();

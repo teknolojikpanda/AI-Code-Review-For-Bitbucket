@@ -3,6 +3,7 @@ package com.teknolojikpanda.bitbucket.aireviewer.rest;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.junit.Before;
 import org.junit.Test;
@@ -27,6 +28,7 @@ public class HistoryResourceTest {
     private HttpServletRequest request;
     private UserProfile profile;
     private ProgressRegistry progressRegistry;
+    private ReviewConcurrencyController concurrencyController;
     private HistoryResource resource;
 
     @Before
@@ -35,9 +37,13 @@ public class HistoryResourceTest {
         userManager = mock(UserManager.class);
         historyService = mock(ReviewHistoryService.class);
         progressRegistry = mock(ProgressRegistry.class);
+        concurrencyController = mock(ReviewConcurrencyController.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
-        resource = new HistoryResource(userManager, historyService, progressRegistry);
+        ReviewConcurrencyController.QueueStats stats =
+                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis());
+        when(concurrencyController.snapshot()).thenReturn(stats);
+        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController);
     }
 
     @Test

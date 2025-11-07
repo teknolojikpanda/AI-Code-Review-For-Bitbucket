@@ -22,6 +22,7 @@ import org.junit.Test;
 import org.mockito.MockitoAnnotations;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -43,6 +44,7 @@ public class AIReviewServiceMergeCheckTest {
     private RepositoryHookService repositoryHookService;
     private UserService userService;
     private SecurityService securityService;
+    private ReviewConcurrencyController concurrencyController;
 
     private AIReviewServiceImpl service;
 
@@ -63,6 +65,8 @@ public class AIReviewServiceMergeCheckTest {
         repositoryHookService = mock(RepositoryHookService.class);
         userService = mock(UserService.class);
         securityService = mock(SecurityService.class);
+        when(configService.getConfigurationAsMap()).thenReturn(Collections.emptyMap());
+        concurrencyController = new ReviewConcurrencyController(configService);
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -78,7 +82,8 @@ public class AIReviewServiceMergeCheckTest {
                 securityService,
                 reviewHistoryService,
                 progressRegistry,
-                repositoryHookService);
+                repositoryHookService,
+                concurrencyController);
     }
 
     @Test

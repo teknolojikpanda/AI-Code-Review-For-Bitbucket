@@ -6,6 +6,7 @@ import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,14 +48,17 @@ public class HistoryResource {
     private final UserManager userManager;
     private final ReviewHistoryService historyService;
     private final ProgressRegistry progressRegistry;
+    private final ReviewConcurrencyController concurrencyController;
 
     @Inject
     public HistoryResource(@ComponentImport UserManager userManager,
                            ReviewHistoryService historyService,
-                           ProgressRegistry progressRegistry) {
+                           ProgressRegistry progressRegistry,
+                           ReviewConcurrencyController concurrencyController) {
         this.userManager = userManager;
         this.historyService = historyService;
         this.progressRegistry = progressRegistry;
+        this.concurrencyController = concurrencyController;
     }
 
     @GET
@@ -101,6 +105,7 @@ public class HistoryResource {
             payload.put("offset", page.getOffset());
             payload.put("nextOffset", computeNextOffset(page));
             payload.put("prevOffset", computePrevOffset(page));
+            payload.put("queueStats", queueStatsToMap());
             payload.put("ongoing", ongoing);
             payload.put("ongoingCount", ongoing.size());
             return Response.ok(payload).build();
@@ -370,6 +375,21 @@ public class HistoryResource {
         } catch (Exception ex) {
             return Long.toString(epochMillis);
         }
+    }
+
+    private Map<String, Object> queueStatsToMap() {
+        if (concurrencyController == null) {
+            return Collections.emptyMap();
+        }
+        ReviewConcurrencyController.QueueStats stats = concurrencyController.snapshot();
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("maxConcurrent", stats.getMaxConcurrent());
+        map.put("maxQueued", stats.getMaxQueued());
+        map.put("activeReviews", stats.getActive());
+        map.put("waitingReviews", stats.getWaiting());
+        map.put("availableSlots", Math.max(0, stats.getMaxConcurrent() - stats.getActive()));
+        map.put("capturedAt", stats.getCapturedAt());
+        return map;
     }
 
     private Map<String, String> error(String message) {

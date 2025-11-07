@@ -97,6 +97,7 @@
         }).done(function(response) {
             var entries = response && Array.isArray(response.entries) ? response.entries : [];
             var ongoing = response && Array.isArray(response.ongoing) ? response.ongoing : [];
+            var queueStats = response && response.queueStats ? response.queueStats : null;
             if (pagination.all) {
                 pagination.total = entries.length;
                 pagination.offset = 0;
@@ -111,6 +112,7 @@
             }
 
             renderHistory(entries, ongoing);
+            renderQueueStats(queueStats);
             renderPagination();
             if (!entries.length && !(ongoing && ongoing.length)) {
                 setHistoryMessage('info', 'No review runs recorded yet.', false);
@@ -120,6 +122,7 @@
         }).fail(function(xhr, status, error) {
             console.error('Failed to fetch review history:', status, error);
             renderHistory([], []);
+            renderQueueStats(null);
             setHistoryMessage('error', 'Failed to load review history: ' + (error || status), false);
         });
     }
@@ -170,6 +173,30 @@
             console.error('Failed to fetch daily metrics:', status, error);
             renderDailyMetrics(null, error || status);
         });
+    }
+
+    function renderQueueStats(stats) {
+        var $section = $('#queue-section');
+        if (!$section.length) {
+            return;
+        }
+        if (!stats || typeof stats !== 'object') {
+            $section.hide();
+            return;
+        }
+        $section.show();
+        $('#queue-active').text(stats.activeReviews != null ? stats.activeReviews : '0');
+        $('#queue-available').text(stats.availableSlots != null ? stats.availableSlots : '0');
+        $('#queue-waiting').text(stats.waitingReviews != null ? stats.waitingReviews : '0');
+        $('#queue-max-concurrent').text(stats.maxConcurrent != null ? stats.maxConcurrent : '—');
+        $('#queue-max-queued').text(stats.maxQueued != null ? stats.maxQueued : '—');
+        var updated = stats.capturedAt ? formatTimestamp(stats.capturedAt) : '—';
+        $('#queue-updated').text(updated);
+        var waiting = stats.waitingReviews || 0;
+        var note = waiting > 0
+            ? 'Waiting ' + waiting + ' review' + (waiting === 1 ? '' : 's')
+            : 'Queue is empty';
+        $('#queue-note').text(note);
     }
 
     function showMetricsSection() {
