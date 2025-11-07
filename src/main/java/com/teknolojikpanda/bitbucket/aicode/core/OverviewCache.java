@@ -1,6 +1,7 @@
 package com.teknolojikpanda.bitbucket.aicode.core;
 
 import com.atlassian.bitbucket.pull.PullRequest;
+import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +19,7 @@ import java.util.function.Supplier;
  */
 @Named
 @Singleton
+@ExportAsService(OverviewCache.class)
 public class OverviewCache {
 
     private static final Logger log = LoggerFactory.getLogger(OverviewCache.class);
