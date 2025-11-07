@@ -14,8 +14,8 @@
 2. Ensure comment/diff/merge-check work impersonates the acting user while on worker threads (done).
 
 ### 4. AI Backend Resilience
-1. Wrap AI client calls with resilience4j-style circuit breakers + retry/backoff policies; treat vendor 429/5xx separately.
-2. Cache overview responses keyed by commit hash to avoid duplicate processing on re-reviews.
+1. Wrap AI client calls with circuit breaker + retry/backoff policies; treat vendor 429/5xx separately. _(Existing `OllamaAiReviewClient` circuit breaker/rate limiter now tracked via plan)_
+2. Cache overview responses keyed by commit hash to avoid duplicate processing on re-reviews. _(Completed via `OverviewCache`)_
 3. Emit metrics for AI latency, error rates, and retry counts.
 
 ### 5. Admin Controls (Pause/Cancel)
@@ -35,4 +35,4 @@
 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config).
 3. Update documentation: admin guide for new settings + troubleshooting playbook.
 
-> **Next Steps:** begin AI backend resilience (circuit breakers + overview cache) so throttling errors are isolated from Bitbucket threads.
+> **Next Steps:** Expand AI backend resilience with structured retry analytics and expose breaker health via metrics before moving on to Admin controls.

@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.inject.Inject;
 import javax.inject.Named;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -61,12 +62,19 @@ public class OllamaAiReviewClient implements AiReviewClient {
     private final RateLimiter rateLimiter = new RateLimiter("ollama-client", 10, Duration.ofSeconds(1));
     private final Set<String> unavailableModels =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private final OverviewCache overviewCache;
+
+    @Inject
+    public OllamaAiReviewClient(OverviewCache overviewCache) {
+        this.overviewCache = overviewCache;
+    }
 
     @Nonnull
     @Override
     public String generateOverview(@Nonnull ReviewPreparation preparation, @Nonnull MetricsRecorder metrics) {
         PromptTemplates templates = preparation.getContext().getConfig().getPromptTemplates();
-        return PromptRenderer.renderOverview(preparation, templates);
+        String cacheKey = overviewCache.buildKey(preparation.getContext().getPullRequest());
+        return overviewCache.getOrCompute(cacheKey, () -> PromptRenderer.renderOverview(preparation, templates));
     }
 
     @Nonnull
