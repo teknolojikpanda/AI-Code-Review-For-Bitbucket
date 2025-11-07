@@ -13,6 +13,8 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -36,6 +38,8 @@ public class ProgressResourceTest {
     private PermissionService permissionService;
     private ProgressRegistry progressRegistry;
     private ReviewHistoryService historyService;
+    private ReviewSchedulerStateService schedulerStateService;
+    private ReviewConcurrencyController concurrencyController;
     private ProgressResource resource;
     private HttpServletRequest request;
     private UserProfile profile;
@@ -51,11 +55,24 @@ public class ProgressResourceTest {
         permissionService = mock(PermissionService.class);
         progressRegistry = mock(ProgressRegistry.class);
         historyService = mock(ReviewHistoryService.class);
+        schedulerStateService = mock(ReviewSchedulerStateService.class);
+        concurrencyController = mock(ReviewConcurrencyController.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         applicationUser = mock(ApplicationUser.class);
         repository = mock(Repository.class);
-        resource = new ProgressResource(userManager, userService, repositoryService, permissionService, progressRegistry, historyService);
+        ReviewSchedulerStateService.SchedulerState schedulerState =
+                new ReviewSchedulerStateService.SchedulerState(
+                        ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
+                        "system",
+                        "System",
+                        null,
+                        System.currentTimeMillis());
+        when(schedulerStateService.getState()).thenReturn(schedulerState);
+        ReviewConcurrencyController.QueueStats stats =
+                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis(), schedulerState);
+        when(concurrencyController.snapshot()).thenReturn(stats);
+        resource = new ProgressResource(userManager, userService, repositoryService, permissionService, progressRegistry, historyService, schedulerStateService, concurrencyController);
     }
 
     @Test

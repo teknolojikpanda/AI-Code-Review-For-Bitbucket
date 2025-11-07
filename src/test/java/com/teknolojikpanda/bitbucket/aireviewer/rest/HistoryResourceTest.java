@@ -7,6 +7,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyControl
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -47,8 +48,15 @@ public class HistoryResourceTest {
         workerPool = mock(ReviewWorkerPool.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
+        ReviewSchedulerStateService.SchedulerState schedulerState =
+                new ReviewSchedulerStateService.SchedulerState(
+                        ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
+                        "admin",
+                        "Admin",
+                        "All good",
+                        System.currentTimeMillis());
         ReviewConcurrencyController.QueueStats stats =
-                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis());
+                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis(), schedulerState);
         when(concurrencyController.snapshot()).thenReturn(stats);
         ReviewRateLimiter.RateLimitSnapshot rateSnapshot = createRateLimitSnapshot();
         when(rateLimiter.snapshot(anyInt())).thenReturn(rateSnapshot);

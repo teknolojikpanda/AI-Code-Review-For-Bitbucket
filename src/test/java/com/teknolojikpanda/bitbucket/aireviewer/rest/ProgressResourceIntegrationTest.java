@@ -15,6 +15,8 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry.ProgressMetadata;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -43,6 +45,8 @@ public class ProgressResourceIntegrationTest {
     private PermissionService permissionService;
     private ReviewHistoryService historyService;
     private ProgressRegistry progressRegistry;
+    private ReviewSchedulerStateService schedulerStateService;
+    private ReviewConcurrencyController concurrencyController;
     private ProgressResource resource;
 
     private HttpServletRequest request;
@@ -58,6 +62,20 @@ public class ProgressResourceIntegrationTest {
         permissionService = mock(PermissionService.class);
         historyService = mock(ReviewHistoryService.class);
         progressRegistry = new ProgressRegistry();
+        schedulerStateService = mock(ReviewSchedulerStateService.class);
+        concurrencyController = mock(ReviewConcurrencyController.class);
+
+        ReviewSchedulerStateService.SchedulerState schedulerState =
+                new ReviewSchedulerStateService.SchedulerState(
+                        ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
+                        "system",
+                        "System",
+                        null,
+                        System.currentTimeMillis());
+        when(schedulerStateService.getState()).thenReturn(schedulerState);
+        ReviewConcurrencyController.QueueStats stats =
+                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis(), schedulerState);
+        when(concurrencyController.snapshot()).thenReturn(stats);
 
         resource = new ProgressResource(
                 userManager,
@@ -65,7 +83,9 @@ public class ProgressResourceIntegrationTest {
                 repositoryService,
                 permissionService,
                 progressRegistry,
-                historyService);
+                historyService,
+                schedulerStateService,
+                concurrencyController);
 
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);

@@ -14,13 +14,18 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
+import javax.annotation.Nullable;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.POST;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
@@ -65,6 +70,8 @@ public class ProgressResource {
     private final PermissionService permissionService;
     private final ProgressRegistry progressRegistry;
     private final ReviewHistoryService reviewHistoryService;
+    private final ReviewSchedulerStateService schedulerStateService;
+    private final ReviewConcurrencyController concurrencyController;
 
     @Inject
     public ProgressResource(@ComponentImport UserManager userManager,
@@ -72,13 +79,17 @@ public class ProgressResource {
                             @ComponentImport RepositoryService repositoryService,
                             @ComponentImport PermissionService permissionService,
                             ProgressRegistry progressRegistry,
-                            ReviewHistoryService reviewHistoryService) {
+                            ReviewHistoryService reviewHistoryService,
+                            ReviewSchedulerStateService schedulerStateService,
+                            ReviewConcurrencyController concurrencyController) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.userService = Objects.requireNonNull(userService, "userService");
         this.repositoryService = Objects.requireNonNull(repositoryService, "repositoryService");
         this.permissionService = Objects.requireNonNull(permissionService, "permissionService");
         this.progressRegistry = Objects.requireNonNull(progressRegistry, "progressRegistry");
         this.reviewHistoryService = Objects.requireNonNull(reviewHistoryService, "reviewHistoryService");
+        this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
+        this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
     }
 
     @GET
@@ -193,6 +204,67 @@ public class ProgressResource {
         payload.put("pullRequestId", entity.getPullRequestId());
         payload.put("progress", progress);
         return Response.ok(payload).build();
+    }
+
+    @GET
+    @Path("/admin/scheduler/state")
+    public Response getSchedulerState(@Context HttpServletRequest request) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        return Response.ok(buildSchedulerStatePayload()).build();
+    }
+
+    @POST
+    @Path("/admin/scheduler/pause")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response pauseScheduler(@Context HttpServletRequest request,
+                                   SchedulerStateRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        schedulerStateService.updateState(
+                ReviewSchedulerStateService.SchedulerState.Mode.PAUSED,
+                userKey(admin.profile),
+                admin.profile != null ? admin.profile.getFullName() : null,
+                normalizeReason(body));
+        return Response.ok(buildSchedulerStatePayload()).build();
+    }
+
+    @POST
+    @Path("/admin/scheduler/drain")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response drainScheduler(@Context HttpServletRequest request,
+                                   SchedulerStateRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        schedulerStateService.updateState(
+                ReviewSchedulerStateService.SchedulerState.Mode.DRAINING,
+                userKey(admin.profile),
+                admin.profile != null ? admin.profile.getFullName() : null,
+                normalizeReason(body));
+        return Response.ok(buildSchedulerStatePayload()).build();
+    }
+
+    @POST
+    @Path("/admin/scheduler/resume")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response resumeScheduler(@Context HttpServletRequest request,
+                                    SchedulerStateRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        schedulerStateService.updateState(
+                ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
+                userKey(admin.profile),
+                admin.profile != null ? admin.profile.getFullName() : null,
+                normalizeReason(body));
+        return Response.ok(buildSchedulerStatePayload()).build();
     }
 
     private Map<String, Object> toDto(ProgressRegistry.ProgressSnapshot snapshot) {
@@ -369,6 +441,64 @@ public class ProgressResource {
         }
     }
 
+    private Map<String, Object> buildSchedulerStatePayload() {
+        ReviewSchedulerStateService.SchedulerState state = schedulerStateService.getState();
+        ReviewConcurrencyController.QueueStats stats = concurrencyController.snapshot();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("state", schedulerStateToMap(state));
+        payload.put("queue", queueSnapshotToMap(stats));
+        return payload;
+    }
+
+    private Map<String, Object> queueSnapshotToMap(ReviewConcurrencyController.QueueStats stats) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("maxConcurrent", stats.getMaxConcurrent());
+        map.put("maxQueued", stats.getMaxQueued());
+        map.put("active", stats.getActive());
+        map.put("waiting", stats.getWaiting());
+        map.put("capturedAt", stats.getCapturedAt());
+        map.put("schedulerState", schedulerStateToMap(stats.getSchedulerState()));
+        return map;
+    }
+
+    private Map<String, Object> schedulerStateToMap(ReviewSchedulerStateService.SchedulerState state) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("mode", state.getMode().name());
+        map.put("reason", state.getReason());
+        map.put("updatedBy", state.getUpdatedBy());
+        map.put("updatedByDisplayName", state.getUpdatedByDisplayName());
+        map.put("updatedAt", state.getUpdatedAt());
+        return map;
+    }
+
+    private Access requireSystemAdmin(HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (profile == null) {
+            return Access.denied(Response.status(Response.Status.UNAUTHORIZED)
+                    .entity(error("Authentication required")).build());
+        }
+        if (!userManager.isSystemAdmin(profile.getUserKey())) {
+            return Access.denied(Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Administrator privileges required.")).build());
+        }
+        return Access.allowed(profile);
+    }
+
+    private String normalizeReason(SchedulerStateRequest request) {
+        if (request == null || request.reason == null) {
+            return null;
+        }
+        String trimmed = request.reason.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String userKey(@Nullable UserProfile profile) {
+        if (profile == null || profile.getUserKey() == null) {
+            return null;
+        }
+        return profile.getUserKey().getStringValue();
+    }
+
     private static final class Access {
         final boolean allowed;
         final Response response;
@@ -387,6 +517,10 @@ public class ProgressResource {
         static Access denied(Response response) {
             return new Access(false, response, null);
         }
+    }
+
+    private static final class SchedulerStateRequest {
+        public String reason;
     }
 
     private static final class RateLimiter {

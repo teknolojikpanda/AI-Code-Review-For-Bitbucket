@@ -199,6 +199,16 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
         try {
             return executeWithRun(run, action);
+        } catch (ReviewSchedulerPausedException ex) {
+            ReviewSchedulerStateService.SchedulerState state = ex.getState();
+            recordProgress("review.paused", 0, progressDetails(
+                    "schedulerState", state.getMode().name().toLowerCase(Locale.ROOT),
+                    "reason", state.getReason()));
+            log.warn("AI review paused for PR #{} (state={}, reason={})",
+                    pullRequest.getId(),
+                    state.getMode(),
+                    state.getReason());
+            return buildSchedulerPausedResult(pullRequest.getId(), state);
         } catch (ReviewQueueFullException ex) {
             log.warn("AI review queue full for {}/{} PR #{} (waiting={}, maxConcurrent={}, maxQueued={})",
                     run.getProjectKey(),
@@ -752,6 +762,20 @@ public class AIReviewServiceImpl implements AIReviewService {
         String message = String.format("AI review rate limit reached for %s. Please retry in %s.",
                 ex.getIdentifier(),
                 formatRetryDelay(ex.getRetryAfterMillis()));
+        return buildSkippedResult(pullRequestId, message, metrics);
+    }
+
+    private ReviewResult buildSchedulerPausedResult(long pullRequestId,
+                                                    ReviewSchedulerStateService.SchedulerState state) {
+        Map<String, Object> metrics = instantReviewMetrics("scheduler-paused");
+        metrics.put("scheduler.state", state.getMode().name());
+        if (state.getReason() != null && !state.getReason().isBlank()) {
+            metrics.put("scheduler.reason", state.getReason());
+        }
+        String message = "AI review scheduler is " + state.getMode().name().toLowerCase(Locale.ROOT);
+        if (state.getReason() != null && !state.getReason().isBlank()) {
+            message = message + ": " + state.getReason();
+        }
         return buildSkippedResult(pullRequestId, message, metrics);
     }
 

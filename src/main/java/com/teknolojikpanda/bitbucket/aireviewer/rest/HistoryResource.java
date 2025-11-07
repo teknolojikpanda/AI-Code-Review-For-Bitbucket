@@ -9,10 +9,12 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
@@ -115,7 +117,7 @@ public class HistoryResource {
             payload.put("offset", page.getOffset());
             payload.put("nextOffset", computeNextOffset(page));
             payload.put("prevOffset", computePrevOffset(page));
-            payload.put("queueStats", queueStatsToMap());
+        payload.put("queueStats", queueStatsToMap());
             payload.put("ongoing", ongoing);
             payload.put("ongoingCount", ongoing.size());
             return Response.ok(payload).build();
@@ -402,10 +404,16 @@ public class HistoryResource {
     }
 
     private Map<String, Object> queueStatsToMap() {
-        if (concurrencyController == null) {
+        ReviewConcurrencyController.QueueStats stats = concurrencyController != null
+                ? concurrencyController.snapshot()
+                : null;
+        return queueStatsToMap(stats);
+    }
+
+    private Map<String, Object> queueStatsToMap(@Nullable ReviewConcurrencyController.QueueStats stats) {
+        if (stats == null) {
             return Collections.emptyMap();
         }
-        ReviewConcurrencyController.QueueStats stats = concurrencyController.snapshot();
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("maxConcurrent", stats.getMaxConcurrent());
         map.put("maxQueued", stats.getMaxQueued());
@@ -413,6 +421,7 @@ public class HistoryResource {
         map.put("waitingReviews", stats.getWaiting());
         map.put("availableSlots", Math.max(0, stats.getMaxConcurrent() - stats.getActive()));
         map.put("capturedAt", stats.getCapturedAt());
+        map.put("schedulerState", schedulerStateToMap(stats.getSchedulerState()));
         return map;
     }
 
@@ -468,10 +477,27 @@ public class HistoryResource {
 
     private Map<String, Object> runtimeTelemetry() {
         Map<String, Object> runtime = new LinkedHashMap<>();
-        runtime.put("queue", queueStatsToMap());
+        ReviewConcurrencyController.QueueStats stats = concurrencyController != null
+                ? concurrencyController.snapshot()
+                : null;
+        runtime.put("queue", queueStatsToMap(stats));
         runtime.put("workerPool", workerPoolStatsToMap());
         runtime.put("rateLimiter", rateLimitStatsToMap());
+        runtime.put("schedulerState", schedulerStateToMap(stats != null ? stats.getSchedulerState() : null));
         return runtime;
+    }
+
+    private Map<String, Object> schedulerStateToMap(ReviewSchedulerStateService.SchedulerState state) {
+        if (state == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("mode", state.getMode().name());
+        map.put("reason", state.getReason());
+        map.put("updatedBy", state.getUpdatedBy());
+        map.put("updatedByDisplayName", state.getUpdatedByDisplayName());
+        map.put("updatedAt", state.getUpdatedAt());
+        return map;
     }
 
     private Map<String, String> error(String message) {

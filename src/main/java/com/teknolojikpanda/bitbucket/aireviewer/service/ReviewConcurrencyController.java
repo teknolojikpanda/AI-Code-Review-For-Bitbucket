@@ -29,6 +29,7 @@ public class ReviewConcurrencyController {
     private static final long REFRESH_INTERVAL_MS = TimeUnit.SECONDS.toMillis(15);
 
     private final AIReviewerConfigService configService;
+    private final ReviewSchedulerStateService schedulerStateService;
     private final AdjustableSemaphore semaphore;
     private final AtomicInteger waitingCount = new AtomicInteger();
 
@@ -39,8 +40,10 @@ public class ReviewConcurrencyController {
     private static final Logger log = LoggerFactory.getLogger(ReviewConcurrencyController.class);
 
     @Inject
-    public ReviewConcurrencyController(AIReviewerConfigService configService) {
+    public ReviewConcurrencyController(AIReviewerConfigService configService,
+                                       ReviewSchedulerStateService schedulerStateService) {
         this.configService = Objects.requireNonNull(configService, "configService");
+        this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
         this.maxConcurrent = DEFAULT_MAX_CONCURRENT;
         this.maxQueueSize = DEFAULT_MAX_QUEUE;
         this.semaphore = new AdjustableSemaphore(this.maxConcurrent, true);
@@ -54,6 +57,10 @@ public class ReviewConcurrencyController {
     @Nonnull
     public Slot acquire(@Nonnull ReviewExecutionRequest request) {
         Objects.requireNonNull(request, "request");
+        ReviewSchedulerStateService.SchedulerState schedulerState = schedulerStateService.getState();
+        if (!schedulerState.isAcceptingNewRuns()) {
+            throw new ReviewSchedulerPausedException(schedulerState);
+        }
         refreshLimitsIfNeeded();
         if (semaphore.tryAcquire()) {
             return new Slot();
@@ -90,12 +97,14 @@ public class ReviewConcurrencyController {
 
     public QueueStats snapshot() {
         refreshLimitsIfNeeded();
+        ReviewSchedulerStateService.SchedulerState state = schedulerStateService.getState();
         return new QueueStats(
                 maxConcurrent,
                 maxQueueSize,
                 getActiveReviews(),
                 Math.max(0, waitingCount.get()),
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                state);
     }
 
     private boolean allowQueuedWaiter() {
@@ -251,13 +260,20 @@ public class ReviewConcurrencyController {
         private final int active;
         private final int waiting;
         private final long capturedAt;
+        private final ReviewSchedulerStateService.SchedulerState schedulerState;
 
-        public QueueStats(int maxConcurrent, int maxQueued, int active, int waiting, long capturedAt) {
+        public QueueStats(int maxConcurrent,
+                          int maxQueued,
+                          int active,
+                          int waiting,
+                          long capturedAt,
+                          ReviewSchedulerStateService.SchedulerState schedulerState) {
             this.maxConcurrent = maxConcurrent;
             this.maxQueued = maxQueued;
             this.active = active;
             this.waiting = waiting;
             this.capturedAt = capturedAt;
+            this.schedulerState = schedulerState;
         }
 
         public int getMaxConcurrent() {
@@ -278,6 +294,10 @@ public class ReviewConcurrencyController {
 
         public long getCapturedAt() {
             return capturedAt;
+        }
+
+        public ReviewSchedulerStateService.SchedulerState getSchedulerState() {
+            return schedulerState;
         }
     }
 }

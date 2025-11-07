@@ -41,7 +41,7 @@
 9. Surface cumulative AI vendor latency/error stats per endpoint so operators can justify switching models/providers if reliability drops.
 
 ### 5. Admin Controls (Pause/Cancel)
-1. Extend Progress REST resource with POST endpoints to pause/resume the scheduler and cancel individual queued/running reviews.
+1. Extend Progress REST resource with POST endpoints to pause/resume the scheduler and cancel individual queued/running reviews. _(Pause/resume implemented; cancel remaining)_
 2. Update admin UI to list queued + running items with buttons for these actions.
 3. Persist scheduler state (active, paused, draining) plus operator metadata in AO so the setting survives restarts and appears in progress timelines/audit logs.
 4. Add permission checks + audit events so only global admins can pause/cancel and every action is traceable (who, when, which PR/repository, reason).
@@ -77,4 +77,4 @@
 8. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
-> **Next Steps:** With progress/history telemetry and `/metrics` coverage in place (Sections 4.5/4.6 and 6.3), focus shifts to building the pause/cancel REST + persistence/audit stack (Section 5.1–5.7), implementing queue fairness + ETA/backpressure logic (Sections 1.4–1.8), wiring shared rate-limit/auto-snooze controls (Sections 2.3–2.8), designing the retention cleanup + alert/health dashboards (Sections 6.5–6.7 and 7.3–7.6), and drafting the rollout/load-test/runbook work (Sections 8.6–8.9) before moving on to the remaining guardrail streams.
+> **Next Steps:** Finish the remaining Admin Controls work by adding cancel endpoints and queue/override auditing (Sections 5.2–5.7), implement the queue fairness + ETA/backpressure logic (Sections 1.4–1.8) alongside shared rate-limit auto-snooze controls (Sections 2.3–2.8), and then design the retention cleanup plus alert/health dashboards (Sections 6.5–6.7 & 7.3–7.6) before tackling the rollout/load-test/runbook automation (Sections 8.6–8.9).

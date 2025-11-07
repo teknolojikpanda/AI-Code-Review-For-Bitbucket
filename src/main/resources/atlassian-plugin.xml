@@ -17,6 +17,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewSchedulerState</entity>
     </ao>
 
     <!--
@@ -76,6 +77,12 @@
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool">
         <description>Dedicated worker threads for AI review execution</description>
         <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool</interface>
+    </component>
+
+    <component key="reviewSchedulerStateService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService">
+        <description>Persists and exposes AI reviewer scheduler state</description>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService</interface>
     </component>
 
     <component key="overviewCache"
