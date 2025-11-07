@@ -46,6 +46,7 @@ public class AIReviewServiceMergeCheckTest {
     private SecurityService securityService;
     private ReviewConcurrencyController concurrencyController;
     private ReviewRateLimiter rateLimiter;
+    private ReviewWorkerPool workerPool;
 
     private AIReviewServiceImpl service;
 
@@ -69,6 +70,7 @@ public class AIReviewServiceMergeCheckTest {
         when(configService.getConfigurationAsMap()).thenReturn(Collections.emptyMap());
         concurrencyController = new ReviewConcurrencyController(configService);
         rateLimiter = new ReviewRateLimiter(configService);
+        workerPool = new ReviewWorkerPool(configService);
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -86,7 +88,8 @@ public class AIReviewServiceMergeCheckTest {
                 progressRegistry,
                 repositoryHookService,
                 concurrencyController,
-                rateLimiter);
+                rateLimiter,
+                workerPool);
     }
 
     @Test

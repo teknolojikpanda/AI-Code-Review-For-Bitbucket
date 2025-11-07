@@ -60,6 +60,24 @@
         <interface>com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewService</interface>
     </component>
 
+    <component key="reviewConcurrencyController"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController">
+        <description>Controls concurrent AI review execution slots</description>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController</interface>
+    </component>
+
+    <component key="reviewRateLimiter"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter">
+        <description>Per-project and per-repository AI review rate limiter</description>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter</interface>
+    </component>
+
+    <component key="reviewWorkerPool"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool">
+        <description>Dedicated worker threads for AI review execution</description>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool</interface>
+    </component>
+
     <component key="pullRequestAIReviewListener" 
                class="com.teknolojikpanda.bitbucket.aireviewer.listener.PullRequestAIReviewListener">
         <description>Pull Request AI Review Event Listener</description>

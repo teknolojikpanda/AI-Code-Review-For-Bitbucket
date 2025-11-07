@@ -109,6 +109,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ProgressRegistry progressRegistry;
     private final ReviewConcurrencyController concurrencyController;
     private final ReviewRateLimiter rateLimiter;
+    private final ReviewWorkerPool workerPool;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -129,7 +130,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             ProgressRegistry progressRegistry,
             @ComponentImport RepositoryHookService repositoryHookService,
             ReviewConcurrencyController concurrencyController,
-            ReviewRateLimiter rateLimiter) {
+            ReviewRateLimiter rateLimiter,
+            ReviewWorkerPool workerPool) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -146,6 +148,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.repositoryHookService = Objects.requireNonNull(repositoryHookService, "repositoryHookService cannot be null");
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController cannot be null");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter cannot be null");
+        this.workerPool = Objects.requireNonNull(workerPool, "workerPool cannot be null");
 
     }
 
@@ -211,30 +214,32 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {
         try (ReviewConcurrencyController.Slot ignored = concurrencyController.acquire(run.toExecutionRequest())) {
-            ReviewRun previous = REVIEW_RUN_CONTEXT.get();
-            ProgressTracker previousTracker = PROGRESS_TRACKER.get();
-            ProgressTracker tracker = new ProgressTracker();
-            REVIEW_RUN_CONTEXT.set(run);
-            PROGRESS_TRACKER.set(tracker);
-            ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
-            if (metadata != null) {
-                ensureMergeCheckEnabled(run.getRepository());
-                progressRegistry.start(metadata);
-            }
-            try {
-                return action.get();
-            } finally {
-                if (previous != null) {
-                    REVIEW_RUN_CONTEXT.set(previous);
-                } else {
-                    REVIEW_RUN_CONTEXT.remove();
+            return workerPool.execute(() -> {
+                ReviewRun previous = REVIEW_RUN_CONTEXT.get();
+                ProgressTracker previousTracker = PROGRESS_TRACKER.get();
+                ProgressTracker tracker = new ProgressTracker();
+                REVIEW_RUN_CONTEXT.set(run);
+                PROGRESS_TRACKER.set(tracker);
+                ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
+                if (metadata != null) {
+                    ensureMergeCheckEnabled(run.getRepository());
+                    progressRegistry.start(metadata);
                 }
-                if (previousTracker != null) {
-                    PROGRESS_TRACKER.set(previousTracker);
-                } else {
-                    PROGRESS_TRACKER.remove();
+                try {
+                    return action.get();
+                } finally {
+                    if (previous != null) {
+                        REVIEW_RUN_CONTEXT.set(previous);
+                    } else {
+                        REVIEW_RUN_CONTEXT.remove();
+                    }
+                    if (previousTracker != null) {
+                        PROGRESS_TRACKER.set(previousTracker);
+                    } else {
+                        PROGRESS_TRACKER.remove();
+                    }
                 }
-            }
+            });
         }
     }
 
