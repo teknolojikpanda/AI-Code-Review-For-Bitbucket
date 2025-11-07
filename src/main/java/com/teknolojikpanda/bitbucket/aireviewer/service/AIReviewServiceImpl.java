@@ -446,7 +446,7 @@ public class AIReviewServiceImpl implements AIReviewService {
 
             ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
             int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
-                    overallStart, comparison, metrics, configMap, reviewerUser);
+                    overallStart, comparison, metrics, configMap, reviewerUser, actingUser);
             recordProgress("comments.completed", 85, progressDetails(
                     "commentsPosted", commentsPosted,
                     "issuesCommented", validated.isEmpty() ? 0 : validated.size()));
@@ -582,32 +582,37 @@ public class AIReviewServiceImpl implements AIReviewService {
                                      @Nonnull ReviewComparison comparison,
                                      @Nonnull MetricsCollector metrics,
                                      @Nonnull Map<String, Object> configMap,
-                                     @Nullable ApplicationUser reviewerUser) {
+                                     @Nullable ApplicationUser reviewerUser,
+                                     @Nullable ApplicationUser actingUser) {
         Instant commentStart = metrics.recordStart("postComments");
         int commentsPosted = 0;
 
         if (!issues.isEmpty()) {
+            ApplicationUser commenter = actingUser != null ? actingUser : reviewerUser;
             try {
-                long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
+                commentsPosted = runWithUser(commenter, () -> {
+                    long elapsedSeconds = java.time.Duration.between(overallStart, Instant.now()).getSeconds();
 
-                if (reviewerUser != null) {
-                    ensureReviewerParticipant(pr, reviewerUser);
-                }
+                    if (reviewerUser != null) {
+                        ensureReviewerParticipant(pr, reviewerUser);
+                    }
 
-                commentsPosted = postIssueComments(issues, pr, configMap, reviewerUser);
-                log.info("✓ Posted {} issue comment(s)", commentsPosted);
+                    int posted = postIssueComments(issues, pr, configMap, commenter);
+                    log.info("✓ Posted {} issue comment(s)", posted);
 
-                String summaryText = buildSummaryComment(
-                        issues,
-                        fileChanges,
-                        pr,
-                        elapsedSeconds,
-                        0,
-                        comparison.resolvedIssues,
-                        comparison.newIssues,
-                        configMap);
-                Comment summaryComment = addPRComment(pr, summaryText, reviewerUser);
-                log.info("Posted summary comment with ID: {}", summaryComment.getId());
+                    String summaryText = buildSummaryComment(
+                            issues,
+                            fileChanges,
+                            pr,
+                            elapsedSeconds,
+                            0,
+                            comparison.resolvedIssues,
+                            comparison.newIssues,
+                            configMap);
+                    Comment summaryComment = addPRComment(pr, summaryText, commenter);
+                    log.info("Posted summary comment with ID: {}", summaryComment.getId());
+                    return posted;
+                });
             } catch (Exception e) {
                 log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
             }
@@ -1164,7 +1169,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private int postIssueComments(@Nonnull List<ReviewIssue> issues,
                                    @Nonnull PullRequest pullRequest,
                                    @Nonnull Map<String, Object> configMap,
-                                   @Nullable ApplicationUser reviewerUser) {
+                                   @Nullable ApplicationUser commenter) {
         // Pre-fetch pull request data to avoid lazy loading issues in AddLineCommentRequest.Builder
         // Force initialization of pull request properties that might be lazy-loaded
         long prId = pullRequest.getId();
@@ -1244,9 +1249,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                 );
 
                 log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
-                Comment comment = runAsReviewer(reviewerUser,
-                        "AI reviewer line comment",
-                        () -> commentService.addComment(request));
+                Comment comment = runWithUser(commenter, () -> commentService.addComment(request));
                 // Log with multiline information
                 String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
                         ? "multiline comment" : "line comment";
