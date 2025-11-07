@@ -72,6 +72,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "parallelThreads",
             "maxConcurrentReviews",
             "maxQueuedReviews",
+            "repoRateLimitPerHour",
+            "projectRateLimitPerHour",
             "connectTimeout",
             "readTimeout",
             "ollamaTimeout",
@@ -106,6 +108,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final int DEFAULT_PARALLEL_THREADS = 4;
     private static final int DEFAULT_MAX_CONCURRENT_REVIEWS = 2;
     private static final int DEFAULT_MAX_QUEUED_REVIEWS = 25;
+    private static final int DEFAULT_REPO_RATE_LIMIT_PER_HOUR = 12;
+    private static final int DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR = 60;
     private static final int DEFAULT_CONNECT_TIMEOUT = 10000;
     private static final int DEFAULT_READ_TIMEOUT = 30000;
     private static final int DEFAULT_OLLAMA_TIMEOUT = 300000;
@@ -139,6 +143,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "parallelThreads",
                 "maxConcurrentReviews",
                 "maxQueuedReviews",
+                "repoRateLimitPerHour",
+                "projectRateLimitPerHour",
                 "connectTimeout",
                 "readTimeout",
                 "ollamaTimeout",
@@ -274,6 +280,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "parallelThreads", 1, 16, errors);
         validateIntegerRange(configMap, "maxConcurrentReviews", 1, 32, errors);
         validateIntegerRange(configMap, "maxQueuedReviews", 0, 500, errors);
+        validateIntegerRange(configMap, "repoRateLimitPerHour", 0, 1000, errors);
+        validateIntegerRange(configMap, "projectRateLimitPerHour", 0, 2000, errors);
         validateIntegerRange(configMap, "maxIssuesPerFile", 1, 100, errors);
         validateIntegerRange(configMap, "maxIssueComments", 1, 100, errors);
         validateIntegerRange(configMap, "maxRetries", 0, 10, errors);
@@ -981,6 +989,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setParallelChunkThreads(DEFAULT_PARALLEL_THREADS);
         config.setMaxConcurrentReviews(DEFAULT_MAX_CONCURRENT_REVIEWS);
         config.setMaxQueuedReviews(DEFAULT_MAX_QUEUED_REVIEWS);
+        config.setRepoRateLimitPerHour(DEFAULT_REPO_RATE_LIMIT_PER_HOUR);
+        config.setProjectRateLimitPerHour(DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR);
         config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
         config.setReadTimeout(DEFAULT_READ_TIMEOUT);
         config.setOllamaTimeout(DEFAULT_OLLAMA_TIMEOUT);
@@ -1039,6 +1049,12 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("maxQueuedReviews")) {
             config.setMaxQueuedReviews(getIntValue(configMap, "maxQueuedReviews"));
+        }
+        if (configMap.containsKey("repoRateLimitPerHour")) {
+            config.setRepoRateLimitPerHour(getIntValue(configMap, "repoRateLimitPerHour"));
+        }
+        if (configMap.containsKey("projectRateLimitPerHour")) {
+            config.setProjectRateLimitPerHour(getIntValue(configMap, "projectRateLimitPerHour"));
         }
         if (configMap.containsKey("connectTimeout")) {
             config.setConnectTimeout(getIntValue(configMap, "connectTimeout"));
@@ -1121,6 +1137,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return value > 0 ? value : defaultValue;
     }
 
+    private int defaultIntAllowZero(Integer value, int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        return value >= 0 ? value : defaultValue;
+    }
+
     private boolean defaultBoolean(Boolean value, boolean defaultValue) {
         return value != null ? value : defaultValue;
     }
@@ -1163,6 +1186,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (config.getMaxQueuedReviews() <= 0) {
             config.setMaxQueuedReviews(DEFAULT_MAX_QUEUED_REVIEWS);
+            updated = true;
+        }
+        if (config.getRepoRateLimitPerHour() < 0) {
+            config.setRepoRateLimitPerHour(DEFAULT_REPO_RATE_LIMIT_PER_HOUR);
+            updated = true;
+        }
+        if (config.getProjectRateLimitPerHour() < 0) {
+            config.setProjectRateLimitPerHour(DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR);
             updated = true;
         }
 
@@ -1258,6 +1289,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("parallelThreads", defaultInt(config.getParallelChunkThreads(), DEFAULT_PARALLEL_THREADS));
         map.put("maxConcurrentReviews", defaultInt(config.getMaxConcurrentReviews(), DEFAULT_MAX_CONCURRENT_REVIEWS));
         map.put("maxQueuedReviews", defaultInt(config.getMaxQueuedReviews(), DEFAULT_MAX_QUEUED_REVIEWS));
+        map.put("repoRateLimitPerHour", defaultIntAllowZero(config.getRepoRateLimitPerHour(), DEFAULT_REPO_RATE_LIMIT_PER_HOUR));
+        map.put("projectRateLimitPerHour", defaultIntAllowZero(config.getProjectRateLimitPerHour(), DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR));
         map.put("connectTimeout", defaultInt(config.getConnectTimeout(), DEFAULT_CONNECT_TIMEOUT));
         map.put("readTimeout", defaultInt(config.getReadTimeout(), DEFAULT_READ_TIMEOUT));
         map.put("ollamaTimeout", defaultInt(config.getOllamaTimeout(), DEFAULT_OLLAMA_TIMEOUT));

@@ -64,6 +64,7 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -107,6 +108,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final RepositoryHookService repositoryHookService;
     private final ProgressRegistry progressRegistry;
     private final ReviewConcurrencyController concurrencyController;
+    private final ReviewRateLimiter rateLimiter;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -126,7 +128,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             ReviewHistoryService reviewHistoryService,
             ProgressRegistry progressRegistry,
             @ComponentImport RepositoryHookService repositoryHookService,
-            ReviewConcurrencyController concurrencyController) {
+            ReviewConcurrencyController concurrencyController,
+            ReviewRateLimiter rateLimiter) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -142,6 +145,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.progressRegistry = Objects.requireNonNull(progressRegistry, "progressRegistry cannot be null");
         this.repositoryHookService = Objects.requireNonNull(repositoryHookService, "repositoryHookService cannot be null");
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController cannot be null");
+        this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter cannot be null");
 
     }
 
@@ -177,6 +181,16 @@ public class AIReviewServiceImpl implements AIReviewService {
     private ReviewResult executeWithQueueSafeguards(PullRequest pullRequest,
                                                    ReviewRun run,
                                                    Supplier<ReviewResult> action) {
+        try {
+            rateLimiter.acquire(run.getProjectKey(), run.getRepositorySlug());
+        } catch (RateLimitExceededException ex) {
+            recordProgress("review.throttled", 0, progressDetails(
+                    "scope", ex.getScope().name().toLowerCase(Locale.ROOT),
+                    "identifier", ex.getIdentifier(),
+                    "retryAfterMs", ex.getRetryAfterMillis()));
+            log.info("AI review rate limit hit [{}] for PR #{} (retry in {} ms)", ex.getIdentifier(), pullRequest.getId(), ex.getRetryAfterMillis());
+            return buildRateLimitedResult(pullRequest.getId(), ex);
+        }
         try {
             return executeWithRun(run, action);
         } catch (ReviewQueueFullException ex) {
@@ -680,7 +694,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private ReviewResult buildQueueFullResult(long pullRequestId, ReviewQueueFullException ex) {
-        Map<String, Object> metrics = queueMetrics("queue-full");
+        Map<String, Object> metrics = instantReviewMetrics("queue-full");
         metrics.put("queue.maxConcurrent", ex.getMaxConcurrent());
         metrics.put("queue.maxQueued", ex.getMaxQueueSize());
         metrics.put("queue.waiting", ex.getWaitingCount());
@@ -688,19 +702,46 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private ReviewResult buildQueueInterruptedResult(long pullRequestId) {
-        Map<String, Object> metrics = queueMetrics("queue-interrupted");
+        Map<String, Object> metrics = instantReviewMetrics("queue-interrupted");
         return buildFailedResult(pullRequestId,
                 "Review scheduling was interrupted before execution. Please retry shortly.",
                 metrics);
     }
 
-    private Map<String, Object> queueMetrics(String reason) {
+    private ReviewResult buildRateLimitedResult(long pullRequestId, RateLimitExceededException ex) {
+        Map<String, Object> metrics = instantReviewMetrics("rate-limited");
+        metrics.put("rate.scope", ex.getScope().name());
+        metrics.put("rate.identifier", ex.getIdentifier());
+        metrics.put("rate.limitPerHour", ex.getLimitPerHour());
+        metrics.put("rate.retryAfterMs", ex.getRetryAfterMillis());
+        String message = String.format("AI review rate limit reached for %s. Please retry in %s.",
+                ex.getIdentifier(),
+                formatRetryDelay(ex.getRetryAfterMillis()));
+        return buildSkippedResult(pullRequestId, message, metrics);
+    }
+
+    private Map<String, Object> instantReviewMetrics(String reason) {
         Map<String, Object> metrics = new LinkedHashMap<>();
         long now = System.currentTimeMillis();
         metrics.put("review.startEpochMs", now);
         metrics.put("review.endEpochMs", now);
         metrics.put("review.skipped.reason", reason);
         return metrics;
+    }
+
+    private String formatRetryDelay(long millis) {
+        long seconds = Math.max(1, TimeUnit.MILLISECONDS.toSeconds(Math.max(0, millis)));
+        if (seconds >= 3600) {
+            long hours = seconds / 3600;
+            long mins = (seconds % 3600) / 60;
+            return mins > 0 ? String.format("%dh %dm", hours, mins) : hours + "h";
+        }
+        if (seconds >= 60) {
+            long mins = seconds / 60;
+            long rem = seconds % 60;
+            return rem > 0 ? String.format("%dm %ds", mins, rem) : mins + "m";
+        }
+        return seconds + "s";
     }
 
     private ReviewResult buildFailedResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {

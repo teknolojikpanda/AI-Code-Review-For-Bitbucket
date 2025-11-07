@@ -77,6 +77,12 @@ public interface AIReviewConfiguration extends Entity {
     int getMaxQueuedReviews();
     void setMaxQueuedReviews(int maxQueued);
 
+    int getRepoRateLimitPerHour();
+    void setRepoRateLimitPerHour(int limit);
+
+    int getProjectRateLimitPerHour();
+    void setProjectRateLimitPerHour(int limit);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();

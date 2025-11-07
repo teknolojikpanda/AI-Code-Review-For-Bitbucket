@@ -35,4 +35,4 @@
 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config).
 3. Update documentation: admin guide for new settings + troubleshooting playbook.
 
-> **Next Steps:** add the per-project/repo rate limiter (Token bucket) and then move on to AI backend resilience (circuit breakers + overview cache).
+> **Next Steps:** move heavy review work onto bounded worker executors (Section 3) and then begin the AI backend resilience slice (circuit breakers + overview cache).
