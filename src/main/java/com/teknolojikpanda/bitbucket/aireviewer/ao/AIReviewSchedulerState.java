@@ -7,7 +7,7 @@ import net.java.ao.schema.StringLength;
 import net.java.ao.schema.Table;
 
 @Preload
-@Table("AI_REVIEW_SCHED_STATE")
+@Table("AI_REVIEW_SCHED")
 public interface AIReviewSchedulerState extends Entity {
 
     @NotNull
