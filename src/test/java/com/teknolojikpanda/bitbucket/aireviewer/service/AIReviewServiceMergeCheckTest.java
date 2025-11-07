@@ -21,9 +21,9 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockitoAnnotations;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -66,8 +66,8 @@ public class AIReviewServiceMergeCheckTest {
         progressRegistry = mock(ProgressRegistry.class);
         repositoryHookService = mock(RepositoryHookService.class);
         userService = mock(UserService.class);
-        securityService = mock(SecurityService.class);
         when(configService.getConfigurationAsMap()).thenReturn(Collections.emptyMap());
+        securityService = mock(SecurityService.class);
         concurrencyController = new ReviewConcurrencyController(configService);
         rateLimiter = new ReviewRateLimiter(configService);
         workerPool = new ReviewWorkerPool(configService);
@@ -90,6 +90,12 @@ public class AIReviewServiceMergeCheckTest {
                 concurrencyController,
                 rateLimiter,
                 workerPool);
+
+        try {
+            setSecurityServiceNull();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
@@ -126,5 +132,11 @@ public class AIReviewServiceMergeCheckTest {
         Method method = AIReviewServiceImpl.class.getDeclaredMethod("ensureMergeCheckEnabled", Repository.class);
         method.setAccessible(true);
         method.invoke(service, repository);
+    }
+
+    private void setSecurityServiceNull() throws Exception {
+        Field field = AIReviewServiceImpl.class.getDeclaredField("securityService");
+        field.setAccessible(true);
+        field.set(service, null);
     }
 }
