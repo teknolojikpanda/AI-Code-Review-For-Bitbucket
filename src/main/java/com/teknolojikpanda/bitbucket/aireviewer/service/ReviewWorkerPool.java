@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;

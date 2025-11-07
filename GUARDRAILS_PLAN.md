@@ -10,8 +10,8 @@
 2. Surface “throttled” events in progress history so users understand delays.
 
 ### 3. Bounded Worker Pools & Async Execution
-1. Move diff collection + AI orchestration to dedicated executors configured via the new concurrency limits.
-2. Ensure request threads return quickly by handing off work; expose job IDs that the UI polls.
+1. Implement `ReviewWorkerPool` and route `executeWithRun` through it (done).
+2. Ensure comment/diff/merge-check work impersonates the acting user while on worker threads (done).
 
 ### 4. AI Backend Resilience
 1. Wrap AI client calls with resilience4j-style circuit breakers + retry/backoff policies; treat vendor 429/5xx separately.
@@ -35,4 +35,4 @@
 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config).
 3. Update documentation: admin guide for new settings + troubleshooting playbook.
 
-> **Next Steps:** move heavy review work onto bounded worker executors (Section 3) and then begin the AI backend resilience slice (circuit breakers + overview cache).
+> **Next Steps:** begin AI backend resilience (circuit breakers + overview cache) so throttling errors are isolated from Bitbucket threads.
