@@ -3,6 +3,7 @@ package com.teknolojikpanda.bitbucket.aireviewer.service;
 import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewSchedulerState;
+import net.java.ao.DBParam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,11 +60,11 @@ public class ReviewSchedulerStateService {
         if (rows.length > 0) {
             return rows[0];
         }
-        AIReviewSchedulerState created = ao.create(AIReviewSchedulerState.class);
-        created.setState(SchedulerState.Mode.ACTIVE.name());
-        created.setUpdatedAt(System.currentTimeMillis());
-        created.save();
-        return created;
+        long now = System.currentTimeMillis();
+        return ao.create(
+                AIReviewSchedulerState.class,
+                new DBParam("STATE", SchedulerState.Mode.ACTIVE.name()),
+                new DBParam("UPDATED_AT", now));
     }
 
     private SchedulerState toValue(AIReviewSchedulerState entity) {
