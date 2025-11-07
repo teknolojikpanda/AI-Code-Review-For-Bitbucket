@@ -12,6 +12,7 @@ import com.atlassian.bitbucket.content.DiffSegmentType;
 import com.atlassian.bitbucket.hook.repository.EnableRepositoryHookRequest;
 import com.atlassian.bitbucket.hook.repository.RepositoryHook;
 import com.atlassian.bitbucket.hook.repository.RepositoryHookService;
+import com.atlassian.bitbucket.permission.Permission;
 import com.atlassian.bitbucket.pull.PullRequest;
 import com.atlassian.bitbucket.pull.PullRequestService;
 import com.atlassian.bitbucket.pull.PullRequestParticipantStatus;
@@ -1998,7 +1999,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (repository == null) {
             return;
         }
-        try {
+        Callable<Void> task = () -> {
             Scope scope = Scopes.repository(repository);
             RepositoryHook hook = repositoryHookService.getByKey(scope, AIReviewInProgressMergeCheck.MODULE_KEY);
             if (hook == null || !hook.isEnabled()) {
@@ -2008,6 +2009,17 @@ public class AIReviewServiceImpl implements AIReviewService {
                 if (log.isDebugEnabled()) {
                     log.debug("Enabled AI review merge check for {}/{}", safeProjectKey(repository), safeSlug(repository));
                 }
+            }
+            return null;
+        };
+        try {
+            if (securityService != null) {
+                securityService.withPermission(Permission.SYS_ADMIN, "Ensure AI review merge check").call(() -> {
+                    task.call();
+                    return null;
+                });
+            } else {
+                task.call();
             }
         } catch (FormValidationException e) {
             log.warn("Unable to enable AI review merge check for {}/{}: {}", safeProjectKey(repository), safeSlug(repository), e.getMessage());
