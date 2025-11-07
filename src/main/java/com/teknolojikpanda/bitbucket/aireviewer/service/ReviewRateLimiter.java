@@ -9,7 +9,11 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,6 +32,7 @@ public class ReviewRateLimiter {
     private static final int DEFAULT_REPO_LIMIT = 12;
     private static final int DEFAULT_PROJECT_LIMIT = 60;
     private static final long REFRESH_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
+    private static final int DEFAULT_SNAPSHOT_BUCKETS = 10;
 
     private final AIReviewerConfigService configService;
     private final ConcurrentHashMap<String, Bucket> repoBuckets = new ConcurrentHashMap<>();
@@ -63,8 +68,25 @@ public class ReviewRateLimiter {
     }
 
     public RateLimitSnapshot snapshot() {
+        return snapshot(DEFAULT_SNAPSHOT_BUCKETS);
+    }
+
+    public RateLimitSnapshot snapshot(int maxBucketSamples) {
         refreshLimitsIfNeeded();
-        return new RateLimitSnapshot(repoLimitPerHour, projectLimitPerHour);
+        int sampleSize = Math.max(0, maxBucketSamples);
+        long now = System.currentTimeMillis();
+        Map<String, RateLimitSnapshot.BucketState> repoStates =
+                captureTopBuckets(repoBuckets, repoLimitPerHour, sampleSize, now);
+        Map<String, RateLimitSnapshot.BucketState> projectStates =
+                captureTopBuckets(projectBuckets, projectLimitPerHour, sampleSize, now);
+        return new RateLimitSnapshot(
+                repoLimitPerHour,
+                projectLimitPerHour,
+                repoBuckets.size(),
+                projectBuckets.size(),
+                repoStates,
+                projectStates,
+                now);
     }
 
     private void refreshLimitsIfNeeded() {
@@ -136,15 +158,37 @@ public class ReviewRateLimiter {
             }
             return resetAt - now;
         }
+
+        synchronized RateLimitSnapshot.BucketState snapshot(int limit, long now) {
+            int remaining = Math.max(0, limit - count);
+            long resetIn = Math.max(0, (windowStart + WINDOW_MS) - now);
+            return new RateLimitSnapshot.BucketState(count, limit, remaining, resetIn);
+        }
     }
 
     public static final class RateLimitSnapshot {
         private final int repoLimit;
         private final int projectLimit;
+        private final int trackedRepoBuckets;
+        private final int trackedProjectBuckets;
+        private final Map<String, BucketState> topRepoBuckets;
+        private final Map<String, BucketState> topProjectBuckets;
+        private final long capturedAt;
 
-        RateLimitSnapshot(int repoLimit, int projectLimit) {
+        RateLimitSnapshot(int repoLimit,
+                          int projectLimit,
+                          int trackedRepoBuckets,
+                          int trackedProjectBuckets,
+                          Map<String, BucketState> topRepoBuckets,
+                          Map<String, BucketState> topProjectBuckets,
+                          long capturedAt) {
             this.repoLimit = repoLimit;
             this.projectLimit = projectLimit;
+            this.trackedRepoBuckets = trackedRepoBuckets;
+            this.trackedProjectBuckets = trackedProjectBuckets;
+            this.topRepoBuckets = topRepoBuckets;
+            this.topProjectBuckets = topProjectBuckets;
+            this.capturedAt = capturedAt;
         }
 
         public int getRepoLimit() {
@@ -154,5 +198,84 @@ public class ReviewRateLimiter {
         public int getProjectLimit() {
             return projectLimit;
         }
+
+        public int getTrackedRepoBuckets() {
+            return trackedRepoBuckets;
+        }
+
+        public int getTrackedProjectBuckets() {
+            return trackedProjectBuckets;
+        }
+
+        public Map<String, BucketState> getTopRepoBuckets() {
+            return topRepoBuckets;
+        }
+
+        public Map<String, BucketState> getTopProjectBuckets() {
+            return topProjectBuckets;
+        }
+
+        public long getCapturedAt() {
+            return capturedAt;
+        }
+
+        public static final class BucketState {
+            private final int consumed;
+            private final int limit;
+            private final int remaining;
+            private final long resetInMs;
+
+            BucketState(int consumed, int limit, int remaining, long resetInMs) {
+                this.consumed = consumed;
+                this.limit = limit;
+                this.remaining = remaining;
+                this.resetInMs = resetInMs;
+            }
+
+            public int getConsumed() {
+                return consumed;
+            }
+
+            public int getLimit() {
+                return limit;
+            }
+
+            public int getRemaining() {
+                return remaining;
+            }
+
+            public long getResetInMs() {
+                return resetInMs;
+            }
+        }
+    }
+
+    private Map<String, RateLimitSnapshot.BucketState> captureTopBuckets(ConcurrentHashMap<String, Bucket> buckets,
+                                                                         int limit,
+                                                                         int maxSamples,
+                                                                         long now) {
+        if (buckets.isEmpty() || maxSamples <= 0 || limit <= 0) {
+            return Collections.emptyMap();
+        }
+        List<Map.Entry<String, RateLimitSnapshot.BucketState>> snapshots = new ArrayList<>();
+        buckets.forEach((key, bucket) -> {
+            RateLimitSnapshot.BucketState state = bucket.snapshot(limit, now);
+            if (state.getConsumed() > 0) {
+                snapshots.add(new AbstractMap.SimpleEntry<>(key, state));
+            }
+        });
+        if (snapshots.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        snapshots.sort((a, b) -> Integer.compare(b.getValue().getConsumed(), a.getValue().getConsumed()));
+        Map<String, RateLimitSnapshot.BucketState> result = new LinkedHashMap<>();
+        int count = 0;
+        for (Map.Entry<String, RateLimitSnapshot.BucketState> entry : snapshots) {
+            if (count++ >= maxSamples) {
+                break;
+            }
+            result.put(entry.getKey(), entry.getValue());
+        }
+        return result;
     }
 }

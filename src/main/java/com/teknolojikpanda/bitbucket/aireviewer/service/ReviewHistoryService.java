@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -388,6 +389,7 @@ public class ReviewHistoryService {
 
             List<Double> durations = new ArrayList<>();
             ChunkAggregation chunkAggregation = new ChunkAggregation();
+            CircuitAggregation circuitAggregation = new CircuitAggregation();
 
             for (AIReviewHistory history : histories) {
                 String status = normalizeStatus(history.getReviewStatus());
@@ -416,7 +418,10 @@ public class ReviewHistoryService {
                     durations.add(durationSeconds);
                 }
 
-                List<Map<String, Object>> telemetryEntries = ChunkTelemetryUtil.extractEntriesFromJson(history.getMetricsJson());
+                Map<String, Object> metricsMap = ChunkTelemetryUtil.readMetricsMap(history.getMetricsJson());
+                List<Map<String, Object>> telemetryEntries = metricsMap.isEmpty()
+                        ? Collections.emptyList()
+                        : ChunkTelemetryUtil.extractEntries(metricsMap);
                 if (!telemetryEntries.isEmpty()) {
                     for (Map<String, Object> entry : telemetryEntries) {
                         chunkAggregation.accept(entry);
@@ -430,6 +435,7 @@ public class ReviewHistoryService {
                     }
                 }
 
+                circuitAggregation.accept(metricsMap);
             }
 
             summary.put("statusCounts", statusCounts);
@@ -445,6 +451,7 @@ public class ReviewHistoryService {
                     chunkAggregation.chunkCount,
                     chunkAggregation.timeoutCount,
                     chunkAggregation.statusCounts));
+            summary.put("breaker", circuitAggregation.toMap());
 
             return summary;
         });
@@ -886,6 +893,61 @@ public class ReviewHistoryService {
             return (end - start) / 1000.0;
         }
         return -1d;
+    }
+
+    private final class CircuitAggregation {
+        long samples;
+        long failureCount;
+        long openEvents;
+        long blockedCalls;
+        long succeededCalls;
+        long failedCalls;
+        long clientBlockedCalls;
+        long clientHardFailures;
+        final Map<String, Long> stateCounts = new LinkedHashMap<>();
+
+        void accept(@Nonnull Map<String, Object> metricsMap) {
+            if (metricsMap.isEmpty()) {
+                return;
+            }
+            Object raw = metricsMap.get("ai.model.circuit.snapshot");
+            if (!(raw instanceof Map)) {
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> snapshot = (Map<String, Object>) raw;
+            samples++;
+            String state = snapshot.get("state") != null
+                    ? snapshot.get("state").toString()
+                    : "UNKNOWN";
+            stateCounts.merge(state.toUpperCase(Locale.ROOT), 1L, Long::sum);
+            failureCount += asLong(snapshot.get("failureCount"), 0);
+            openEvents += asLong(snapshot.get("openEvents"), 0);
+            blockedCalls += asLong(snapshot.get("blockedCalls"), 0);
+            succeededCalls += asLong(snapshot.get("succeededCalls"), 0);
+            failedCalls += asLong(snapshot.get("failedCalls"), 0);
+            clientBlockedCalls += asLong(snapshot.get("clientBlockedCalls"), 0);
+            clientHardFailures += asLong(snapshot.get("clientHardFailures"), 0);
+        }
+
+        Map<String, Object> toMap() {
+            if (samples == 0 && stateCounts.isEmpty()) {
+                return Collections.emptyMap();
+            }
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("samples", samples);
+            map.put("stateCounts", stateCounts);
+            map.put("failureCount", failureCount);
+            map.put("openEvents", openEvents);
+            map.put("blockedCalls", blockedCalls);
+            map.put("succeededCalls", succeededCalls);
+            map.put("failedCalls", failedCalls);
+            map.put("clientBlockedCalls", clientBlockedCalls);
+            map.put("clientHardFailures", clientHardFailures);
+            map.put("avgFailuresPerSample", samples > 0 ? (double) failureCount / samples : 0d);
+            map.put("avgBlockedCallsPerSample", samples > 0 ? (double) blockedCalls / samples : 0d);
+            return map;
+        }
     }
 
     private final class ChunkAggregation {

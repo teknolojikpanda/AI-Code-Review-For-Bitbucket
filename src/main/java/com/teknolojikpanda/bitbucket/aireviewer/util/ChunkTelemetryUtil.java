@@ -40,14 +40,23 @@ public final class ChunkTelemetryUtil {
 
     @Nonnull
     public static List<Map<String, Object>> extractEntriesFromJson(String metricsJson) {
-        if (metricsJson == null || metricsJson.trim().isEmpty()) {
+        Map<String, Object> map = readMetricsMap(metricsJson);
+        if (map.isEmpty()) {
             return Collections.emptyList();
         }
+        return extractEntries(map);
+    }
+
+    @Nonnull
+    public static Map<String, Object> readMetricsMap(String metricsJson) {
+        if (metricsJson == null || metricsJson.trim().isEmpty()) {
+            return Collections.emptyMap();
+        }
         try {
-            Map<String, Object> map = OBJECT_MAPPER.readValue(metricsJson, MAP_TYPE);
-            return extractEntries(map);
+            Map<String, Object> parsed = OBJECT_MAPPER.readValue(metricsJson, MAP_TYPE);
+            return parsed != null ? parsed : Collections.emptyMap();
         } catch (Exception ex) {
-            return Collections.emptyList();
+            return Collections.emptyMap();
         }
     }
 }

@@ -7,7 +7,9 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,20 +47,28 @@ public class HistoryResource {
 
     private static final Logger log = LoggerFactory.getLogger(HistoryResource.class);
 
+    private static final int MAX_RATE_LIMIT_SAMPLES = 10;
+
     private final UserManager userManager;
     private final ReviewHistoryService historyService;
     private final ProgressRegistry progressRegistry;
     private final ReviewConcurrencyController concurrencyController;
+    private final ReviewRateLimiter rateLimiter;
+    private final ReviewWorkerPool workerPool;
 
     @Inject
     public HistoryResource(@ComponentImport UserManager userManager,
                            ReviewHistoryService historyService,
                            ProgressRegistry progressRegistry,
-                           ReviewConcurrencyController concurrencyController) {
+                           ReviewConcurrencyController concurrencyController,
+                           ReviewRateLimiter rateLimiter,
+                           ReviewWorkerPool workerPool) {
         this.userManager = userManager;
         this.historyService = historyService;
         this.progressRegistry = progressRegistry;
         this.concurrencyController = concurrencyController;
+        this.rateLimiter = rateLimiter;
+        this.workerPool = workerPool;
     }
 
     @GET
@@ -143,6 +153,7 @@ public class HistoryResource {
                     pullRequestId,
                     since,
                     until);
+            summary.put("runtime", runtimeTelemetry());
             return Response.ok(summary).build();
         } catch (Exception ex) {
             log.error("Failed to compute AI review metrics", ex);
@@ -403,6 +414,64 @@ public class HistoryResource {
         map.put("availableSlots", Math.max(0, stats.getMaxConcurrent() - stats.getActive()));
         map.put("capturedAt", stats.getCapturedAt());
         return map;
+    }
+
+    private Map<String, Object> workerPoolStatsToMap() {
+        if (workerPool == null) {
+            return Collections.emptyMap();
+        }
+        ReviewWorkerPool.WorkerPoolSnapshot snapshot = workerPool.snapshot();
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("configuredSize", snapshot.getConfiguredSize());
+        map.put("activeThreads", snapshot.getActiveThreads());
+        map.put("queuedTasks", snapshot.getQueuedTasks());
+        map.put("currentPoolSize", snapshot.getCurrentPoolSize());
+        map.put("largestPoolSize", snapshot.getLargestPoolSize());
+        map.put("totalTasks", snapshot.getTotalTasks());
+        map.put("completedTasks", snapshot.getCompletedTasks());
+        map.put("capturedAt", snapshot.getCapturedAt());
+        return map;
+    }
+
+    private Map<String, Object> rateLimitStatsToMap() {
+        if (rateLimiter == null) {
+            return Collections.emptyMap();
+        }
+        ReviewRateLimiter.RateLimitSnapshot snapshot = rateLimiter.snapshot(MAX_RATE_LIMIT_SAMPLES);
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("repoLimitPerHour", snapshot.getRepoLimit());
+        map.put("projectLimitPerHour", snapshot.getProjectLimit());
+        map.put("trackedRepoBuckets", snapshot.getTrackedRepoBuckets());
+        map.put("trackedProjectBuckets", snapshot.getTrackedProjectBuckets());
+        map.put("capturedAt", snapshot.getCapturedAt());
+        map.put("topRepoBuckets", bucketStatesToList(snapshot.getTopRepoBuckets()));
+        map.put("topProjectBuckets", bucketStatesToList(snapshot.getTopProjectBuckets()));
+        return map;
+    }
+
+    private List<Map<String, Object>> bucketStatesToList(Map<String, ReviewRateLimiter.RateLimitSnapshot.BucketState> buckets) {
+        if (buckets == null || buckets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> entries = new ArrayList<>();
+        buckets.forEach((scope, state) -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", scope);
+            map.put("consumed", state.getConsumed());
+            map.put("limit", state.getLimit());
+            map.put("remaining", state.getRemaining());
+            map.put("resetInMs", state.getResetInMs());
+            entries.add(map);
+        });
+        return entries;
+    }
+
+    private Map<String, Object> runtimeTelemetry() {
+        Map<String, Object> runtime = new LinkedHashMap<>();
+        runtime.put("queue", queueStatsToMap());
+        runtime.put("workerPool", workerPoolStatsToMap());
+        runtime.put("rateLimiter", rateLimitStatsToMap());
+        return runtime;
     }
 
     private Map<String, String> error(String message) {

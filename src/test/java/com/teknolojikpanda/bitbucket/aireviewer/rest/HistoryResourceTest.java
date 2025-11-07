@@ -5,11 +5,14 @@ import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
 import org.junit.Before;
 import org.junit.Test;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Response;
+import java.lang.reflect.Constructor;
 import java.util.Collections;
 import java.util.Map;
 
@@ -29,6 +32,8 @@ public class HistoryResourceTest {
     private UserProfile profile;
     private ProgressRegistry progressRegistry;
     private ReviewConcurrencyController concurrencyController;
+    private ReviewRateLimiter rateLimiter;
+    private ReviewWorkerPool workerPool;
     private HistoryResource resource;
 
     @Before
@@ -38,12 +43,44 @@ public class HistoryResourceTest {
         historyService = mock(ReviewHistoryService.class);
         progressRegistry = mock(ProgressRegistry.class);
         concurrencyController = mock(ReviewConcurrencyController.class);
+        rateLimiter = mock(ReviewRateLimiter.class);
+        workerPool = mock(ReviewWorkerPool.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         ReviewConcurrencyController.QueueStats stats =
                 new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis());
         when(concurrencyController.snapshot()).thenReturn(stats);
-        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController);
+        ReviewRateLimiter.RateLimitSnapshot rateSnapshot = createRateLimitSnapshot();
+        when(rateLimiter.snapshot(anyInt())).thenReturn(rateSnapshot);
+        ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = createWorkerPoolSnapshot();
+        when(workerPool.snapshot()).thenReturn(workerSnapshot);
+        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool);
+    }
+
+    private ReviewRateLimiter.RateLimitSnapshot createRateLimitSnapshot() {
+        try {
+            Constructor<ReviewRateLimiter.RateLimitSnapshot> ctor =
+                    ReviewRateLimiter.RateLimitSnapshot.class.getDeclaredConstructor(
+                            int.class, int.class, int.class, int.class, Map.class, Map.class, long.class);
+            ctor.setAccessible(true);
+            return ctor.newInstance(
+                    12, 60, 2, 1, Collections.emptyMap(), Collections.emptyMap(), System.currentTimeMillis());
+        } catch (Exception e) {
+            throw new AssertionError("Failed to construct RateLimitSnapshot for tests", e);
+        }
+    }
+
+    private ReviewWorkerPool.WorkerPoolSnapshot createWorkerPoolSnapshot() {
+        try {
+            Constructor<ReviewWorkerPool.WorkerPoolSnapshot> ctor =
+                    ReviewWorkerPool.WorkerPoolSnapshot.class.getDeclaredConstructor(
+                            int.class, int.class, int.class, int.class, int.class, long.class, long.class, long.class);
+            ctor.setAccessible(true);
+            return ctor.newInstance(
+                    4, 1, 0, 4, 4, 10L, 9L, System.currentTimeMillis());
+        } catch (Exception e) {
+            throw new AssertionError("Failed to construct WorkerPoolSnapshot for tests", e);
+        }
     }
 
     @Test
@@ -110,9 +147,8 @@ public class HistoryResourceTest {
     public void metricsSummaryReturnsAggregatedPayloadForAdmin() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
-        Map<String, Object> summary = Collections.singletonMap(
-                "ioTotals",
-                Collections.singletonMap("chunkCount", 4L));
+        Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        summary.put("ioTotals", Collections.singletonMap("chunkCount", 4L));
         when(historyService.getMetricsSummary(eq("WOR"), eq("repo"), eq(7L), isNull(), isNull()))
                 .thenReturn(summary);
 

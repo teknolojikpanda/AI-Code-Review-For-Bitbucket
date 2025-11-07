@@ -73,6 +73,20 @@ public class ReviewWorkerPool {
         executor.shutdownNow();
     }
 
+    public WorkerPoolSnapshot snapshot() {
+        refreshPoolSizeIfNeeded();
+        ThreadPoolExecutor exec = this.executor;
+        return new WorkerPoolSnapshot(
+                poolSize,
+                exec.getActiveCount(),
+                exec.getQueue().size(),
+                exec.getPoolSize(),
+                exec.getLargestPoolSize(),
+                exec.getTaskCount(),
+                exec.getCompletedTaskCount(),
+                System.currentTimeMillis());
+    }
+
     private void refreshPoolSizeIfNeeded() {
         long now = System.currentTimeMillis();
         if (now - lastRefresh < REFRESH_INTERVAL_MS) {
@@ -130,6 +144,67 @@ public class ReviewWorkerPool {
             Thread thread = new Thread(r, prefix + threadCounter.incrementAndGet());
             thread.setDaemon(true);
             return thread;
+        }
+    }
+
+    public static final class WorkerPoolSnapshot {
+        private final int configuredSize;
+        private final int activeThreads;
+        private final int queuedTasks;
+        private final int currentPoolSize;
+        private final int largestPoolSize;
+        private final long totalTasks;
+        private final long completedTasks;
+        private final long capturedAt;
+
+        WorkerPoolSnapshot(int configuredSize,
+                           int activeThreads,
+                           int queuedTasks,
+                           int currentPoolSize,
+                           int largestPoolSize,
+                           long totalTasks,
+                           long completedTasks,
+                           long capturedAt) {
+            this.configuredSize = configuredSize;
+            this.activeThreads = activeThreads;
+            this.queuedTasks = queuedTasks;
+            this.currentPoolSize = currentPoolSize;
+            this.largestPoolSize = largestPoolSize;
+            this.totalTasks = totalTasks;
+            this.completedTasks = completedTasks;
+            this.capturedAt = capturedAt;
+        }
+
+        public int getConfiguredSize() {
+            return configuredSize;
+        }
+
+        public int getActiveThreads() {
+            return activeThreads;
+        }
+
+        public int getQueuedTasks() {
+            return queuedTasks;
+        }
+
+        public int getCurrentPoolSize() {
+            return currentPoolSize;
+        }
+
+        public int getLargestPoolSize() {
+            return largestPoolSize;
+        }
+
+        public long getTotalTasks() {
+            return totalTasks;
+        }
+
+        public long getCompletedTasks() {
+            return completedTasks;
+        }
+
+        public long getCapturedAt() {
+            return capturedAt;
         }
     }
 }
