@@ -3,6 +3,8 @@ package com.teknolojikpanda.bitbucket.aireviewer.rest;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
+import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
+import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.slf4j.Logger;
@@ -14,15 +16,24 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
 import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * REST resource exposing AI review history for administrators.
@@ -35,12 +46,15 @@ public class HistoryResource {
 
     private final UserManager userManager;
     private final ReviewHistoryService historyService;
+    private final ProgressRegistry progressRegistry;
 
     @Inject
     public HistoryResource(@ComponentImport UserManager userManager,
-                           ReviewHistoryService historyService) {
+                           ReviewHistoryService historyService,
+                           ProgressRegistry progressRegistry) {
         this.userManager = userManager;
         this.historyService = historyService;
+        this.progressRegistry = progressRegistry;
     }
 
     @GET
@@ -73,6 +87,12 @@ public class HistoryResource {
                     until,
                     limit,
                     offset);
+            List<Map<String, Object>> ongoing = collectOngoingEntries(
+                    projectKey,
+                    repositorySlug,
+                    pullRequestId,
+                    since,
+                    until);
             Map<String, Object> payload = new HashMap<>();
             payload.put("entries", page.getValues());
             payload.put("count", page.getValues().size());
@@ -81,6 +101,8 @@ public class HistoryResource {
             payload.put("offset", page.getOffset());
             payload.put("nextOffset", computeNextOffset(page));
             payload.put("prevOffset", computePrevOffset(page));
+            payload.put("ongoing", ongoing);
+            payload.put("ongoingCount", ongoing.size());
             return Response.ok(payload).build();
         } catch (Exception ex) {
             log.error("Failed to fetch AI review history", ex);
@@ -203,6 +225,151 @@ public class HistoryResource {
         }
         int prev = Math.max(page.getOffset() - page.getLimit(), 0);
         return prev == page.getOffset() ? null : prev;
+    }
+
+    private List<Map<String, Object>> collectOngoingEntries(String projectKey,
+                                                            String repositorySlug,
+                                                            Long pullRequestId,
+                                                            Long since,
+                                                            Long until) {
+        List<ProgressRegistry.ProgressSnapshot> snapshots = progressRegistry.listActive(
+                projectKey,
+                repositorySlug,
+                pullRequestId);
+        if (snapshots.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return snapshots.stream()
+                .filter(snapshot -> matchesWindow(snapshot, since, until))
+                .map(this::toOngoingEntry)
+                .collect(Collectors.toList());
+    }
+
+    private boolean matchesWindow(ProgressRegistry.ProgressSnapshot snapshot, Long since, Long until) {
+        long lastUpdated = snapshot.getLastUpdatedAt();
+        long started = snapshot.getStartedAt();
+        if (since != null && lastUpdated > 0 && lastUpdated < since) {
+            return false;
+        }
+        if (until != null && started > 0 && started > until) {
+            return false;
+        }
+        return true;
+    }
+
+    private Map<String, Object> toOngoingEntry(ProgressRegistry.ProgressSnapshot snapshot) {
+        ProgressRegistry.ProgressMetadata meta = snapshot.getMetadata();
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", null);
+        map.put("ongoing", true);
+        map.put("runId", meta.getRunId());
+        map.put("projectKey", meta.getProjectKey());
+        map.put("repositorySlug", meta.getRepositorySlug());
+        map.put("pullRequestId", meta.getPullRequestId());
+        map.put("reviewStatus", "ONGOING");
+        map.put("reviewOutcome", "RUNNING");
+        map.put("reviewStartTime", snapshot.getStartedAt());
+        map.put("reviewEndTime", null);
+        map.put("durationSeconds", null);
+        map.put("totalIssuesFound", 0);
+        map.put("criticalIssues", 0);
+        map.put("highIssues", 0);
+        map.put("mediumIssues", 0);
+        map.put("lowIssues", 0);
+        map.put("hasBlockingIssues", false);
+        map.put("updateReview", meta.isUpdate());
+        map.put("manual", meta.isManual());
+
+        ProgressEvent latest = getLatestEvent(snapshot);
+        String stageDetail = buildStageDetail(latest);
+        Integer percent = latest != null ? latest.getPercentComplete() : null;
+        map.put("statusDetail", stageDetail);
+        map.put("percentComplete", percent);
+        map.put("summary", buildOngoingSummary(snapshot, stageDetail, percent));
+        map.put("eventsRecorded", snapshot.getEventCount());
+        map.put("lastUpdatedAt", snapshot.getLastUpdatedAt());
+        map.put("modelUsed", "—");
+        return map;
+    }
+
+    private ProgressEvent getLatestEvent(ProgressRegistry.ProgressSnapshot snapshot) {
+        List<ProgressEvent> events = snapshot.getEvents();
+        if (events == null || events.isEmpty()) {
+            return null;
+        }
+        return events.get(events.size() - 1);
+    }
+
+    private String buildStageDetail(ProgressEvent event) {
+        if (event == null) {
+            return "Awaiting first milestone";
+        }
+        String stage = humanizeStage(event.getStage());
+        Object analyzing = event.getDetails().get("currentlyAnalyzing");
+        if (analyzing != null) {
+            stage = Objects.toString(analyzing, stage);
+        }
+        Integer percent = event.getPercentComplete();
+        if (percent != null && percent > 0) {
+            return stage + " (" + percent + "%)";
+        }
+        return stage;
+    }
+
+    private String buildOngoingSummary(ProgressRegistry.ProgressSnapshot snapshot,
+                                       String stageDetail,
+                                       Integer percent) {
+        List<String> parts = new ArrayList<>();
+        parts.add("Running");
+        if (stageDetail != null && !stageDetail.isBlank()) {
+            parts.add(stageDetail);
+        } else if (percent != null) {
+            parts.add(percent + "% complete");
+        }
+        long updated = snapshot.getLastUpdatedAt();
+        if (updated > 0) {
+            parts.add("Updated " + formatTimestamp(updated));
+        }
+        if (snapshot.getEventCount() > 0) {
+            parts.add(snapshot.getEventCount() == 1
+                    ? "1 milestone"
+                    : snapshot.getEventCount() + " milestones");
+        }
+        return String.join(" · ", parts);
+    }
+
+    private String humanizeStage(String value) {
+        if (value == null || value.isEmpty()) {
+            return "Queued";
+        }
+        String normalized = value.replace('.', ' ').replace('_', ' ').replace('-', ' ').trim();
+        if (normalized.isEmpty()) {
+            return "Queued";
+        }
+        String[] tokens = normalized.split("\\s+");
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < tokens.length; i++) {
+            if (tokens[i].isEmpty()) {
+                continue;
+            }
+            if (i > 0) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(tokens[i].charAt(0)));
+            if (tokens[i].length() > 1) {
+                builder.append(tokens[i].substring(1).toLowerCase());
+            }
+        }
+        return builder.toString();
+    }
+
+    private String formatTimestamp(long epochMillis) {
+        try {
+            return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(
+                    Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()));
+        } catch (Exception ex) {
+            return Long.toString(epochMillis);
+        }
     }
 
     private Map<String, String> error(String message) {

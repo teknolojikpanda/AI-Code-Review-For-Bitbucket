@@ -760,6 +760,39 @@
     background-color: #e9f2ff;
 }
 
+#review-history-table tbody tr.history-row.is-ongoing {
+    background-color: #fff7e6;
+}
+
+#review-history-table tbody tr.history-row.is-ongoing:hover {
+    background-color: #fff3d4;
+}
+
+.history-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background-color: #ffab001a;
+    color: #974f00;
+}
+
+.history-status-detail {
+    display: block;
+    font-size: 11px;
+    color: #6b778c;
+    margin-top: 2px;
+}
+
+.history-issues-pending {
+    color: #6b778c;
+    font-style: italic;
+}
+
 .filter-input[type="datetime-local"] {
     width: 210px;
 }

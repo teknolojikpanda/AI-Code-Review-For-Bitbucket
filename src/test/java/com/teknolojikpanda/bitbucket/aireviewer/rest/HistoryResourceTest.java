@@ -2,6 +2,7 @@ package com.teknolojikpanda.bitbucket.aireviewer.rest;
 
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
+import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import org.junit.Before;
 import org.junit.Test;
@@ -25,6 +26,7 @@ public class HistoryResourceTest {
     private ReviewHistoryService historyService;
     private HttpServletRequest request;
     private UserProfile profile;
+    private ProgressRegistry progressRegistry;
     private HistoryResource resource;
 
     @Before
@@ -32,9 +34,10 @@ public class HistoryResourceTest {
         System.setProperty("javax.ws.rs.ext.RuntimeDelegate", "com.sun.jersey.server.impl.provider.RuntimeDelegateImpl");
         userManager = mock(UserManager.class);
         historyService = mock(ReviewHistoryService.class);
+        progressRegistry = mock(ProgressRegistry.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
-        resource = new HistoryResource(userManager, historyService);
+        resource = new HistoryResource(userManager, historyService, progressRegistry);
     }
 
     @Test

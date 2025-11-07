@@ -96,6 +96,7 @@
             data: params
         }).done(function(response) {
             var entries = response && Array.isArray(response.entries) ? response.entries : [];
+            var ongoing = response && Array.isArray(response.ongoing) ? response.ongoing : [];
             if (pagination.all) {
                 pagination.total = entries.length;
                 pagination.offset = 0;
@@ -109,16 +110,16 @@
                 pagination.prevOffset = response && typeof response.prevOffset === 'number' ? response.prevOffset : null;
             }
 
-            renderHistory(entries);
+            renderHistory(entries, ongoing);
             renderPagination();
-            if (!entries.length) {
+            if (!entries.length && !(ongoing && ongoing.length)) {
                 setHistoryMessage('info', 'No review runs recorded yet.', false);
             } else {
                 clearHistoryMessage();
             }
         }).fail(function(xhr, status, error) {
             console.error('Failed to fetch review history:', status, error);
-            renderHistory([]);
+            renderHistory([], []);
             setHistoryMessage('error', 'Failed to load review history: ' + (error || status), false);
         });
     }
@@ -460,9 +461,12 @@
         if (!entry) {
             return 'UNKNOWN';
         }
-        var status = entry.reviewStatus || 'UNKNOWN';
+        var status = escapeHtml(entry.reviewStatus || 'UNKNOWN');
         if (entry.hasBlockingIssues) {
             status += ' ⚠️';
+        }
+        if (entry.statusDetail) {
+            status += '<div class="history-status-detail">' + escapeHtml(entry.statusDetail) + '</div>';
         }
         return status;
     }
@@ -470,6 +474,9 @@
     function formatIssues(entry) {
         if (!entry) {
             return '0';
+        }
+        if (entry.ongoing) {
+            return '<span class="history-issues-pending">Pending</span>';
         }
         return (entry.totalIssuesFound || 0) + ' (C' +
             (entry.criticalIssues || 0) + '/H' +
@@ -522,25 +529,32 @@
         }
     }
 
-    function renderHistory(entries) {
+    function renderHistory(entries, ongoingEntries) {
+        entries = Array.isArray(entries) ? entries : [];
+        ongoingEntries = Array.isArray(ongoingEntries) ? ongoingEntries : [];
         var $tbody = $('#review-history-table tbody');
         $tbody.empty();
         collapseDetails();
 
-        if (!entries.length) {
+        if (!entries.length && !ongoingEntries.length) {
             $tbody.append('<tr class="history-empty"><td colspan="5">No history entries available.</td></tr>');
             selectedHistoryId = null;
             return;
         }
 
-        entries.forEach(function(entry) {
-            var started = formatTimestamp(entry.reviewStartTime);
+        function appendRow(entry, isOngoing) {
+            var started = formatTimestamp(entry.reviewStartTime || entry.startedAt);
             var repo = formatRepo(entry);
+            if (isOngoing) {
+                repo += ' <span class="history-badge">ONGOING</span>';
+            }
             var status = formatStatus(entry);
             var issues = formatIssues(entry);
             var model = entry.modelUsed || '—';
+            var rowClass = 'history-row' + (isOngoing ? ' is-ongoing' : '');
+            var historyId = entry.id || '';
 
-            var row = '<tr class="history-row" data-history-id="' + entry.id + '"' +
+            var row = '<tr class="' + rowClass + '" data-history-id="' + historyId + '"' +
                     ' data-project="' + escapeHtml(entry.projectKey || '') + '"' +
                     ' data-repo="' + escapeHtml(entry.repositorySlug || '') + '"' +
                     ' data-pr="' + escapeHtml(entry.pullRequestId != null ? entry.pullRequestId : '') + '">' +
@@ -551,6 +565,14 @@
                     '<td>' + model + '</td>' +
                 '</tr>';
             $tbody.append(row);
+        }
+
+        ongoingEntries.forEach(function(entry) {
+            appendRow(entry, true);
+        });
+
+        entries.forEach(function(entry) {
+            appendRow(entry, false);
         });
 
         $tbody.find('tr.history-row').on('click', function() {

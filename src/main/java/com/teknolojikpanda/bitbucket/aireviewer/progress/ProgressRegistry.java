@@ -10,6 +10,7 @@ import javax.inject.Singleton;
 import javax.inject.Named;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -74,6 +75,39 @@ public class ProgressRegistry {
             return Optional.empty();
         }
         return Optional.of(context.snapshot());
+    }
+
+    /**
+     * Lists all non-completed in-flight runs optionally filtered by project/repository/pull request.
+     */
+    @Nonnull
+    public List<ProgressSnapshot> listActive(@Nullable String projectKey,
+                                             @Nullable String repositorySlug,
+                                             @Nullable Long pullRequestId) {
+        pruneExpired();
+        List<ProgressSnapshot> snapshots = new ArrayList<>();
+        contexts.forEach((key, context) -> {
+            if (context.isExpired()) {
+                contexts.remove(key, context);
+                return;
+            }
+            if (context.completed) {
+                return;
+            }
+            ProgressMetadata meta = context.metadata;
+            if (projectKey != null && !projectKey.equals(meta.getProjectKey())) {
+                return;
+            }
+            if (repositorySlug != null && !repositorySlug.equals(meta.getRepositorySlug())) {
+                return;
+            }
+            if (pullRequestId != null && pullRequestId.longValue() != meta.getPullRequestId()) {
+                return;
+            }
+            snapshots.add(context.snapshot());
+        });
+        snapshots.sort(Comparator.comparingLong(ProgressSnapshot::getStartedAt).reversed());
+        return snapshots;
     }
 
     private void pruneExpired() {
