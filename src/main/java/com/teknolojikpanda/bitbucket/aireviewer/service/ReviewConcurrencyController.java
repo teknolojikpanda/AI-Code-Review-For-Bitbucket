@@ -2,6 +2,9 @@ package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -33,14 +36,15 @@ public class ReviewConcurrencyController {
     private volatile int maxQueueSize;
     private volatile long lastRefreshTimestamp;
 
+    private static final Logger log = LoggerFactory.getLogger(ReviewConcurrencyController.class);
+
     @Inject
     public ReviewConcurrencyController(AIReviewerConfigService configService) {
         this.configService = Objects.requireNonNull(configService, "configService");
-        Map<String, Object> map = configService.getConfigurationAsMap();
-        this.maxConcurrent = resolveInt(map.get("maxConcurrentReviews"), DEFAULT_MAX_CONCURRENT, 1, 32);
-        this.maxQueueSize = resolveInt(map.get("maxQueuedReviews"), DEFAULT_MAX_QUEUE, 0, 1000);
+        this.maxConcurrent = DEFAULT_MAX_CONCURRENT;
+        this.maxQueueSize = DEFAULT_MAX_QUEUE;
         this.semaphore = new AdjustableSemaphore(this.maxConcurrent, true);
-        this.lastRefreshTimestamp = System.currentTimeMillis();
+        this.lastRefreshTimestamp = 0L;
     }
 
     /**
@@ -112,7 +116,7 @@ public class ReviewConcurrencyController {
             if (now - lastRefreshTimestamp < REFRESH_INTERVAL_MS) {
                 return;
             }
-            Map<String, Object> map = configService.getConfigurationAsMap();
+            Map<String, Object> map = fetchConfigSafely();
             int desiredConcurrent = resolveInt(map.get("maxConcurrentReviews"), DEFAULT_MAX_CONCURRENT, 1, 32);
             int desiredQueue = resolveInt(map.get("maxQueuedReviews"), DEFAULT_MAX_QUEUE, 0, 1000);
             if (desiredConcurrent != this.maxConcurrent) {
@@ -121,6 +125,15 @@ public class ReviewConcurrencyController {
             }
             this.maxQueueSize = desiredQueue;
             this.lastRefreshTimestamp = now;
+        }
+    }
+
+    private Map<String, Object> fetchConfigSafely() {
+        try {
+            return configService.getConfigurationAsMap();
+        } catch (Exception ex) {
+            log.debug("Unable to fetch configuration while initializing concurrency controller; using defaults: {}", ex.getMessage());
+            return Map.of();
         }
     }
 

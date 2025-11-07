@@ -2,10 +2,14 @@ package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 @ExportAsService(ReviewRateLimiter.class)
 public class ReviewRateLimiter {
 
+    private static final Logger log = LoggerFactory.getLogger(ReviewRateLimiter.class);
     private static final long WINDOW_MS = TimeUnit.HOURS.toMillis(1);
     private static final int DEFAULT_REPO_LIMIT = 12;
     private static final int DEFAULT_PROJECT_LIMIT = 60;
@@ -35,7 +40,9 @@ public class ReviewRateLimiter {
     @Inject
     public ReviewRateLimiter(AIReviewerConfigService configService) {
         this.configService = Objects.requireNonNull(configService, "configService");
-        refreshLimits();
+        this.repoLimitPerHour = DEFAULT_REPO_LIMIT;
+        this.projectLimitPerHour = DEFAULT_PROJECT_LIMIT;
+        this.lastRefresh = 0L;
     }
 
     public void acquire(@Nullable String projectKey, @Nullable String repositorySlug) {
@@ -75,9 +82,18 @@ public class ReviewRateLimiter {
     }
 
     private void refreshLimits() {
-        Map<String, Object> config = configService.getConfigurationAsMap();
+        Map<String, Object> config = fetchConfigSafely();
         this.repoLimitPerHour = resolveLimit(config.get("repoRateLimitPerHour"), DEFAULT_REPO_LIMIT);
         this.projectLimitPerHour = resolveLimit(config.get("projectRateLimitPerHour"), DEFAULT_PROJECT_LIMIT);
+    }
+
+    private Map<String, Object> fetchConfigSafely() {
+        try {
+            return configService.getConfigurationAsMap();
+        } catch (Exception ex) {
+            log.debug("Unable to fetch configuration while refreshing rate limits; using defaults: {}", ex.getMessage());
+            return Collections.emptyMap();
+        }
     }
 
     private int resolveLimit(Object raw, int defaultValue) {

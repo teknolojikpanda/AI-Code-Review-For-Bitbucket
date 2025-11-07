@@ -1,10 +1,13 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -25,6 +28,7 @@ public class ReviewWorkerPool {
 
     private static final int DEFAULT_POOL_SIZE = 4;
     private static final long REFRESH_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
+    private static final Logger log = LoggerFactory.getLogger(ReviewWorkerPool.class);
 
     private final AIReviewerConfigService configService;
     private final ThreadPoolExecutor executor;
@@ -34,7 +38,7 @@ public class ReviewWorkerPool {
     @Inject
     public ReviewWorkerPool(AIReviewerConfigService configService) {
         this.configService = Objects.requireNonNull(configService, "configService");
-        this.poolSize = resolvePoolSize(configService.getConfigurationAsMap());
+        this.poolSize = DEFAULT_POOL_SIZE;
         this.executor = new ThreadPoolExecutor(
                 poolSize,
                 poolSize,
@@ -43,7 +47,7 @@ public class ReviewWorkerPool {
                 new LinkedBlockingQueue<>(),
                 new WorkerThreadFactory());
         this.executor.allowCoreThreadTimeOut(false);
-        this.lastRefresh = System.currentTimeMillis();
+        this.lastRefresh = 0L;
     }
 
     public <T> T execute(Callable<T> task) {
@@ -79,13 +83,22 @@ public class ReviewWorkerPool {
             if (now - lastRefresh < REFRESH_INTERVAL_MS) {
                 return;
             }
-            int desired = resolvePoolSize(configService.getConfigurationAsMap());
+            int desired = resolvePoolSize(fetchConfigSafely());
             if (desired != poolSize) {
                 executor.setCorePoolSize(desired);
                 executor.setMaximumPoolSize(desired);
                 poolSize = desired;
             }
             lastRefresh = now;
+        }
+    }
+
+    private Map<String, Object> fetchConfigSafely() {
+        try {
+            return configService.getConfigurationAsMap();
+        } catch (Exception ex) {
+            log.debug("Unable to fetch configuration while refreshing worker pool; using defaults: {}", ex.getMessage());
+            return java.util.Collections.emptyMap();
         }
     }
 
