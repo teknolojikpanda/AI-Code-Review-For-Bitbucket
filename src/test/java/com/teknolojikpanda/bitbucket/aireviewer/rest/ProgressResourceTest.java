@@ -203,7 +203,8 @@ public class ProgressResourceTest {
                         false,
                         1000L,
                         2,
-                        3);
+                        3,
+                        "author");
         when(concurrencyController.getQueuedRequests()).thenReturn(Collections.singletonList(entry));
 
         Response response = resource.getQueueSnapshot(request);
@@ -231,7 +232,7 @@ public class ProgressResourceTest {
     public void adminQueueCancelReturnsNotFound() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
-        when(concurrencyController.cancelQueuedRun("run-1")).thenReturn(false);
+        when(concurrencyController.cancelQueuedRun(eq("run-1"), any(), any())).thenReturn(false);
 
         ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
         body.runId = "run-1";
@@ -244,7 +245,7 @@ public class ProgressResourceTest {
     public void adminQueueCancelSucceeds() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
-        when(concurrencyController.cancelQueuedRun("run-2")).thenReturn(true);
+        when(concurrencyController.cancelQueuedRun(eq("run-2"), any(), any())).thenReturn(true);
 
         ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
         body.runId = "run-2";

@@ -64,6 +64,7 @@ public class ProgressResource {
     private static final int MAX_HISTORY_LIST_LIMIT = 50;
     private static final RateLimiter RATE_LIMITER = new RateLimiter();
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
+    private static final long DEFAULT_REVIEW_DURATION_MS = TimeUnit.MINUTES.toMillis(2);
 
     private final UserManager userManager;
     private final UserService userService;
@@ -229,6 +230,7 @@ public class ProgressResource {
         List<Map<String, Object>> entries = convertQueueEntries(concurrencyController.getQueuedRequests());
         payload.put("entries", entries);
         payload.put("count", entries.size());
+        payload.put("actions", convertQueueActions(concurrencyController.getQueueActions()));
         return Response.ok(payload).build();
     }
 
@@ -297,7 +299,11 @@ public class ProgressResource {
                     .entity(error("runId is required to cancel a queued review."))
                     .build();
         }
-        boolean cancelled = concurrencyController.cancelQueuedRun(body.runId.trim());
+        String actor = admin.profile != null && admin.profile.getUserKey() != null
+                ? admin.profile.getUserKey().getStringValue()
+                : "admin";
+        String note = normalizeReason(body);
+        boolean cancelled = concurrencyController.cancelQueuedRun(body.runId.trim(), actor, note);
         if (!cancelled) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(error("No queued review found for the provided runId."))
@@ -498,8 +504,12 @@ public class ProgressResource {
             return Collections.emptyList();
         }
         List<Map<String, Object>> list = new ArrayList<>();
-        for (ReviewConcurrencyController.QueueStats.QueueEntry entry : entries) {
+        long now = System.currentTimeMillis();
+        long perSlotDuration = DEFAULT_REVIEW_DURATION_MS / Math.max(1, concurrencyController.getMaxConcurrent());
+        for (int i = 0; i < entries.size(); i++) {
+            ReviewConcurrencyController.QueueStats.QueueEntry entry = entries.get(i);
             Map<String, Object> map = new LinkedHashMap<>();
+            map.put("position", i + 1);
             map.put("runId", entry.getRunId());
             map.put("projectKey", entry.getProjectKey());
             map.put("repositorySlug", entry.getRepositorySlug());
@@ -507,7 +517,12 @@ public class ProgressResource {
             map.put("manual", entry.isManual());
             map.put("update", entry.isUpdate());
             map.put("force", entry.isForce());
+            map.put("requestedBy", entry.getRequestedBy());
             map.put("waitingSince", entry.getWaitingSince());
+            long waitingMs = Math.max(0, now - entry.getWaitingSince());
+            map.put("waitingMs", waitingMs);
+            long eta = now + (long) i * perSlotDuration;
+            map.put("estimatedStartMs", eta);
             map.put("repoWaiting", entry.getRepoWaiting());
             map.put("projectWaiting", entry.getProjectWaiting());
             list.add(map);
@@ -555,6 +570,30 @@ public class ProgressResource {
         return list;
     }
 
+    private List<Map<String, Object>> convertQueueActions(List<ReviewConcurrencyController.QueueStats.QueueAction> actions) {
+        if (actions == null || actions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (ReviewConcurrencyController.QueueStats.QueueAction action : actions) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("timestamp", action.getTimestamp());
+            map.put("action", action.getAction());
+            map.put("runId", action.getRunId());
+            map.put("projectKey", action.getProjectKey());
+            map.put("repositorySlug", action.getRepositorySlug());
+            map.put("pullRequestId", action.getPullRequestId());
+            map.put("manual", action.isManual());
+            map.put("update", action.isUpdate());
+            map.put("force", action.isForce());
+            map.put("actor", action.getActor());
+            map.put("note", action.getNote());
+            map.put("requestedBy", action.getRequestedBy());
+            list.add(map);
+        }
+        return list;
+    }
+
     private Access requireSystemAdmin(HttpServletRequest request) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (profile == null) {
@@ -569,6 +608,14 @@ public class ProgressResource {
     }
 
     private String normalizeReason(SchedulerStateRequest request) {
+        if (request == null || request.reason == null) {
+            return null;
+        }
+        String trimmed = request.reason.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizeReason(QueueCancelRequest request) {
         if (request == null || request.reason == null) {
             return null;
         }
@@ -609,6 +656,7 @@ public class ProgressResource {
 
     static final class QueueCancelRequest {
         public String runId;
+        public String reason;
     }
 
     private static final class RateLimiter {

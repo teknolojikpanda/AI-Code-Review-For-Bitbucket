@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -17,6 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,6 +46,9 @@ public class ReviewConcurrencyController {
     private final ConcurrentHashMap<String, AtomicInteger> waitingByRepo = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicInteger> waitingByProject = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, QueuedPermit> waitingByRunId = new ConcurrentHashMap<>();
+    private final ConcurrentLinkedDeque<QueueStats.QueueAction> queueActions = new ConcurrentLinkedDeque<>();
+    private static final int MAX_QUEUE_ACTIONS = 200;
+    private final ReviewQueueAuditService queueAuditService;
 
     private volatile int maxConcurrent;
     private volatile int maxQueueSize;
@@ -55,9 +60,11 @@ public class ReviewConcurrencyController {
 
     @Inject
     public ReviewConcurrencyController(AIReviewerConfigService configService,
-                                       ReviewSchedulerStateService schedulerStateService) {
+                                       ReviewSchedulerStateService schedulerStateService,
+                                       ReviewQueueAuditService queueAuditService) {
         this.configService = Objects.requireNonNull(configService, "configService");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
+        this.queueAuditService = Objects.requireNonNull(queueAuditService, "queueAuditService");
         this.maxConcurrent = DEFAULT_MAX_CONCURRENT;
         this.maxQueueSize = DEFAULT_MAX_QUEUE;
         this.maxQueuedPerRepo = DEFAULT_MAX_QUEUE_PER_REPO;
@@ -87,6 +94,7 @@ public class ReviewConcurrencyController {
         }
         try {
             semaphore.acquire();
+            recordQueueAction("started", permit.getRunId(), permit.getRequest(), null, null);
             permit.release();
             return new Slot();
         } catch (InterruptedException e) {
@@ -152,13 +160,28 @@ public class ReviewConcurrencyController {
                     req.isForce(),
                     permit.getWaitingSince(),
                     repoWaiting,
-                    projectWaiting));
+                    projectWaiting,
+                    req.getRequestedBy()));
         });
         entries.sort(Comparator.comparingLong(QueueStats.QueueEntry::getWaitingSince));
         return entries;
     }
 
-    public boolean cancelQueuedRun(@Nonnull String runId) {
+    public List<QueueStats.QueueAction> getQueueActions() {
+        try {
+            List<QueueStats.QueueAction> persisted = queueAuditService.listRecentActions();
+            if (!persisted.isEmpty()) {
+                return persisted;
+            }
+        } catch (Exception ex) {
+            log.warn("Unable to fetch persisted queue audit actions: {}", ex.getMessage());
+        }
+        return new ArrayList<>(queueActions);
+    }
+
+    public boolean cancelQueuedRun(@Nonnull String runId,
+                                   @Nullable String actor,
+                                   @Nullable String note) {
         Objects.requireNonNull(runId, "runId");
         QueuedPermit permit = waitingByRunId.remove(runId);
         if (permit == null) {
@@ -169,7 +192,33 @@ public class ReviewConcurrencyController {
                 permit.getRequest().getProjectKey(),
                 permit.getRequest().getRepositorySlug(),
                 permit.getRequest().getPullRequestId());
+        recordQueueAction("canceled", runId, permit.getRequest(), actor, note);
         return true;
+    }
+
+    private void recordQueueAction(String action,
+                                   String runId,
+                                   ReviewExecutionRequest request,
+                                   @Nullable String actor,
+                                   @Nullable String note) {
+        QueueStats.QueueAction event = new QueueStats.QueueAction(
+                action,
+                System.currentTimeMillis(),
+                runId,
+                request != null ? request.getProjectKey() : null,
+                request != null ? request.getRepositorySlug() : null,
+                request != null ? request.getPullRequestId() : -1,
+                request != null && request.isManual(),
+                request != null && request.isUpdate(),
+                request != null && request.isForce(),
+                actor,
+                note,
+                request != null ? request.getRequestedBy() : null);
+        queueActions.addFirst(event);
+        queueAuditService.recordAction(event);
+        while (queueActions.size() > MAX_QUEUE_ACTIONS) {
+            queueActions.removeLast();
+        }
     }
 
     private void refreshLimitsIfNeeded() {
@@ -219,6 +268,7 @@ public class ReviewConcurrencyController {
         long waitingSince = System.currentTimeMillis();
         QueuedPermit permit = new QueuedPermit(runId, request, repoKey, repoCounter, projectKey, projectCounter, waitingSince);
         waitingByRunId.put(runId, permit);
+        recordQueueAction("enqueued", runId, request, request.getRequestedBy(), null);
         return permit;
     }
 
@@ -349,6 +399,7 @@ public class ReviewConcurrencyController {
         private final boolean update;
         private final boolean force;
         private final String runId;
+        private final String requestedBy;
 
         public ReviewExecutionRequest(String projectKey,
                                       String repositorySlug,
@@ -356,7 +407,8 @@ public class ReviewConcurrencyController {
                                       boolean manual,
                                       boolean update,
                                       boolean force,
-                                      String runId) {
+                                      String runId,
+                                      String requestedBy) {
             this.projectKey = projectKey;
             this.repositorySlug = repositorySlug;
             this.pullRequestId = pullRequestId;
@@ -364,6 +416,7 @@ public class ReviewConcurrencyController {
             this.update = update;
             this.force = force;
             this.runId = runId;
+            this.requestedBy = requestedBy;
         }
 
         public String getProjectKey() {
@@ -392,6 +445,11 @@ public class ReviewConcurrencyController {
 
         public String getRunId() {
             return runId;
+        }
+
+        @Nullable
+        public String getRequestedBy() {
+            return requestedBy;
         }
     }
 
@@ -495,6 +553,95 @@ public class ReviewConcurrencyController {
             return topProjectWaiters;
         }
 
+        public static final class QueueAction {
+            private final String action;
+            private final long timestamp;
+            private final String runId;
+            private final String projectKey;
+            private final String repositorySlug;
+            private final long pullRequestId;
+            private final boolean manual;
+            private final boolean update;
+            private final boolean force;
+            private final String actor;
+            private final String note;
+            private final String requestedBy;
+
+            public QueueAction(String action,
+                               long timestamp,
+                               String runId,
+                               String projectKey,
+                               String repositorySlug,
+                               long pullRequestId,
+                               boolean manual,
+                               boolean update,
+                               boolean force,
+                               String actor,
+                               String note,
+                               String requestedBy) {
+                this.action = action;
+                this.timestamp = timestamp;
+                this.runId = runId;
+                this.projectKey = projectKey;
+                this.repositorySlug = repositorySlug;
+                this.pullRequestId = pullRequestId;
+                this.manual = manual;
+                this.update = update;
+                this.force = force;
+                this.actor = actor;
+                this.note = note;
+                this.requestedBy = requestedBy;
+            }
+
+            public String getAction() {
+                return action;
+            }
+
+            public long getTimestamp() {
+                return timestamp;
+            }
+
+            public String getRunId() {
+                return runId;
+            }
+
+            public String getProjectKey() {
+                return projectKey;
+            }
+
+            public String getRepositorySlug() {
+                return repositorySlug;
+            }
+
+            public long getPullRequestId() {
+                return pullRequestId;
+            }
+
+            public boolean isManual() {
+                return manual;
+            }
+
+            public boolean isUpdate() {
+                return update;
+            }
+
+            public boolean isForce() {
+                return force;
+            }
+
+            public String getActor() {
+                return actor;
+            }
+
+            public String getNote() {
+                return note;
+            }
+
+            public String getRequestedBy() {
+                return requestedBy;
+            }
+        }
+
         public static final class QueueEntry {
             private final String runId;
             private final String projectKey;
@@ -506,6 +653,7 @@ public class ReviewConcurrencyController {
             private final long waitingSince;
             private final int repoWaiting;
             private final int projectWaiting;
+            private final String requestedBy;
 
             public QueueEntry(String runId,
                               String projectKey,
@@ -516,7 +664,8 @@ public class ReviewConcurrencyController {
                               boolean force,
                               long waitingSince,
                               int repoWaiting,
-                              int projectWaiting) {
+                              int projectWaiting,
+                              String requestedBy) {
                 this.runId = runId;
                 this.projectKey = projectKey;
                 this.repositorySlug = repositorySlug;
@@ -527,6 +676,7 @@ public class ReviewConcurrencyController {
                 this.waitingSince = waitingSince;
                 this.repoWaiting = repoWaiting;
                 this.projectWaiting = projectWaiting;
+                this.requestedBy = requestedBy;
             }
 
             public String getRunId() {
@@ -567,6 +717,11 @@ public class ReviewConcurrencyController {
 
             public int getProjectWaiting() {
                 return projectWaiting;
+            }
+
+            @Nullable
+            public String getRequestedBy() {
+                return requestedBy;
             }
         }
 

@@ -895,6 +895,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         final String projectKey;
         final String repositorySlug;
         final String runId;
+        final String requestedBy;
 
         private ReviewRun(@Nonnull PullRequest pullRequest, boolean update, boolean force, boolean manual) {
             this.update = update;
@@ -905,6 +906,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             this.projectKey = repository != null && repository.getProject() != null ? repository.getProject().getKey() : null;
             this.repositorySlug = repository != null ? repository.getSlug() : null;
             this.runId = UUID.randomUUID().toString();
+            this.requestedBy = resolveRequestedBy(pullRequest);
         }
 
         static ReviewRun initial(@Nonnull PullRequest pullRequest) {
@@ -939,7 +941,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                     manual,
                     update,
                     force,
-                    runId);
+                    runId,
+                    requestedBy);
         }
 
         ProgressRegistry.ProgressMetadata toProgressMetadata() {
@@ -951,6 +954,21 @@ public class AIReviewServiceImpl implements AIReviewService {
 
         Repository getRepository() {
             return repository;
+        }
+
+        @Nullable
+        private String resolveRequestedBy(PullRequest pullRequest) {
+            if (pullRequest.getAuthor() == null || pullRequest.getAuthor().getUser() == null) {
+                return null;
+            }
+            ApplicationUser user = pullRequest.getAuthor().getUser();
+            if (user.getName() != null && !user.getName().isBlank()) {
+                return user.getName();
+            }
+            if (user.getSlug() != null && !user.getSlug().isBlank()) {
+                return user.getSlug();
+            }
+            return user.getEmailAddress();
         }
     }
 

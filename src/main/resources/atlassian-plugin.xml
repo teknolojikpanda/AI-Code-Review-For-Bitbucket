@@ -18,6 +18,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewSchedulerState</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit</entity>
     </ao>
 
     <!--

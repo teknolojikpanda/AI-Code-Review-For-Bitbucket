@@ -48,6 +48,7 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewRateLimiter rateLimiter;
     private ReviewWorkerPool workerPool;
     private ReviewSchedulerStateService schedulerStateService;
+    private ReviewQueueAuditService queueAuditService;
 
     private AIReviewServiceImpl service;
 
@@ -70,6 +71,7 @@ public class AIReviewServiceMergeCheckTest {
         when(configService.getConfigurationAsMap()).thenReturn(Collections.emptyMap());
         securityService = mock(SecurityService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
+        queueAuditService = mock(ReviewQueueAuditService.class);
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
                         ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
@@ -78,7 +80,7 @@ public class AIReviewServiceMergeCheckTest {
                         null,
                         System.currentTimeMillis());
         when(schedulerStateService.getState()).thenReturn(schedulerState);
-        concurrencyController = new ReviewConcurrencyController(configService, schedulerStateService);
+        concurrencyController = new ReviewConcurrencyController(configService, schedulerStateService, queueAuditService);
         rateLimiter = new ReviewRateLimiter(configService);
         workerPool = new ReviewWorkerPool(configService);
 
