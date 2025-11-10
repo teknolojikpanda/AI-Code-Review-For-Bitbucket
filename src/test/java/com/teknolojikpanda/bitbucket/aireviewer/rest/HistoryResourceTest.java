@@ -4,6 +4,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
@@ -35,6 +36,7 @@ public class HistoryResourceTest {
     private ReviewConcurrencyController concurrencyController;
     private ReviewRateLimiter rateLimiter;
     private ReviewWorkerPool workerPool;
+    private ReviewHistoryCleanupService cleanupService;
     private HistoryResource resource;
 
     @Before
@@ -47,6 +49,7 @@ public class HistoryResourceTest {
         concurrencyController = mock(ReviewConcurrencyController.class);
         rateLimiter = mock(ReviewRateLimiter.class);
         workerPool = mock(ReviewWorkerPool.class);
+        cleanupService = mock(ReviewHistoryCleanupService.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         ReviewSchedulerStateService.SchedulerState schedulerState =
@@ -73,7 +76,7 @@ public class HistoryResourceTest {
         when(rateLimiter.snapshot(anyInt())).thenReturn(rateSnapshot);
         ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = createWorkerPoolSnapshot();
         when(workerPool.snapshot()).thenReturn(workerSnapshot);
-        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool);
+        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool, cleanupService);
     }
 
     private ReviewRateLimiter.RateLimitSnapshot createRateLimitSnapshot() {
@@ -146,6 +149,34 @@ public class HistoryResourceTest {
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertSame(result, payload);
         verify(historyService).backfillChunkTelemetry(25);
+    }
+
+    @Test
+    public void cleanupDeniedForNonAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.cleanupHistory(request, new HistoryResource.CleanupRequest());
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+        verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
+    }
+
+    @Test
+    public void cleanupExecutesForAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        ReviewHistoryCleanupService.CleanupResult result =
+                new ReviewHistoryCleanupService.CleanupResult(60, 100, 5, 20, 10, System.currentTimeMillis());
+        when(cleanupService.cleanupOlderThanDays(eq(60), eq(100))).thenReturn(result);
+        HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
+        body.retentionDays = 60;
+        body.batchSize = 100;
+
+        Response response = resource.cleanupHistory(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(cleanupService).cleanupOlderThanDays(60, 100);
     }
 
     @Test

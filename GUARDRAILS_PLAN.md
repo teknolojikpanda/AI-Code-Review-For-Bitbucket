@@ -78,6 +78,6 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Implement the automated retention cleanup job plus admin-triggered controls, using the new retention telemetry as guidance (Sections 7.1–7.4).
-> 2. Wire the monitoring payload into `/metrics` consumers and draft alert/runbook content (Sections 6.1–6.4 & 8.5).
-> 3. Begin planning the rollout/runbook automation workstreams (Sections 8.6–8.9) once cleanup + alerting are ready.
+> 1. Schedule the retention cleanup job (cluster-aware, configurable cadence) and expose status/history in the health dashboard (Sections 7.1–7.4).
+> 2. Wire monitoring payloads into `/metrics` consumers and draft alert/runbook content (Sections 6.1–6.4 & 8.5).
+> 3. Begin planning the rollout/runbook automation workstreams (Sections 8.6–8.9) once cleanup automation + alerting are ready.

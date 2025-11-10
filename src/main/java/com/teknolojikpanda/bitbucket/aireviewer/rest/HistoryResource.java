@@ -7,8 +7,9 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
-import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
 import org.slf4j.Logger;
@@ -58,6 +59,7 @@ public class HistoryResource {
     private final ReviewConcurrencyController concurrencyController;
     private final ReviewRateLimiter rateLimiter;
     private final ReviewWorkerPool workerPool;
+    private final ReviewHistoryCleanupService cleanupService;
 
     @Inject
     public HistoryResource(@ComponentImport UserManager userManager,
@@ -65,13 +67,15 @@ public class HistoryResource {
                            ProgressRegistry progressRegistry,
                            ReviewConcurrencyController concurrencyController,
                            ReviewRateLimiter rateLimiter,
-                           ReviewWorkerPool workerPool) {
+                           ReviewWorkerPool workerPool,
+                           ReviewHistoryCleanupService cleanupService) {
         this.userManager = userManager;
         this.historyService = historyService;
         this.progressRegistry = progressRegistry;
         this.concurrencyController = concurrencyController;
         this.rateLimiter = rateLimiter;
         this.workerPool = workerPool;
+        this.cleanupService = cleanupService;
     }
 
     @GET
@@ -221,6 +225,33 @@ public class HistoryResource {
         int limit = (limitParam == null) ? 0 : limitParam;
         Map<String, Object> result = historyService.backfillChunkTelemetry(limit);
         return Response.ok(result).build();
+    }
+
+    @POST
+    @Path("/cleanup")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response cleanupHistory(@Context HttpServletRequest request,
+                                   CleanupRequest requestBody) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required.")).build();
+        }
+        int retentionDays = requestBody != null && requestBody.retentionDays != null
+                ? requestBody.retentionDays
+                : DEFAULT_RETENTION_DAYS;
+        int batchSize = requestBody != null && requestBody.batchSize != null
+                ? requestBody.batchSize
+                : 200;
+        ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(retentionDays, batchSize);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("retentionDays", result.getRetentionDays());
+        payload.put("batchSize", result.getBatchSize());
+        payload.put("deletedHistories", result.getDeletedHistories());
+        payload.put("deletedChunks", result.getDeletedChunks());
+        payload.put("remainingCandidates", result.getRemainingCandidates());
+        payload.put("cutoffEpochMs", result.getCutoffEpochMs());
+        return Response.ok(payload).build();
     }
 
     private boolean isSystemAdmin(UserProfile profile) {
@@ -525,6 +556,11 @@ public class HistoryResource {
         Map<String, String> map = new HashMap<>();
         map.put("error", message);
         return map;
+    }
+
+    public static final class CleanupRequest {
+        public Integer retentionDays;
+        public Integer batchSize;
     }
 
     @GET
