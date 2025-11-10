@@ -895,6 +895,165 @@ public class ReviewHistoryService {
         return -1d;
     }
 
+    public DurationStats getRecentDurationStats(int sampleSize) {
+        final int limit = Math.min(Math.max(sampleSize, 10), 500);
+        return ao.executeInTransaction(() -> {
+            Query query = Query.select()
+                    .where("REVIEW_END_TIME > 0")
+                    .order("REVIEW_END_TIME DESC")
+                    .limit(limit);
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class, query);
+            if (histories.length == 0) {
+                return DurationStats.empty();
+            }
+            RunningStats global = new RunningStats();
+            Map<String, RunningStats> repoStats = new HashMap<>();
+            Map<String, RunningStats> projectStats = new HashMap<>();
+
+            for (AIReviewHistory history : histories) {
+                long start = history.getReviewStartTime();
+                long end = history.getReviewEndTime();
+                if (start <= 0 || end <= 0 || end <= start) {
+                    continue;
+                }
+                long duration = end - start;
+                global.add(duration);
+                String repoKey = repoKey(history.getProjectKey(), history.getRepositorySlug());
+                if (repoKey != null) {
+                    repoStats.computeIfAbsent(repoKey, key -> new RunningStats()).add(duration);
+                }
+                String projectKey = normalizeKey(history.getProjectKey());
+                if (projectKey != null) {
+                    projectStats.computeIfAbsent(projectKey, key -> new RunningStats()).add(duration);
+                }
+            }
+            if (global.getSamples() == 0) {
+                return DurationStats.empty();
+            }
+            return new DurationStats(
+                    global.getAverage(),
+                    toAverageMap(repoStats),
+                    toAverageMap(projectStats),
+                    global.getSamples());
+        });
+    }
+
+    private Map<String, Double> toAverageMap(Map<String, RunningStats> stats) {
+        if (stats.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Double> averages = new HashMap<>();
+        stats.forEach((key, value) -> {
+            double avg = value.getAverage();
+            if (avg > 0) {
+                averages.put(key, avg);
+            }
+        });
+        return Collections.unmodifiableMap(averages);
+    }
+
+    private String repoKey(String projectKey, String repositorySlug) {
+        String project = normalizeKey(projectKey);
+        String repo = normalizeKey(repositorySlug);
+        if (project == null || repo == null) {
+            return null;
+        }
+        return project + "/" + repo;
+    }
+
+    private String normalizeKey(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private static final class RunningStats {
+        private long total;
+        private int samples;
+
+        void add(long value) {
+            if (value <= 0) {
+                return;
+            }
+            total += value;
+            samples++;
+        }
+
+        double getAverage() {
+            return samples == 0 ? 0D : (double) total / samples;
+        }
+
+        int getSamples() {
+            return samples;
+        }
+    }
+
+    public static final class DurationStats {
+        private final double globalAverageMs;
+        private final Map<String, Double> repoAverageMs;
+        private final Map<String, Double> projectAverageMs;
+        private final int samples;
+
+        DurationStats(double globalAverageMs,
+                      Map<String, Double> repoAverageMs,
+                      Map<String, Double> projectAverageMs,
+                      int samples) {
+            this.globalAverageMs = globalAverageMs;
+            this.repoAverageMs = repoAverageMs != null ? repoAverageMs : Collections.emptyMap();
+            this.projectAverageMs = projectAverageMs != null ? projectAverageMs : Collections.emptyMap();
+            this.samples = samples;
+        }
+
+        public double estimate(String projectKey, String repositorySlug, double fallbackMs) {
+            String repoKey = key(projectKey, repositorySlug);
+            if (repoKey != null) {
+                Double repoAvg = repoAverageMs.get(repoKey);
+                if (repoAvg != null && repoAvg > 0) {
+                    return repoAvg;
+                }
+            }
+            String project = key(projectKey, null);
+            if (project != null) {
+                Double projectAvg = projectAverageMs.get(project);
+                if (projectAvg != null && projectAvg > 0) {
+                    return projectAvg;
+                }
+            }
+            if (globalAverageMs > 0) {
+                return globalAverageMs;
+            }
+            return fallbackMs;
+        }
+
+        public int getSamples() {
+            return samples;
+        }
+
+        public static DurationStats empty() {
+            return new DurationStats(0D, Collections.emptyMap(), Collections.emptyMap(), 0);
+        }
+
+        private String key(String projectKey, String repositorySlug) {
+            if (projectKey == null) {
+                return null;
+            }
+            String project = projectKey.trim().toLowerCase(Locale.ROOT);
+            if (repositorySlug == null) {
+                return project;
+            }
+            String repo = repositorySlug.trim().toLowerCase(Locale.ROOT);
+            if (repo.isEmpty()) {
+                return project;
+            }
+            return project + "/" + repo;
+        }
+    }
+
     private final class CircuitAggregation {
         long samples;
         long failureCount;

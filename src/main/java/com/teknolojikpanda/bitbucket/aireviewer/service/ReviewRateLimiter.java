@@ -9,11 +9,13 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import java.time.Instant;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,10 +35,14 @@ public class ReviewRateLimiter {
     private static final int DEFAULT_PROJECT_LIMIT = 60;
     private static final long REFRESH_INTERVAL_MS = TimeUnit.SECONDS.toMillis(30);
     private static final int DEFAULT_SNAPSHOT_BUCKETS = 10;
+    private static final long MIN_SNOOZE_MS = TimeUnit.SECONDS.toMillis(5);
+    private static final long MAX_SNOOZE_MS = TimeUnit.MINUTES.toMillis(30);
 
     private final AIReviewerConfigService configService;
     private final ConcurrentHashMap<String, Bucket> repoBuckets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Bucket> projectBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> repoSnoozes = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> projectSnoozes = new ConcurrentHashMap<>();
 
     private volatile int repoLimitPerHour;
     private volatile int projectLimitPerHour;
@@ -54,16 +60,46 @@ public class ReviewRateLimiter {
         refreshLimitsIfNeeded();
         long now = System.currentTimeMillis();
         if (repositorySlug != null && repoLimitPerHour > 0) {
-            Bucket bucket = repoBuckets.computeIfAbsent(repositorySlug.toLowerCase(), k -> new Bucket());
-            if (!bucket.tryConsume(repoLimitPerHour, now)) {
-                throw RateLimitExceededException.repository(repositorySlug, repoLimitPerHour, bucket.retryAfter(now));
+            String repoKey = repositorySlug.toLowerCase(Locale.ROOT);
+            if (!isSnoozed(repoSnoozes, repoKey, now)) {
+                Bucket bucket = repoBuckets.computeIfAbsent(repoKey, k -> new Bucket());
+                if (!bucket.tryConsume(repoLimitPerHour, now)) {
+                    throw RateLimitExceededException.repository(repositorySlug, repoLimitPerHour, bucket.retryAfter(now));
+                }
             }
         }
         if (projectKey != null && projectLimitPerHour > 0) {
-            Bucket bucket = projectBuckets.computeIfAbsent(projectKey.toLowerCase(), k -> new Bucket());
-            if (!bucket.tryConsume(projectLimitPerHour, now)) {
-                throw RateLimitExceededException.project(projectKey, projectLimitPerHour, bucket.retryAfter(now));
+            String project = projectKey.toLowerCase(Locale.ROOT);
+            if (!isSnoozed(projectSnoozes, project, now)) {
+                Bucket bucket = projectBuckets.computeIfAbsent(project, k -> new Bucket());
+                if (!bucket.tryConsume(projectLimitPerHour, now)) {
+                    throw RateLimitExceededException.project(projectKey, projectLimitPerHour, bucket.retryAfter(now));
+                }
             }
+        }
+    }
+
+    public void autoSnooze(@Nullable String projectKey,
+                           @Nullable String repositorySlug,
+                           long durationMs,
+                           @Nullable String reason) {
+        long clamped = clampDuration(durationMs);
+        if (clamped <= 0) {
+            return;
+        }
+        long expiresAt = System.currentTimeMillis() + clamped;
+        if (repositorySlug != null && !repositorySlug.trim().isEmpty()) {
+            repoSnoozes.put(repositorySlug.toLowerCase(Locale.ROOT), expiresAt);
+        }
+        if (projectKey != null && !projectKey.trim().isEmpty()) {
+            projectSnoozes.put(projectKey.toLowerCase(Locale.ROOT), expiresAt);
+        }
+        if (log.isDebugEnabled()) {
+            log.debug("Auto-snoozed rate limit for {}/{} until {} ({})",
+                    projectKey,
+                    repositorySlug,
+                    Instant.ofEpochMilli(expiresAt),
+                    reason != null ? reason : "auto");
         }
     }
 
@@ -107,6 +143,29 @@ public class ReviewRateLimiter {
         Map<String, Object> config = fetchConfigSafely();
         this.repoLimitPerHour = resolveLimit(config.get("repoRateLimitPerHour"), DEFAULT_REPO_LIMIT);
         this.projectLimitPerHour = resolveLimit(config.get("projectRateLimitPerHour"), DEFAULT_PROJECT_LIMIT);
+    }
+
+    private boolean isSnoozed(ConcurrentHashMap<String, Long> snoozes, String key, long now) {
+        if (key == null) {
+            return false;
+        }
+        Long expires = snoozes.get(key);
+        if (expires == null) {
+            return false;
+        }
+        if (expires <= now) {
+            snoozes.remove(key, expires);
+            return false;
+        }
+        return true;
+    }
+
+    private long clampDuration(long durationMs) {
+        if (durationMs <= 0) {
+            return 0L;
+        }
+        long clamped = Math.min(durationMs, MAX_SNOOZE_MS);
+        return Math.max(clamped, MIN_SNOOZE_MS);
     }
 
     private Map<String, Object> fetchConfigSafely() {

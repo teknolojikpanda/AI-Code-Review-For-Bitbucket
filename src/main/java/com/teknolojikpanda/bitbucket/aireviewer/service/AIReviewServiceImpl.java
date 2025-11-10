@@ -95,6 +95,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private static final String IMPERSONATION_REASON = "AI Reviewer service operation";
     private static final int MAX_CHUNK_PREVIEW_ENTRIES = 12;
     private static final String CIRCUIT_SNAPSHOT_GAUGE = "ai.model.circuit.snapshot";
+    private static final long MANUAL_RATE_LIMIT_SNOOZE_MS = TimeUnit.MINUTES.toMillis(10);
 
     private final PullRequestService pullRequestService;
     private final CommentService commentService;
@@ -188,6 +189,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                                                    ReviewRun run,
                                                    Supplier<ReviewResult> action) {
         try {
+            maybeAutoSnoozeRateLimit(run);
             rateLimiter.acquire(run.getProjectKey(), run.getRepositorySlug());
         } catch (RateLimitExceededException ex) {
             recordProgress("review.throttled", 0, progressDetails(
@@ -222,6 +224,19 @@ public class AIReviewServiceImpl implements AIReviewService {
             log.warn("AI review scheduling interrupted for PR #{}", pullRequest.getId(), ex);
             Thread.currentThread().interrupt();
             return buildQueueInterruptedResult(pullRequest.getId());
+        }
+    }
+
+    private void maybeAutoSnoozeRateLimit(@Nullable ReviewRun run) {
+        if (run == null) {
+            return;
+        }
+        if (run.manual || run.force) {
+            rateLimiter.autoSnooze(
+                    run.getProjectKey(),
+                    run.getRepositorySlug(),
+                    MANUAL_RATE_LIMIT_SNOOZE_MS,
+                    run.manual ? "manual-review" : "forced-review");
         }
     }
 

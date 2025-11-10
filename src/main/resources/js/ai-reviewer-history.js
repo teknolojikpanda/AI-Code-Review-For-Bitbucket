@@ -651,7 +651,11 @@
         }
         var repoWaiting = entry.repoWaiting != null ? entry.repoWaiting : 0;
         var projectWaiting = entry.projectWaiting != null ? entry.projectWaiting : 0;
-        return 'Repo ' + repoWaiting + ' / Project ' + projectWaiting;
+        var value = 'Repo ' + repoWaiting + ' / Project ' + projectWaiting;
+        if (entry.backpressureReason) {
+            value += ' (' + entry.backpressureReason + ')';
+        }
+        return value;
     }
 
     function formatQueueTarget(action) {

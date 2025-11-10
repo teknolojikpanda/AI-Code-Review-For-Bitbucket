@@ -83,6 +83,7 @@ public class ProgressResourceTest {
                         Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         when(concurrencyController.getQueuedRequests()).thenReturn(Collections.emptyList());
+        when(historyService.getRecentDurationStats(anyInt())).thenReturn(ReviewHistoryService.DurationStats.empty());
         resource = new ProgressResource(userManager, userService, repositoryService, permissionService, progressRegistry, historyService, schedulerStateService, concurrencyController);
     }
 

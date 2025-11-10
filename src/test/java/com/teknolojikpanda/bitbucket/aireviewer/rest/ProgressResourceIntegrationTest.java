@@ -31,6 +31,7 @@ import java.util.Optional;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -87,6 +88,7 @@ public class ProgressResourceIntegrationTest {
                         Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         when(concurrencyController.getQueuedRequests()).thenReturn(Collections.emptyList());
+        when(historyService.getRecentDurationStats(anyInt())).thenReturn(ReviewHistoryService.DurationStats.empty());
 
         resource = new ProgressResource(
                 userManager,

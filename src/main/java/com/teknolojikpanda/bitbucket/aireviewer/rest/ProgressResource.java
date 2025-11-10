@@ -65,6 +65,7 @@ public class ProgressResource {
     private static final RateLimiter RATE_LIMITER = new RateLimiter();
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
     private static final long DEFAULT_REVIEW_DURATION_MS = TimeUnit.MINUTES.toMillis(2);
+    private static final int DURATION_SAMPLE_SIZE = 200;
 
     private final UserManager userManager;
     private final UserService userService;
@@ -225,9 +226,15 @@ public class ProgressResource {
         if (!admin.allowed) {
             return admin.response;
         }
+        ReviewConcurrencyController.QueueStats stats = concurrencyController.snapshot();
+        ReviewHistoryService.DurationStats durationStats = fetchDurationStats();
+        List<Map<String, Object>> entries = convertQueueEntries(
+                concurrencyController.getQueuedRequests(),
+                stats,
+                durationStats);
+
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
-        List<Map<String, Object>> entries = convertQueueEntries(concurrencyController.getQueuedRequests());
+        payload.put("queue", queueSnapshotToMap(stats));
         payload.put("entries", entries);
         payload.put("count", entries.size());
         payload.put("actions", convertQueueActions(concurrencyController.getQueueActions()));
@@ -499,15 +506,20 @@ public class ProgressResource {
         return payload;
     }
 
-    private List<Map<String, Object>> convertQueueEntries(List<ReviewConcurrencyController.QueueStats.QueueEntry> entries) {
+    private List<Map<String, Object>> convertQueueEntries(List<ReviewConcurrencyController.QueueStats.QueueEntry> entries,
+                                                         ReviewConcurrencyController.QueueStats stats,
+                                                         ReviewHistoryService.DurationStats durationStats) {
         if (entries == null || entries.isEmpty()) {
             return Collections.emptyList();
         }
         List<Map<String, Object>> list = new ArrayList<>();
         long now = System.currentTimeMillis();
-        long perSlotDuration = DEFAULT_REVIEW_DURATION_MS / Math.max(1, concurrencyController.getMaxConcurrent());
+        long cumulativeMs = 0;
         for (int i = 0; i < entries.size(); i++) {
             ReviewConcurrencyController.QueueStats.QueueEntry entry = entries.get(i);
+            long estimatedDuration = estimateEntryDuration(durationStats, entry);
+            long eta = now + cumulativeMs;
+            cumulativeMs += estimatedDuration;
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("position", i + 1);
             map.put("runId", entry.getRunId());
@@ -521,10 +533,14 @@ public class ProgressResource {
             map.put("waitingSince", entry.getWaitingSince());
             long waitingMs = Math.max(0, now - entry.getWaitingSince());
             map.put("waitingMs", waitingMs);
-            long eta = now + (long) i * perSlotDuration;
             map.put("estimatedStartMs", eta);
+            map.put("estimatedDurationMs", estimatedDuration);
             map.put("repoWaiting", entry.getRepoWaiting());
             map.put("projectWaiting", entry.getProjectWaiting());
+            String reason = determineBackpressure(entry, stats);
+            if (reason != null) {
+                map.put("backpressureReason", reason);
+            }
             list.add(map);
         }
         return list;
@@ -543,6 +559,41 @@ public class ProgressResource {
         map.put("repoWaiters", scopeStatsToList(stats.getTopRepoWaiters()));
         map.put("projectWaiters", scopeStatsToList(stats.getTopProjectWaiters()));
         return map;
+    }
+
+    private long estimateEntryDuration(ReviewHistoryService.DurationStats stats,
+                                       ReviewConcurrencyController.QueueStats.QueueEntry entry) {
+        double fallback = DEFAULT_REVIEW_DURATION_MS;
+        if (stats == null) {
+            return Math.round(fallback);
+        }
+        double estimate = stats.estimate(entry.getProjectKey(), entry.getRepositorySlug(), fallback);
+        if (estimate <= 0) {
+            return Math.round(fallback);
+        }
+        return Math.max(1000L, Math.round(estimate));
+    }
+
+    private String determineBackpressure(ReviewConcurrencyController.QueueStats.QueueEntry entry,
+                                         ReviewConcurrencyController.QueueStats stats) {
+        if (entry == null || stats == null) {
+            return null;
+        }
+        if (stats.getMaxQueuedPerRepo() > 0 && entry.getRepoWaiting() >= stats.getMaxQueuedPerRepo()) {
+            return "Repository capacity";
+        }
+        if (stats.getMaxQueuedPerProject() > 0 && entry.getProjectWaiting() >= stats.getMaxQueuedPerProject()) {
+            return "Project capacity";
+        }
+        return null;
+    }
+
+    private ReviewHistoryService.DurationStats fetchDurationStats() {
+        try {
+            return reviewHistoryService.getRecentDurationStats(DURATION_SAMPLE_SIZE);
+        } catch (Exception ex) {
+            return ReviewHistoryService.DurationStats.empty();
+        }
     }
 
     private Map<String, Object> schedulerStateToMap(ReviewSchedulerStateService.SchedulerState state) {
