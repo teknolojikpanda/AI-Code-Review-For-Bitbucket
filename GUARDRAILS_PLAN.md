@@ -78,6 +78,6 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Design and build the retention cleanup + alert/health dashboards, wiring the new telemetry into `/metrics` and admin panels (Sections 6.5–6.7 & 7.3–7.6).
-> 2. Expose queue + rate-limit KPIs through monitoring endpoints and start drafting alert/runbook content (Sections 6.1–6.4 & 8.5).
-> 3. Begin planning the rollout/runbook automation workstreams (Sections 8.6–8.9) once the above telemetry pieces are in place.
+> 1. Implement the automated retention cleanup job plus admin-triggered controls, using the new retention telemetry as guidance (Sections 7.1–7.4).
+> 2. Wire the monitoring payload into `/metrics` consumers and draft alert/runbook content (Sections 6.1–6.4 & 8.5).
+> 3. Begin planning the rollout/runbook automation workstreams (Sections 8.6–8.9) once cleanup + alerting are ready.

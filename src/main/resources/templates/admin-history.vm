@@ -101,6 +101,36 @@
                     </div>
                 </section>
 
+                <section id="health-section" class="health-section" style="display:none;">
+                    <header class="health-header">
+                        <h2>Health & Retention</h2>
+                        <span id="health-updated" class="health-updated">—</span>
+                    </header>
+                    <div class="health-grid">
+                        <div class="health-card">
+                            <span class="health-label">Queue Active</span>
+                            <span class="health-value" id="health-queue-active">—</span>
+                            <span class="health-subtext" id="health-queue-waiting">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Worker Pool</span>
+                            <span class="health-value" id="health-worker-active">—</span>
+                            <span class="health-subtext" id="health-worker-queued">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Rate Limit</span>
+                            <span class="health-value" id="health-rate-limit">—</span>
+                            <span class="health-subtext" id="health-rate-tracked">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Retention</span>
+                            <span class="health-value" id="health-retention-total">—</span>
+                            <span class="health-subtext" id="health-retention-note">—</span>
+                        </div>
+                    </div>
+                    <div class="health-note">Retention cleanup automation coming soon.</div>
+                </section>
+
                 <section id="queue-section" class="queue-section" style="display:none;">
                     <header class="queue-header">
                         <h2>Review Queue</h2>

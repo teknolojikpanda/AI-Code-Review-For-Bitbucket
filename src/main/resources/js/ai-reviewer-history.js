@@ -417,6 +417,8 @@
         } else {
             clearMetricsMessage();
         }
+
+        renderHealthMetrics(data.runtime || {}, data.retention || {});
     }
 
     function renderDailyMetrics(rows, error) {
@@ -673,6 +675,52 @@
             target = action.runId ? action.runId : '—';
         }
         return (target + run).trim() || '—';
+    }
+
+    function renderHealthMetrics(runtime, retention) {
+        var $section = $('#health-section');
+        if (!$section.length) {
+            return;
+        }
+        var hasRuntime = runtime && Object.keys(runtime).length;
+        var hasRetention = retention && Object.keys(retention).length;
+        if (!hasRuntime && !hasRetention) {
+            $section.hide();
+            return;
+        }
+        $section.show();
+
+        var queue = runtime.queue || {};
+        $('#health-queue-active').text(valueOrDash(queue.activeReviews));
+        var waiting = valueOrDash(queue.waitingReviews);
+        var available = valueOrDash(queue.availableSlots);
+        $('#health-queue-waiting').text('Waiting ' + waiting + ' • Slots ' + available);
+        $('#health-updated').text(queue.capturedAt ? formatTimestamp(queue.capturedAt) : '—');
+
+        var worker = runtime.workerPool || {};
+        $('#health-worker-active').text(valueOrDash(worker.activeThreads));
+        var workerQueued = valueOrDash(worker.queuedTasks);
+        var workerSize = valueOrDash(worker.configuredSize);
+        $('#health-worker-queued').text('Queued ' + workerQueued + ' / Size ' + workerSize);
+
+        var limiter = runtime.rateLimiter || {};
+        $('#health-rate-limit').text(valueOrDash(limiter.repoLimitPerHour));
+        var trackedRepo = valueOrDash(limiter.trackedRepoBuckets);
+        var trackedProject = valueOrDash(limiter.trackedProjectBuckets);
+        $('#health-rate-tracked').text('Repo buckets ' + trackedRepo + ' • Project buckets ' + trackedProject);
+
+        var retentionDays = valueOrDash(retention.retentionDays);
+        $('#health-retention-total').text(valueOrDash(retention.totalEntries));
+        var older = valueOrDash(retention.entriesOlderThanRetention);
+        var cutoff = retention.cutoffEpochMs ? formatTimestamp(retention.cutoffEpochMs) : '—';
+        $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
+    }
+
+    function valueOrDash(value) {
+        if (value === null || value === undefined || value !== value) {
+            return '—';
+        }
+        return value;
     }
 
     function formatStatus(entry) {

@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 import net.java.ao.DBParam;
 import net.java.ao.Query;
@@ -935,6 +936,38 @@ public class ReviewHistoryService {
                     toAverageMap(repoStats),
                     toAverageMap(projectStats),
                     global.getSamples());
+        });
+    }
+
+    public Map<String, Object> getRetentionStats(int retentionDays) {
+        final int days = Math.max(1, retentionDays);
+        final long now = System.currentTimeMillis();
+        final long cutoff = now - TimeUnit.DAYS.toMillis(days);
+        return ao.executeInTransaction(() -> {
+            int total = ao.count(AIReviewHistory.class);
+            int older = ao.count(AIReviewHistory.class,
+                    Query.select().where("REVIEW_START_TIME < ?", cutoff));
+            long oldestStart = 0L;
+            long newestStart = 0L;
+            AIReviewHistory[] oldest = ao.find(AIReviewHistory.class,
+                    Query.select().order("REVIEW_START_TIME ASC").limit(1));
+            AIReviewHistory[] newest = ao.find(AIReviewHistory.class,
+                    Query.select().order("REVIEW_START_TIME DESC").limit(1));
+            if (oldest.length > 0) {
+                oldestStart = oldest[0].getReviewStartTime();
+            }
+            if (newest.length > 0) {
+                newestStart = newest[0].getReviewStartTime();
+            }
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("retentionDays", days);
+            map.put("totalEntries", total);
+            map.put("entriesOlderThanRetention", older);
+            map.put("cutoffEpochMs", cutoff);
+            map.put("oldestReviewStart", oldestStart);
+            map.put("newestReviewStart", newestStart);
+            map.put("generatedAt", now);
+            return map;
         });
     }
 

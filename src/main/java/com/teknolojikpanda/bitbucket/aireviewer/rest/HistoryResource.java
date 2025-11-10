@@ -50,6 +50,7 @@ public class HistoryResource {
     private static final Logger log = LoggerFactory.getLogger(HistoryResource.class);
 
     private static final int MAX_RATE_LIMIT_SAMPLES = 10;
+    private static final int DEFAULT_RETENTION_DAYS = 90;
 
     private final UserManager userManager;
     private final ReviewHistoryService historyService;
@@ -156,6 +157,7 @@ public class HistoryResource {
                     since,
                     until);
             summary.put("runtime", runtimeTelemetry());
+            summary.put("retention", historyService.getRetentionStats(DEFAULT_RETENTION_DAYS));
             return Response.ok(summary).build();
         } catch (Exception ex) {
             log.error("Failed to compute AI review metrics", ex);

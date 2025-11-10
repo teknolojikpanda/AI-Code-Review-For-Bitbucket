@@ -42,6 +42,7 @@ public class HistoryResourceTest {
         System.setProperty("javax.ws.rs.ext.RuntimeDelegate", "com.sun.jersey.server.impl.provider.RuntimeDelegateImpl");
         userManager = mock(UserManager.class);
         historyService = mock(ReviewHistoryService.class);
+        when(historyService.getRetentionStats(anyInt())).thenReturn(Collections.emptyMap());
         progressRegistry = mock(ProgressRegistry.class);
         concurrencyController = mock(ReviewConcurrencyController.class);
         rateLimiter = mock(ReviewRateLimiter.class);
