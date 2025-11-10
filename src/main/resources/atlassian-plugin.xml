@@ -80,6 +80,12 @@
         <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool</interface>
     </component>
 
+    <component key="reviewQueueAuditService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewQueueAuditService">
+        <description>Persists administrative queue override actions for auditing</description>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewQueueAuditService</interface>
+    </component>
+
     <component key="reviewSchedulerStateService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService">
         <description>Persists and exposes AI reviewer scheduler state</description>

@@ -11,8 +11,8 @@ import net.java.ao.schema.Table;
 public interface AIReviewQueueAudit extends Entity {
 
     @NotNull
-    long getTimestamp();
-    void setTimestamp(long timestamp);
+    long getCreatedAt();
+    void setCreatedAt(long createdAt);
 
     @NotNull
     @StringLength(32)

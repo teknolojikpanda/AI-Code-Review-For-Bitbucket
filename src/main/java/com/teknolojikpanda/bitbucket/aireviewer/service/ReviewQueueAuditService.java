@@ -43,7 +43,7 @@ public class ReviewQueueAuditService {
         try {
             ao.executeInTransaction(() -> {
                 AIReviewQueueAudit entity = ao.create(AIReviewQueueAudit.class);
-                entity.setTimestamp(action.getTimestamp());
+                entity.setCreatedAt(action.getTimestamp());
                 entity.setAction(sanitize(action.getAction(), 32));
                 entity.setRunId(sanitize(action.getRunId(), 255));
                 entity.setProjectKey(sanitize(action.getProjectKey(), 64));
@@ -70,7 +70,7 @@ public class ReviewQueueAuditService {
         return ao.executeInTransaction(() -> {
             AIReviewQueueAudit[] rows = ao.find(
                     AIReviewQueueAudit.class,
-                    Query.select().order("TIMESTAMP DESC").limit(fetch));
+                    Query.select().order("CREATED_AT DESC").limit(fetch));
             if (rows.length == 0) {
                 return List.of();
             }
@@ -93,7 +93,7 @@ public class ReviewQueueAuditService {
         AIReviewQueueAudit[] stale = ao.find(
                 AIReviewQueueAudit.class,
                 Query.select()
-                        .order("TIMESTAMP ASC")
+                        .order("CREATED_AT ASC")
                         .limit(toDelete));
         if (stale.length > 0) {
             ao.delete(stale);
@@ -103,7 +103,7 @@ public class ReviewQueueAuditService {
     private ReviewConcurrencyController.QueueStats.QueueAction toAction(AIReviewQueueAudit entity) {
         return new ReviewConcurrencyController.QueueStats.QueueAction(
                 entity.getAction(),
-                entity.getTimestamp(),
+                entity.getCreatedAt(),
                 entity.getRunId(),
                 entity.getProjectKey(),
                 entity.getRepositorySlug(),
