@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Code Reviewer - Health</title>
+    <meta name="decorator" content="atl.admin">
+    <meta name="application-base-url" content="$baseUrl">
+    $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-health-resources")
+</head>
+<body>
+<header class="aui-page-header" style="padding-bottom: 20px;">
+    <div class="aui-page-header-inner">
+        <div class="aui-page-header-main">
+            <h1>AI Code Reviewer Health</h1>
+        </div>
+        <div class="aui-page-header-actions">
+            <a class="aui-button" href="$baseUrl/plugins/servlet/ai-reviewer/admin">Back to Configuration</a>
+            <a class="aui-button" href="$baseUrl/plugins/servlet/ai-reviewer/history">History</a>
+        </div>
+    </div>
+</header>
+
+<div class="aui-page-panel">
+    <div class="aui-page-panel-inner">
+        <section class="aui-page-panel-content">
+            <div id="ai-reviewer-health-container">
+                <div class="health-toolbar">
+                    <button type="button" class="aui-button" id="refresh-health-btn">
+                        <span class="aui-icon aui-icon-small aui-iconfont-refresh"></span> Refresh
+                    </button>
+                    <span class="health-toolbar-note">Telemetry refreshes on demand.</span>
+                </div>
+
+                <div id="health-message" class="aui-message info" style="display:none;"></div>
+
+                <section class="health-section">
+                    <header class="health-header">
+                        <h2>Runtime Snapshot</h2>
+                        <span id="health-updated" class="health-updated">—</span>
+                    </header>
+                    <div class="health-grid">
+                        <div class="health-card">
+                            <span class="health-label">Queue</span>
+                            <span class="health-value" id="health-queue-active">—</span>
+                            <span class="health-subtext" id="health-queue-note">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Worker Pool</span>
+                            <span class="health-value" id="health-worker-active">—</span>
+                            <span class="health-subtext" id="health-worker-note">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Rate Limits</span>
+                            <span class="health-value" id="health-rate-limit">—</span>
+                            <span class="health-subtext" id="health-rate-note">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Retention</span>
+                            <span class="health-value" id="health-retention-total">—</span>
+                            <span class="health-subtext" id="health-retention-note">—</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="queue-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Review Queue</h2>
+                        <span id="queue-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-grid">
+                        <div class="queue-card">
+                            <span class="queue-label">Active</span>
+                            <span class="queue-value" id="queue-active">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Available Slots</span>
+                            <span class="queue-value" id="queue-available">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Waiting</span>
+                            <span class="queue-value" id="queue-waiting">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Max Concurrent</span>
+                            <span class="queue-value" id="queue-max-concurrent">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Max Queued</span>
+                            <span class="queue-value" id="queue-max-queued">—</span>
+                        </div>
+                    </div>
+                    <div class="queue-note" id="queue-note">—</div>
+                    <div class="aui-message info queue-admin-message" id="queue-admin-message" style="display:none;"></div>
+                    <div class="queue-columns">
+                        <div class="queue-panel">
+                            <header>
+                                <h3>Queued Reviews</h3>
+                                <span class="queue-panel-count" id="queue-entries-count"></span>
+                            </header>
+                            <div class="queue-empty" id="queue-entries-empty">Loading queued reviews…</div>
+                            <table class="aui aui-table aui-table-rowhover" id="queue-entries-table" style="display:none;">
+                                <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Repository / PR</th>
+                                    <th>Requested By</th>
+                                    <th>Waiting</th>
+                                    <th>Scope Pressure</th>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="queue-panel">
+                            <header>
+                                <h3>Recent Queue Actions</h3>
+                                <span class="queue-panel-count" id="queue-actions-count"></span>
+                            </header>
+                            <div class="queue-empty" id="queue-actions-empty">Loading audit log…</div>
+                            <table class="aui aui-table aui-table-rowhover" id="queue-actions-table" style="display:none;">
+                                <thead>
+                                <tr>
+                                    <th>When</th>
+                                    <th>Action</th>
+                                    <th>Actor</th>
+                                    <th>Target</th>
+                                    <th>Note</th>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <div class="health-note" style="margin-top: 16px;">
+                    Automated retention cleanup controls will land here soon. Monitor the metrics above to plan manual maintenance until then.
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+</body>
+</html>

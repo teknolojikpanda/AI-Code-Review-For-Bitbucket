@@ -188,6 +188,14 @@
         <link>/plugins/servlet/ai-reviewer/history</link>
     </web-item>
 
+    <web-item key="ai-reviewer-health-link"
+              name="AI Review Health"
+              section="atl.admin/ai-reviewer-admin-section"
+              weight="30">
+        <label>Health Dashboard</label>
+        <link>/plugins/servlet/ai-reviewer/health</link>
+    </web-item>
+
     <!-- Admin Configuration Servlet -->
     <servlet key="ai-reviewer-admin-servlet"
              name="AI Reviewer Admin Servlet"
@@ -203,6 +211,12 @@
         <url-pattern>/ai-reviewer/history</url-pattern>
     </servlet>
 
+    <servlet key="ai-reviewer-health-servlet"
+             name="AI Reviewer Health Servlet"
+             class="com.teknolojikpanda.bitbucket.aireviewer.servlet.ReviewHealthServlet">
+        <description>Admin health dashboard for AI Code Reviewer</description>
+        <url-pattern>/ai-reviewer/health</url-pattern>
+    </servlet>
     <!-- Web Resources -->
     <web-resource key="ai-reviewer-admin-resources" name="AI Reviewer Admin Resources">
         <description>Resources for the admin configuration page</description>
@@ -230,6 +244,16 @@
         <resource type="download" name="ai-reviewer-progress.js" location="/js/ai-reviewer-progress.js"/>
         <resource type="download" name="ai-reviewer-history.js" location="/js/ai-reviewer-history.js"/>
         <context>ai-reviewer-history</context>
+    </web-resource>
+
+    <web-resource key="ai-reviewer-health-resources" name="AI Reviewer Health Resources">
+        <description>Resources for the AI review health dashboard</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
+        <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-health.js" location="/js/ai-reviewer-health.js"/>
+        <context>ai-reviewer-health</context>
     </web-resource>
 
     <web-resource key="ai-reviewer-pr-progress-resources" name="AI Reviewer PR Progress Resources">
