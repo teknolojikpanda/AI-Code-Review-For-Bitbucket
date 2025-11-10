@@ -217,6 +217,21 @@ public class ProgressResource {
         return Response.ok(buildSchedulerStatePayload()).build();
     }
 
+    @GET
+    @Path("/admin/queue")
+    public Response getQueueSnapshot(@Context HttpServletRequest request) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
+        List<Map<String, Object>> entries = convertQueueEntries(concurrencyController.getQueuedRequests());
+        payload.put("entries", entries);
+        payload.put("count", entries.size());
+        return Response.ok(payload).build();
+    }
+
     @POST
     @Path("/admin/scheduler/pause")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -266,6 +281,33 @@ public class ProgressResource {
                 admin.profile != null ? admin.profile.getFullName() : null,
                 normalizeReason(body));
         return Response.ok(buildSchedulerStatePayload()).build();
+    }
+
+    @POST
+    @Path("/admin/queue/cancel")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response cancelQueuedRun(@Context HttpServletRequest request,
+                                    QueueCancelRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        if (body == null || body.runId == null || body.runId.trim().isEmpty()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("runId is required to cancel a queued review."))
+                    .build();
+        }
+        boolean cancelled = concurrencyController.cancelQueuedRun(body.runId.trim());
+        if (!cancelled) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(error("No queued review found for the provided runId."))
+                    .build();
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("canceled", true);
+        payload.put("runId", body.runId.trim());
+        payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
+        return Response.ok(payload).build();
     }
 
     private Map<String, Object> toDto(ProgressRegistry.ProgressSnapshot snapshot) {
@@ -451,6 +493,28 @@ public class ProgressResource {
         return payload;
     }
 
+    private List<Map<String, Object>> convertQueueEntries(List<ReviewConcurrencyController.QueueStats.QueueEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (ReviewConcurrencyController.QueueStats.QueueEntry entry : entries) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("runId", entry.getRunId());
+            map.put("projectKey", entry.getProjectKey());
+            map.put("repositorySlug", entry.getRepositorySlug());
+            map.put("pullRequestId", entry.getPullRequestId());
+            map.put("manual", entry.isManual());
+            map.put("update", entry.isUpdate());
+            map.put("force", entry.isForce());
+            map.put("waitingSince", entry.getWaitingSince());
+            map.put("repoWaiting", entry.getRepoWaiting());
+            map.put("projectWaiting", entry.getProjectWaiting());
+            list.add(map);
+        }
+        return list;
+    }
+
     private Map<String, Object> queueSnapshotToMap(ReviewConcurrencyController.QueueStats stats) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("maxConcurrent", stats.getMaxConcurrent());
@@ -539,8 +603,12 @@ public class ProgressResource {
         }
     }
 
-    private static final class SchedulerStateRequest {
+    static final class SchedulerStateRequest {
         public String reason;
+    }
+
+    static final class QueueCancelRequest {
+        public String runId;
     }
 
     private static final class RateLimiter {

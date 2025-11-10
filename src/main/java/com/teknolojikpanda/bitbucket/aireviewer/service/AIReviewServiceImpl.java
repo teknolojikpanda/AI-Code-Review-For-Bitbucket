@@ -938,7 +938,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                     pullRequestId,
                     manual,
                     update,
-                    force);
+                    force,
+                    runId);
         }
 
         ProgressRegistry.ProgressMetadata toProgressMetadata() {

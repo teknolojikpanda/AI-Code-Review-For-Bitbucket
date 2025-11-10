@@ -82,6 +82,7 @@ public class ProgressResourceTest {
                         Collections.emptyList(),
                         Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
+        when(concurrencyController.getQueuedRequests()).thenReturn(Collections.emptyList());
         resource = new ProgressResource(userManager, userService, repositoryService, permissionService, progressRegistry, historyService, schedulerStateService, concurrencyController);
     }
 
@@ -174,6 +175,85 @@ public class ProgressResourceTest {
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertEquals(456L, payload.get("historyId"));
         assertTrue(payload.containsKey("progress"));
+    }
+
+    @Test
+    public void adminQueueRequiresPermission() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.getQueueSnapshot(request);
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void adminQueueReturnsEntries() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+
+        ReviewConcurrencyController.QueueStats.QueueEntry entry =
+                new ReviewConcurrencyController.QueueStats.QueueEntry(
+                        "run-123",
+                        "PRJ",
+                        "repo",
+                        42L,
+                        true,
+                        false,
+                        false,
+                        1000L,
+                        2,
+                        3);
+        when(concurrencyController.getQueuedRequests()).thenReturn(Collections.singletonList(entry));
+
+        Response response = resource.getQueueSnapshot(request);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> entries = (List<Map<String, Object>>) payload.get("entries");
+        assertEquals(1, entries.size());
+        assertEquals("run-123", entries.get(0).get("runId"));
+    }
+
+    @Test
+    public void adminQueueCancelRequiresRunId() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+
+        Response response = resource.cancelQueuedRun(request, new ProgressResource.QueueCancelRequest());
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void adminQueueCancelReturnsNotFound() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        when(concurrencyController.cancelQueuedRun("run-1")).thenReturn(false);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        body.runId = "run-1";
+        Response response = resource.cancelQueuedRun(request, body);
+
+        assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void adminQueueCancelSucceeds() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        when(concurrencyController.cancelQueuedRun("run-2")).thenReturn(true);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        body.runId = "run-2";
+        Response response = resource.cancelQueuedRun(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals(true, payload.get("canceled"));
     }
 
     @Test

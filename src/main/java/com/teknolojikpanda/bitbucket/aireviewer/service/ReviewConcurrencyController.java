@@ -43,6 +43,7 @@ public class ReviewConcurrencyController {
     private final AtomicInteger waitingCount = new AtomicInteger();
     private final ConcurrentHashMap<String, AtomicInteger> waitingByRepo = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicInteger> waitingByProject = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, QueuedPermit> waitingByRunId = new ConcurrentHashMap<>();
 
     private volatile int maxConcurrent;
     private volatile int maxQueueSize;
@@ -135,6 +136,42 @@ public class ReviewConcurrencyController {
                 projectWaiters);
     }
 
+    public List<QueueStats.QueueEntry> getQueuedRequests() {
+        List<QueueStats.QueueEntry> entries = new ArrayList<>();
+        waitingByRunId.forEach((runId, permit) -> {
+            ReviewExecutionRequest req = permit.getRequest();
+            int repoWaiting = permit.getRepoCounter() != null ? permit.getRepoCounter().get() : 0;
+            int projectWaiting = permit.getProjectCounter() != null ? permit.getProjectCounter().get() : 0;
+            entries.add(new QueueStats.QueueEntry(
+                    runId,
+                    req.getProjectKey(),
+                    req.getRepositorySlug(),
+                    req.getPullRequestId(),
+                    req.isManual(),
+                    req.isUpdate(),
+                    req.isForce(),
+                    permit.getWaitingSince(),
+                    repoWaiting,
+                    projectWaiting));
+        });
+        entries.sort(Comparator.comparingLong(QueueStats.QueueEntry::getWaitingSince));
+        return entries;
+    }
+
+    public boolean cancelQueuedRun(@Nonnull String runId) {
+        Objects.requireNonNull(runId, "runId");
+        QueuedPermit permit = waitingByRunId.remove(runId);
+        if (permit == null) {
+            return false;
+        }
+        permit.release();
+        log.info("Canceled queued AI review run {} for {}/{} PR #{}", runId,
+                permit.getRequest().getProjectKey(),
+                permit.getRequest().getRepositorySlug(),
+                permit.getRequest().getPullRequestId());
+        return true;
+    }
+
     private void refreshLimitsIfNeeded() {
         long now = System.currentTimeMillis();
         if (now - lastRefreshTimestamp < REFRESH_INTERVAL_MS) {
@@ -177,7 +214,12 @@ public class ReviewConcurrencyController {
             waitingCount.decrementAndGet();
             return null;
         }
-        return new QueuedPermit(repoKey, repoCounter, projectKey, projectCounter);
+
+        String runId = resolveRunId(request);
+        long waitingSince = System.currentTimeMillis();
+        QueuedPermit permit = new QueuedPermit(runId, request, repoKey, repoCounter, projectKey, projectCounter, waitingSince);
+        waitingByRunId.put(runId, permit);
+        return permit;
     }
 
     private AtomicInteger incrementCounter(ConcurrentHashMap<String, AtomicInteger> map, String key) {
@@ -218,6 +260,19 @@ public class ReviewConcurrencyController {
         }
         return value.trim().toLowerCase(Locale.ROOT);
     }
+
+    private String resolveRunId(ReviewExecutionRequest request) {
+        String runId = request.getRunId();
+        if (runId != null && !runId.trim().isEmpty()) {
+            return runId.trim();
+        }
+        return String.format("%s/%s#%d-%d",
+                normalizeKey(request.getProjectKey(), "proj"),
+                normalizeKey(request.getRepositorySlug(), "repo"),
+                request.getPullRequestId(),
+                System.nanoTime());
+    }
+
 
     private List<QueueStats.ScopeQueueStats> topScopes(ConcurrentHashMap<String, AtomicInteger> map,
                                                        int limit,
@@ -293,19 +348,22 @@ public class ReviewConcurrencyController {
         private final boolean manual;
         private final boolean update;
         private final boolean force;
+        private final String runId;
 
         public ReviewExecutionRequest(String projectKey,
                                       String repositorySlug,
                                       long pullRequestId,
                                       boolean manual,
                                       boolean update,
-                                      boolean force) {
+                                      boolean force,
+                                      String runId) {
             this.projectKey = projectKey;
             this.repositorySlug = repositorySlug;
             this.pullRequestId = pullRequestId;
             this.manual = manual;
             this.update = update;
             this.force = force;
+            this.runId = runId;
         }
 
         public String getProjectKey() {
@@ -330,6 +388,10 @@ public class ReviewConcurrencyController {
 
         public boolean isForce() {
             return force;
+        }
+
+        public String getRunId() {
+            return runId;
         }
     }
 
@@ -433,6 +495,81 @@ public class ReviewConcurrencyController {
             return topProjectWaiters;
         }
 
+        public static final class QueueEntry {
+            private final String runId;
+            private final String projectKey;
+            private final String repositorySlug;
+            private final long pullRequestId;
+            private final boolean manual;
+            private final boolean update;
+            private final boolean force;
+            private final long waitingSince;
+            private final int repoWaiting;
+            private final int projectWaiting;
+
+            public QueueEntry(String runId,
+                              String projectKey,
+                              String repositorySlug,
+                              long pullRequestId,
+                              boolean manual,
+                              boolean update,
+                              boolean force,
+                              long waitingSince,
+                              int repoWaiting,
+                              int projectWaiting) {
+                this.runId = runId;
+                this.projectKey = projectKey;
+                this.repositorySlug = repositorySlug;
+                this.pullRequestId = pullRequestId;
+                this.manual = manual;
+                this.update = update;
+                this.force = force;
+                this.waitingSince = waitingSince;
+                this.repoWaiting = repoWaiting;
+                this.projectWaiting = projectWaiting;
+            }
+
+            public String getRunId() {
+                return runId;
+            }
+
+            public String getProjectKey() {
+                return projectKey;
+            }
+
+            public String getRepositorySlug() {
+                return repositorySlug;
+            }
+
+            public long getPullRequestId() {
+                return pullRequestId;
+            }
+
+            public boolean isManual() {
+                return manual;
+            }
+
+            public boolean isUpdate() {
+                return update;
+            }
+
+            public boolean isForce() {
+                return force;
+            }
+
+            public long getWaitingSince() {
+                return waitingSince;
+            }
+
+            public int getRepoWaiting() {
+                return repoWaiting;
+            }
+
+            public int getProjectWaiting() {
+                return projectWaiting;
+            }
+        }
+
         public static final class ScopeQueueStats {
             private final String scope;
             private final int waiting;
@@ -459,20 +596,29 @@ public class ReviewConcurrencyController {
     }
 
     private final class QueuedPermit {
+        private final String runId;
+        private final ReviewExecutionRequest request;
         private final String repoKey;
         private final AtomicInteger repoCounter;
         private final String projectKey;
         private final AtomicInteger projectCounter;
+        private final long waitingSince;
         private boolean released;
 
-        private QueuedPermit(String repoKey,
+        private QueuedPermit(String runId,
+                             ReviewExecutionRequest request,
+                             String repoKey,
                              AtomicInteger repoCounter,
                              String projectKey,
-                             AtomicInteger projectCounter) {
+                             AtomicInteger projectCounter,
+                             long waitingSince) {
+            this.runId = runId;
+            this.request = request;
             this.repoKey = repoKey;
             this.repoCounter = repoCounter;
             this.projectKey = projectKey;
             this.projectCounter = projectCounter;
+            this.waitingSince = waitingSince;
         }
 
         void release() {
@@ -480,9 +626,30 @@ public class ReviewConcurrencyController {
                 return;
             }
             released = true;
-            waitingCount.decrementAndGet();
+            waitingCount.updateAndGet(current -> current > 0 ? current - 1 : 0);
             releaseCounter(waitingByRepo, repoKey, repoCounter);
             releaseCounter(waitingByProject, projectKey, projectCounter);
+            waitingByRunId.remove(runId, this);
+        }
+
+        String getRunId() {
+            return runId;
+        }
+
+        ReviewExecutionRequest getRequest() {
+            return request;
+        }
+
+        long getWaitingSince() {
+            return waitingSince;
+        }
+
+        AtomicInteger getRepoCounter() {
+            return repoCounter;
+        }
+
+        AtomicInteger getProjectCounter() {
+            return projectCounter;
         }
     }
 }

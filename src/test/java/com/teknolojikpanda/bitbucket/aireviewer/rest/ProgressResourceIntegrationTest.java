@@ -86,6 +86,7 @@ public class ProgressResourceIntegrationTest {
                         Collections.emptyList(),
                         Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
+        when(concurrencyController.getQueuedRequests()).thenReturn(Collections.emptyList());
 
         resource = new ProgressResource(
                 userManager,
