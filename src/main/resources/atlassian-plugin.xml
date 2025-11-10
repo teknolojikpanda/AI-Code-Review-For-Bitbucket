@@ -42,8 +42,7 @@
     <component-import key="securityService" interface="com.atlassian.bitbucket.user.SecurityService"/>
     <component-import key="repositoryHookService" interface="com.atlassian.bitbucket.hook.repository.RepositoryHookService"/>
     <component-import key="auditService" interface="com.atlassian.audit.api.AuditService"/>
-    <component-import key="pluginScheduler" interface="com.atlassian.sal.api.scheduling.PluginScheduler"/>
-    <component-import key="pluginAccessor" interface="com.atlassian.plugin.PluginAccessor"/>
+    <component-import key="schedulerService" interface="com.atlassian.scheduler.SchedulerService"/>
 
 
     <!--

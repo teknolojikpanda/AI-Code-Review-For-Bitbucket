@@ -7,7 +7,6 @@ import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupStatus;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
-import java.util.Locale;
 import java.util.Objects;
 
 @Named

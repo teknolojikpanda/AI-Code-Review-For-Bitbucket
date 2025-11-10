@@ -1,18 +1,21 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
-import com.atlassian.sal.api.scheduling.PluginScheduler;
+import com.atlassian.scheduler.JobRunner;
+import com.atlassian.scheduler.JobRunnerResponse;
+import com.atlassian.scheduler.SchedulerService;
+import com.atlassian.scheduler.SchedulerServiceException;
+import com.atlassian.scheduler.config.JobConfig;
+import com.atlassian.scheduler.status.RunOutcome;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
-
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -22,68 +25,56 @@ import static org.mockito.Mockito.when;
 
 public class ReviewHistoryCleanupSchedulerTest {
 
-    private PluginScheduler pluginScheduler;
+    private SchedulerService schedulerService;
     private ReviewHistoryCleanupService cleanupService;
     private ReviewHistoryCleanupStatusService statusService;
 
     @Before
     public void setUp() {
-        pluginScheduler = mock(PluginScheduler.class);
+        schedulerService = mock(SchedulerService.class);
         cleanupService = mock(ReviewHistoryCleanupService.class);
         statusService = mock(ReviewHistoryCleanupStatusService.class);
     }
 
     @Test
-    public void schedulesJobWhenEnabled() {
+    public void schedulesJobWhenEnabled() throws SchedulerServiceException {
         when(statusService.getStatus()).thenReturn(
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null));
 
-        new ReviewHistoryCleanupScheduler(pluginScheduler, cleanupService, statusService);
+        new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService);
 
-        verify(pluginScheduler).scheduleJob(
-                eq("ai-review-history-cleanup"),
-                eq(ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob.class),
-                anyMap(),
-                any(Date.class),
-                anyLong());
+        verify(schedulerService).unregisterJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY));
+        verify(schedulerService).registerJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY), any(JobRunner.class));
+        verify(schedulerService).scheduleJob(eq(ReviewHistoryCleanupScheduler.JOB_ID), any(JobConfig.class));
     }
 
     @Test
-    public void skipsSchedulingWhenDisabled() {
+    public void skipsSchedulingWhenDisabled() throws SchedulerServiceException {
         when(statusService.getStatus()).thenReturn(
                 ReviewHistoryCleanupStatusService.Status.snapshot(false, 90, 200, 1440, 0L, 0L, 0, 0, null));
 
-        new ReviewHistoryCleanupScheduler(pluginScheduler, cleanupService, statusService);
+        new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService);
 
-        verify(pluginScheduler, never()).scheduleJob(anyString(), any(), anyMap(), any(Date.class), anyLong());
+        verify(schedulerService).unregisterJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY));
+        verify(schedulerService).registerJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY), any(JobRunner.class));
+        verify(schedulerService, never()).scheduleJob(eq(ReviewHistoryCleanupScheduler.JOB_ID), any(JobConfig.class));
     }
 
     @Test
-    public void rescheduleUnschedulesExistingJob() {
+    public void rescheduleUnschedulesExistingJob() throws SchedulerServiceException {
         ReviewHistoryCleanupStatusService.Status status =
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status, status);
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(pluginScheduler, cleanupService, statusService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService);
         scheduler.reschedule();
 
-        verify(pluginScheduler).unscheduleJob("ai-review-history-cleanup");
-        verify(pluginScheduler, times(2)).scheduleJob(
-                eq("ai-review-history-cleanup"),
-                eq(ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob.class),
-                anyMap(),
-                any(Date.class),
-                anyLong());
+        verify(schedulerService).unscheduleJob(ReviewHistoryCleanupScheduler.JOB_ID);
+        verify(schedulerService, times(2)).scheduleJob(eq(ReviewHistoryCleanupScheduler.JOB_ID), any(JobConfig.class));
     }
 
     @Test
     public void jobRunsCleanupAndRecordsStatus() {
-        ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob job =
-                new ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob();
-        Map<String, Object> data = new HashMap<>();
-        data.put("cleanupService", cleanupService);
-        data.put("statusService", statusService);
-
         ReviewHistoryCleanupStatusService.Status status =
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 45, 125, 60, 0L, 0L, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status);
@@ -91,42 +82,52 @@ public class ReviewHistoryCleanupSchedulerTest {
                 new ReviewHistoryCleanupService.CleanupResult(45, 125, 5, 18, 42, System.currentTimeMillis());
         when(cleanupService.cleanupOlderThanDays(45, 125)).thenReturn(result);
 
-        job.execute(data);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService);
+        JobRunner runner = captureRunner();
+
+        JobRunnerResponse response = runner.runJob(null);
 
         verify(cleanupService).cleanupOlderThanDays(45, 125);
         verify(statusService).recordRun(eq(result), anyLong());
+        assertNotNull(response.getMessage());
+        assertEquals(RunOutcome.SUCCESS, response.getRunOutcome());
     }
 
     @Test
     public void jobSkipsWhenDisabled() {
-        ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob job =
-                new ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob();
-        Map<String, Object> data = new HashMap<>();
-        data.put("cleanupService", cleanupService);
-        data.put("statusService", statusService);
-        when(statusService.getStatus()).thenReturn(
-                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 125, 60, 0L, 0L, 0, 0, null));
+        ReviewHistoryCleanupStatusService.Status status =
+                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 125, 60, 0L, 0L, 0, 0, null);
+        when(statusService.getStatus()).thenReturn(status);
 
-        job.execute(data);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService);
+        JobRunner runner = captureRunner();
+
+        JobRunnerResponse response = runner.runJob(null);
 
         verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
         verify(statusService, never()).recordRun(any(), anyLong());
+        assertEquals(RunOutcome.ABORTED, response.getRunOutcome());
     }
 
     @Test
     public void jobRecordsFailureOnException() {
-        ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob job =
-                new ReviewHistoryCleanupScheduler.ReviewHistoryCleanupJob();
-        Map<String, Object> data = new HashMap<>();
-        data.put("cleanupService", cleanupService);
-        data.put("statusService", statusService);
         ReviewHistoryCleanupStatusService.Status status =
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 30, 50, 120, 0L, 0L, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status);
         when(cleanupService.cleanupOlderThanDays(30, 50)).thenThrow(new RuntimeException("boom"));
 
-        job.execute(data);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService);
+        JobRunner runner = captureRunner();
+
+        JobRunnerResponse response = runner.runJob(null);
 
         verify(statusService).recordFailure("boom");
+        assertEquals(RunOutcome.FAILED, response.getRunOutcome());
+    }
+
+    private JobRunner captureRunner() {
+        ArgumentCaptor<JobRunner> captor = ArgumentCaptor.forClass(JobRunner.class);
+        verify(schedulerService).registerJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY), captor.capture());
+        return captor.getValue();
     }
 }

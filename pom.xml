@@ -81,6 +81,12 @@
             <scope>provided</scope>
         </dependency>
 
+        <dependency>
+            <groupId>com.atlassian.scheduler</groupId>
+            <artifactId>atlassian-scheduler-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Active Objects for database persistence -->
         <dependency>
             <groupId>com.atlassian.activeobjects</groupId>
