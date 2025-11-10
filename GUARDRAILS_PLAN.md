@@ -78,6 +78,6 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Emit queue override actions into Bitbucket's native audit log so every admin intervention has a tamper-resistant trail (Sections 5.3–5.4).
-> 2. Implement the ETA/backpressure scheduler improvements plus auto-snooze rate-limit overrides so fairness controls react dynamically (Sections 1.4–1.8 & 2.3–2.8).
-> 3. Design and build the retention cleanup + alert/health dashboards, wiring the metrics into `/metrics` and admin panels (Sections 6.5–6.7 & 7.3–7.6), before tackling rollout/load-test/runbook automation (Sections 8.6–8.9).
+> 1. Implement the ETA/backpressure scheduler improvements plus auto-snooze rate-limit overrides so fairness controls react dynamically (Sections 1.4–1.8 & 2.3–2.8).
+> 2. Design and build the retention cleanup + alert/health dashboards, wiring the metrics into `/metrics` and admin panels (Sections 6.5–6.7 & 7.3–7.6).
+> 3. Begin planning the rollout/runbook automation workstreams (Sections 8.6–8.9) once the above telemetry pieces are in place.

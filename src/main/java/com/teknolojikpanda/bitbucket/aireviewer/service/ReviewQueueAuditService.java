@@ -1,6 +1,12 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.activeobjects.external.ActiveObjects;
+import com.atlassian.audit.api.AuditService;
+import com.atlassian.audit.entity.AuditAttribute;
+import com.atlassian.audit.entity.AuditEvent;
+import com.atlassian.audit.entity.AuditResource;
+import com.atlassian.audit.entity.CoverageArea;
+import com.atlassian.audit.entity.CoverageLevel;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit;
 import net.java.ao.Query;
@@ -15,6 +21,7 @@ import javax.inject.Singleton;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -28,12 +35,16 @@ public class ReviewQueueAuditService {
     private static final int DEFAULT_FETCH_LIMIT = 100;
     private static final int MAX_FETCH_LIMIT = 500;
     private static final int MAX_ROWS = 2000;
+    private static final String AUDIT_CATEGORY = "AI Review Queue";
 
     private final ActiveObjects ao;
+    private final AuditService auditService;
 
     @Inject
-    public ReviewQueueAuditService(@ComponentImport ActiveObjects ao) {
+    public ReviewQueueAuditService(@ComponentImport ActiveObjects ao,
+                                   @ComponentImport @Nullable AuditService auditService) {
         this.ao = Objects.requireNonNull(ao, "activeObjects");
+        this.auditService = auditService;
     }
 
     public void recordAction(@Nullable ReviewConcurrencyController.QueueStats.QueueAction action) {
@@ -57,6 +68,7 @@ public class ReviewQueueAuditService {
                 entity.setRequestedBy(sanitize(action.getRequestedBy(), 255));
                 entity.save();
                 trimExcessRows(MAX_ROWS);
+                emitAuditEntry(action);
                 return null;
             });
         } catch (Exception ex) {
@@ -134,5 +146,78 @@ public class ReviewQueueAuditService {
     @Nonnull
     public List<ReviewConcurrencyController.QueueStats.QueueAction> listRecentActions() {
         return listRecentActions(DEFAULT_FETCH_LIMIT);
+    }
+
+    private void emitAuditEntry(@Nonnull ReviewConcurrencyController.QueueStats.QueueAction action) {
+        if (auditService == null) {
+            return;
+        }
+        try {
+            String normalizedAction = normalizeAction(action.getAction());
+            AuditEvent.Builder builder = AuditEvent.builder(
+                            "ai.review.queue." + normalizedAction,
+                            "AI review queue " + normalizedAction,
+                            CoverageLevel.ADVANCED)
+                    .category(AUDIT_CATEGORY)
+                    .area(CoverageArea.LOCAL_CONFIG_AND_ADMINISTRATION);
+
+            appendResources(builder, action);
+            appendAttributes(builder, action);
+            auditService.audit(builder.build());
+        } catch (Exception ex) {
+            log.debug("Unable to emit audit entry for queue action {}: {}", action.getAction(), ex.getMessage());
+        }
+    }
+
+    private void appendResources(AuditEvent.Builder builder,
+                                 ReviewConcurrencyController.QueueStats.QueueAction action) {
+        List<AuditResource> resources = new ArrayList<>();
+        if (action.getProjectKey() != null && action.getRepositorySlug() != null) {
+            String repoName = action.getProjectKey() + "/" + action.getRepositorySlug();
+            resources.add(AuditResource.builder(repoName, "repository")
+                    .id(repoName)
+                    .build());
+        }
+        if (action.getProjectKey() != null
+                && action.getRepositorySlug() != null
+                && action.getPullRequestId() >= 0) {
+            String prName = action.getProjectKey() + "/" + action.getRepositorySlug() + "#" + action.getPullRequestId();
+            resources.add(AuditResource.builder(prName, "pull-request")
+                    .id(String.valueOf(action.getPullRequestId()))
+                    .build());
+        }
+        if (!resources.isEmpty()) {
+            builder.appendAffectedObjects(resources);
+        }
+    }
+
+    private void appendAttributes(AuditEvent.Builder builder,
+                                  ReviewConcurrencyController.QueueStats.QueueAction action) {
+        addAttribute(builder, "runId", action.getRunId());
+        addAttribute(builder, "requestedBy", action.getRequestedBy());
+        addAttribute(builder, "actor", action.getActor());
+        addAttribute(builder, "projectKey", action.getProjectKey());
+        addAttribute(builder, "repositorySlug", action.getRepositorySlug());
+        if (action.getPullRequestId() >= 0) {
+            addAttribute(builder, "pullRequestId", String.valueOf(action.getPullRequestId()));
+        }
+        addAttribute(builder, "manual", String.valueOf(action.isManual()));
+        addAttribute(builder, "update", String.valueOf(action.isUpdate()));
+        addAttribute(builder, "force", String.valueOf(action.isForce()));
+        addAttribute(builder, "note", action.getNote());
+    }
+
+    private void addAttribute(AuditEvent.Builder builder, String key, @Nullable String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return;
+        }
+        builder.extraAttribute(new AuditAttribute(key, value));
+    }
+
+    private String normalizeAction(@Nullable String action) {
+        if (action == null || action.trim().isEmpty()) {
+            return "event";
+        }
+        return action.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
     }
 }
