@@ -132,9 +132,57 @@
                     </div>
                 </section>
 
-                <div class="health-note" style="margin-top: 16px;">
-                    Automated retention cleanup controls will land here soon. Monitor the metrics above to plan manual maintenance until then.
-                </div>
+                <section class="queue-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Retention Cleanup</h2>
+                        <span id="cleanup-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="health-grid">
+                        <div class="health-card">
+                            <span class="health-label">Last Run</span>
+                            <span class="health-value" id="cleanup-last-run">—</span>
+                            <span class="health-subtext" id="cleanup-last-run-note">—</span>
+                        </div>
+                        <div class="health-card">
+                            <span class="health-label">Last Outcome</span>
+                            <span class="health-value" id="cleanup-last-outcome">—</span>
+                            <span class="health-subtext" id="cleanup-last-outcome-note">—</span>
+                        </div>
+                    </div>
+                    <form class="aui" id="cleanup-form">
+                        <div class="field-group">
+                            <label for="cleanup-enabled">Automatic Cleanup</label>
+                            <div class="field-value">
+                                <input class="checkbox" type="checkbox" id="cleanup-enabled">
+                                <label for="cleanup-enabled">Enable scheduled cleanup of entries older than the retention window.</label>
+                                <div class="description">When disabled you can still trigger manual runs with the button below.</div>
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label for="cleanup-retention-days">Retention window (days)</label>
+                            <input class="text" type="number" id="cleanup-retention-days" min="1">
+                            <div class="description">History older than this window will be removed.</div>
+                        </div>
+                        <div class="field-group">
+                            <label for="cleanup-batch-size">Batch size</label>
+                            <input class="text" type="number" id="cleanup-batch-size" min="1">
+                            <div class="description">Maximum entries deleted per job execution.</div>
+                        </div>
+                        <div class="field-group">
+                            <label for="cleanup-interval-minutes">Interval (minutes)</label>
+                            <input class="text" type="number" id="cleanup-interval-minutes" min="5">
+                            <div class="description">How frequently the automatic job runs per node.</div>
+                        </div>
+                        <div class="field-group">
+                            <div class="buttons">
+                                <button type="submit" class="aui-button aui-button-primary" id="cleanup-save-btn">Save Schedule</button>
+                                <button type="button" class="aui-button" id="cleanup-run-btn">Run Once</button>
+                            </div>
+                            <div class="description">Manual runs respect the current settings above but ignore the schedule.</div>
+                        </div>
+                        <div class="aui-message info" id="cleanup-message" style="display:none;"></div>
+                    </form>
+                </section>
             </div>
         </section>
     </div>

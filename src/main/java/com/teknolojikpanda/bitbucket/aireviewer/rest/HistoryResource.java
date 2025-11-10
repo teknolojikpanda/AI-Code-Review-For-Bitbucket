@@ -7,7 +7,9 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupScheduler;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
@@ -19,6 +21,7 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -60,6 +63,8 @@ public class HistoryResource {
     private final ReviewRateLimiter rateLimiter;
     private final ReviewWorkerPool workerPool;
     private final ReviewHistoryCleanupService cleanupService;
+    private final ReviewHistoryCleanupStatusService cleanupStatusService;
+    private final ReviewHistoryCleanupScheduler cleanupScheduler;
 
     @Inject
     public HistoryResource(@ComponentImport UserManager userManager,
@@ -68,7 +73,9 @@ public class HistoryResource {
                            ReviewConcurrencyController concurrencyController,
                            ReviewRateLimiter rateLimiter,
                            ReviewWorkerPool workerPool,
-                           ReviewHistoryCleanupService cleanupService) {
+                           ReviewHistoryCleanupService cleanupService,
+                           ReviewHistoryCleanupStatusService cleanupStatusService,
+                           ReviewHistoryCleanupScheduler cleanupScheduler) {
         this.userManager = userManager;
         this.historyService = historyService;
         this.progressRegistry = progressRegistry;
@@ -76,6 +83,8 @@ public class HistoryResource {
         this.rateLimiter = rateLimiter;
         this.workerPool = workerPool;
         this.cleanupService = cleanupService;
+        this.cleanupStatusService = cleanupStatusService;
+        this.cleanupScheduler = cleanupScheduler;
     }
 
     @GET
@@ -154,15 +163,18 @@ public class HistoryResource {
         Long until = sanitizeEpoch(untilParam);
 
         try {
-            Map<String, Object> summary = historyService.getMetricsSummary(
-                    projectKey,
-                    repositorySlug,
-                    pullRequestId,
-                    since,
-                    until);
-            summary.put("runtime", runtimeTelemetry());
-            summary.put("retention", historyService.getRetentionStats(DEFAULT_RETENTION_DAYS));
-            return Response.ok(summary).build();
+        ReviewHistoryCleanupStatusService.Status cleanupStatus = cleanupStatusService.getStatus();
+        Map<String, Object> summary = historyService.getMetricsSummary(
+                projectKey,
+                repositorySlug,
+                pullRequestId,
+                since,
+                until);
+        summary.put("runtime", runtimeTelemetry());
+        Map<String, Object> retention = historyService.getRetentionStats(cleanupStatus.getRetentionDays());
+        retention.put("schedule", cleanupStatusToMap(cleanupStatus));
+        summary.put("retention", retention);
+        return Response.ok(summary).build();
         } catch (Exception ex) {
             log.error("Failed to compute AI review metrics", ex);
             return Response.serverError()
@@ -229,6 +241,7 @@ public class HistoryResource {
 
     @POST
     @Path("/cleanup")
+    @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response cleanupHistory(@Context HttpServletRequest request,
                                    CleanupRequest requestBody) {
@@ -237,20 +250,24 @@ public class HistoryResource {
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required.")).build();
         }
-        int retentionDays = requestBody != null && requestBody.retentionDays != null
-                ? requestBody.retentionDays
-                : DEFAULT_RETENTION_DAYS;
-        int batchSize = requestBody != null && requestBody.batchSize != null
-                ? requestBody.batchSize
-                : 200;
-        ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(retentionDays, batchSize);
+        CleanupRequest req = requestBody != null ? requestBody : new CleanupRequest();
+        ReviewHistoryCleanupStatusService.Status current = cleanupStatusService.getStatus();
+        int retentionDays = req.retentionDays != null ? Math.max(1, req.retentionDays) : current.getRetentionDays();
+        int batchSize = req.batchSize != null ? Math.max(1, req.batchSize) : current.getBatchSize();
+        int intervalMinutes = req.intervalMinutes != null ? Math.max(5, req.intervalMinutes) : current.getIntervalMinutes();
+        boolean enabled = req.enabled != null ? req.enabled : current.isEnabled();
+
+        cleanupStatusService.updateSchedule(retentionDays, batchSize, intervalMinutes, enabled);
+        cleanupScheduler.reschedule();
+
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("retentionDays", result.getRetentionDays());
-        payload.put("batchSize", result.getBatchSize());
-        payload.put("deletedHistories", result.getDeletedHistories());
-        payload.put("deletedChunks", result.getDeletedChunks());
-        payload.put("remainingCandidates", result.getRemainingCandidates());
-        payload.put("cutoffEpochMs", result.getCutoffEpochMs());
+        if (Boolean.TRUE.equals(req.runNow)) {
+            long start = System.currentTimeMillis();
+            ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(retentionDays, batchSize);
+            cleanupStatusService.recordRun(result, System.currentTimeMillis() - start);
+            payload.put("result", cleanupResultToMap(result));
+        }
+        payload.put("status", cleanupStatusToMap(cleanupStatusService.getStatus()));
         return Response.ok(payload).build();
     }
 
@@ -521,6 +538,7 @@ public class HistoryResource {
         runtime.put("workerPool", workerPoolStatsToMap());
         runtime.put("rateLimiter", rateLimitStatsToMap());
         runtime.put("schedulerState", schedulerStateToMap(stats != null ? stats.getSchedulerState() : null));
+        runtime.put("cleanupSchedule", cleanupStatusToMap(cleanupStatusService.getStatus()));
         return runtime;
     }
 
@@ -558,9 +576,37 @@ public class HistoryResource {
         return map;
     }
 
+    private Map<String, Object> cleanupStatusToMap(ReviewHistoryCleanupStatusService.Status status) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("enabled", status.isEnabled());
+        map.put("retentionDays", status.getRetentionDays());
+        map.put("batchSize", status.getBatchSize());
+        map.put("intervalMinutes", status.getIntervalMinutes());
+        map.put("lastRun", status.getLastRun());
+        map.put("lastDurationMs", status.getLastDurationMs());
+        map.put("lastDeletedHistories", status.getLastDeletedHistories());
+        map.put("lastDeletedChunks", status.getLastDeletedChunks());
+        map.put("lastError", status.getLastError());
+        return map;
+    }
+
+    private Map<String, Object> cleanupResultToMap(ReviewHistoryCleanupService.CleanupResult result) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("retentionDays", result.getRetentionDays());
+        map.put("batchSize", result.getBatchSize());
+        map.put("deletedHistories", result.getDeletedHistories());
+        map.put("deletedChunks", result.getDeletedChunks());
+        map.put("remainingCandidates", result.getRemainingCandidates());
+        map.put("cutoffEpochMs", result.getCutoffEpochMs());
+        return map;
+    }
+
     public static final class CleanupRequest {
         public Integer retentionDays;
         public Integer batchSize;
+        public Integer intervalMinutes;
+        public Boolean enabled;
+        public Boolean runNow;
     }
 
     @GET

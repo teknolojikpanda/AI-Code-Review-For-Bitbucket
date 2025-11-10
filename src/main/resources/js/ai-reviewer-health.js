@@ -7,23 +7,38 @@
 
     var runtimeUrl = baseUrl + '/rest/ai-reviewer/1.0/monitoring/runtime';
     var queueAdminUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/queue';
+    var cleanupUrl = baseUrl + '/rest/ai-reviewer/1.0/history/cleanup';
 
     function init() {
         $('#refresh-health-btn').on('click', function() {
             loadHealth();
         });
+        $('#cleanup-form').on('submit', function(event) {
+            event.preventDefault();
+            submitCleanup(false);
+        });
+        $('#cleanup-run-btn').on('click', function(event) {
+            event.preventDefault();
+            submitCleanup(true);
+        });
         loadHealth();
     }
 
-    function loadHealth() {
-        setHealthMessage('info', 'Loading telemetry…', true);
+    function loadHealth(options) {
+        options = options || {};
+        var silent = !!options.silent;
+        if (!silent) {
+            setHealthMessage('info', 'Loading telemetry…', true);
+        }
         var runtimeRequest = $.ajax({ url: runtimeUrl, type: 'GET', dataType: 'json' });
         var queueRequest = $.ajax({ url: queueAdminUrl, type: 'GET', dataType: 'json' });
 
         $.when(runtimeRequest, queueRequest).done(function(runtimeResp, queueResp) {
             renderRuntime(runtimeResp[0]);
             renderQueue(queueResp[0]);
-            clearHealthMessage();
+            if (!silent) {
+                clearHealthMessage();
+            }
         }).fail(function(xhr, status, error) {
             setHealthMessage('error', 'Failed to load telemetry: ' + (error || status), false);
         });
@@ -59,6 +74,7 @@
         var older = valueOrDash(retention.entriesOlderThanRetention);
         var cutoff = retention.cutoffEpochMs ? formatTimestamp(retention.cutoffEpochMs) : '—';
         $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
+        renderCleanup(retention.schedule || {}, null);
     }
 
     function renderQueue(data) {
@@ -191,6 +207,142 @@
         $table.show();
         $empty.hide();
         $count.text(actions.length + (actions.length === 1 ? ' action' : ' actions'));
+    }
+
+    function renderCleanup(status, latestResult) {
+        status = status || {};
+        setFieldValue('#cleanup-retention-days', status.retentionDays);
+        setFieldValue('#cleanup-batch-size', status.batchSize);
+        setFieldValue('#cleanup-interval-minutes', status.intervalMinutes);
+        $('#cleanup-enabled').prop('checked', status.enabled !== false);
+
+        var cadence = status.intervalMinutes ? ('Every ' + status.intervalMinutes + ' min') : 'Not scheduled';
+        var enabledLabel = status.enabled === false ? 'Disabled' : 'Enabled';
+        $('#cleanup-updated').text(enabledLabel + (status.intervalMinutes ? ' • ' + cadence : ''));
+
+        var lastRun = status.lastRun ? formatTimestamp(status.lastRun) : 'Never';
+        $('#cleanup-last-run').text(lastRun);
+        var duration = status.lastDurationMs ? formatDurationMs(status.lastDurationMs) : '—';
+        $('#cleanup-last-run-note').text(enabledLabel + ' • ' + cadence + ' • Duration ' + duration);
+
+        var outcomeValue;
+        if (status.lastDeletedHistories != null || status.lastDeletedChunks != null) {
+            var histories = status.lastDeletedHistories != null ? status.lastDeletedHistories : '—';
+            var chunks = status.lastDeletedChunks != null ? status.lastDeletedChunks : '—';
+            outcomeValue = histories + ' histories / ' + chunks + ' chunks';
+        } else {
+            outcomeValue = 'No data yet';
+        }
+        $('#cleanup-last-outcome').text(outcomeValue);
+        var $outcomeNote = $('#cleanup-last-outcome-note');
+        if (status.lastError) {
+            $outcomeNote.text('Failed: ' + status.lastError).css('color', '#d04437');
+        } else if (status.lastRun) {
+            $outcomeNote.text('Last run succeeded').css('color', '');
+        } else {
+            $outcomeNote.text('Waiting for first run').css('color', '');
+        }
+
+        if (latestResult) {
+            var message = formatCleanupResult(latestResult);
+            setCleanupMessage('info', message, false);
+            if (latestResult.remainingCandidates != null) {
+                var cutoff = latestResult.cutoffEpochMs ? formatTimestamp(latestResult.cutoffEpochMs) : '—';
+                $('#health-retention-note').text('Remaining older than ' + latestResult.retentionDays + 'd: ' +
+                    valueOrDash(latestResult.remainingCandidates) + ' • Cutoff ' + cutoff);
+            }
+        }
+    }
+
+    function submitCleanup(runNow) {
+        var $save = $('#cleanup-save-btn');
+        var $run = $('#cleanup-run-btn');
+        $save.prop('disabled', true);
+        $run.prop('disabled', true);
+
+        var payload = {
+            retentionDays: parseIntField('#cleanup-retention-days'),
+            batchSize: parseIntField('#cleanup-batch-size'),
+            intervalMinutes: parseIntField('#cleanup-interval-minutes'),
+            enabled: $('#cleanup-enabled').is(':checked'),
+            runNow: runNow
+        };
+
+        setCleanupMessage('info', runNow ? 'Running cleanup…' : 'Saving schedule…', true);
+
+        $.ajax({
+            url: cleanupUrl,
+            type: 'POST',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify(payload)
+        }).done(function(resp) {
+            if (resp && resp.status) {
+                renderCleanup(resp.status, runNow ? resp.result : null);
+            }
+            if (!runNow) {
+                setCleanupMessage('info', 'Cleanup schedule updated.', false);
+            } else if (!resp || !resp.result) {
+                setCleanupMessage('info', 'Cleanup triggered. Results will appear once it finishes.', false);
+            }
+            loadHealth({ silent: true });
+        }).fail(function(xhr) {
+            var message = (xhr && xhr.responseJSON && xhr.responseJSON.error) ||
+                (xhr && xhr.responseText) ||
+                'Unable to update cleanup schedule';
+            setCleanupMessage('error', message, false);
+        }).always(function() {
+            $save.prop('disabled', false);
+            $run.prop('disabled', false);
+        });
+    }
+
+    function parseIntField(selector) {
+        var value = $(selector).val();
+        if (value === undefined || value === null || value === '') {
+            return null;
+        }
+        var parsed = parseInt(value, 10);
+        return isNaN(parsed) ? null : parsed;
+    }
+
+    function setFieldValue(selector, value) {
+        var $field = $(selector);
+        if (!$field.length) {
+            return;
+        }
+        if (value === undefined || value === null || value !== value) {
+            $field.val('');
+        } else {
+            $field.val(value);
+        }
+    }
+
+    function setCleanupMessage(type, message, showSpinner) {
+        var $message = $('#cleanup-message');
+        if (!$message.length) {
+            return;
+        }
+        if (!message) {
+            $message.hide().text('').removeClass('info error');
+            return;
+        }
+        $message.removeClass('info error').addClass(type === 'error' ? 'error' : 'info');
+        var content = showSpinner
+            ? '<span class="aui-icon aui-icon-wait"></span> ' + escapeHtml(message)
+            : escapeHtml(message);
+        $message.html(content).show();
+    }
+
+    function formatCleanupResult(result) {
+        if (!result) {
+            return '';
+        }
+        var deletedHistories = valueOrDash(result.deletedHistories);
+        var deletedChunks = valueOrDash(result.deletedChunks);
+        var remaining = valueOrDash(result.remainingCandidates);
+        return 'Deleted ' + deletedHistories + ' histories / ' + deletedChunks +
+            ' chunks • Remaining candidates ' + remaining;
     }
 
     function formatRepo(entry) {

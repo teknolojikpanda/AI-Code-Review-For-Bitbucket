@@ -59,7 +59,7 @@
 7. Store alert history + operator acknowledgements so we can audit response times and improve playbooks.
 
 ### 7. History & Storage Hygiene
-1. Implement configurable retention (e.g., keep last N days) and periodic cleanup job for `AIReviewHistory` plus chunk telemetry.
+1. Implement configurable retention (e.g., keep last N days) and periodic cleanup job for `AIReviewHistory` plus chunk telemetry. _(Automated job + AO-backed status + admin controls implemented.)_
 2. Compress large `progress`/`metrics` blobs before persisting to reduce AO load.
 3. Add a background AO maintenance task that runs during off-peak hours, batching deletes to avoid table locks and emitting metrics for processed rows.
 4. Surface retention/cleanup status in the admin UI (last run, duration, records purged) so operators can confirm hygiene jobs run successfully.
@@ -78,6 +78,6 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Schedule the retention cleanup job (cluster-aware, configurable cadence) and expose status/history in the health dashboard (Sections 7.1–7.4).
-> 2. Wire monitoring payloads into `/metrics` consumers and draft alert/runbook content (Sections 6.1–6.4 & 8.5).
-> 3. Begin planning the rollout/runbook automation workstreams (Sections 8.6–8.9) once cleanup automation + alerting are ready.
+> 1. Export the new retention + queue telemetry through `/metrics` and document operator runbooks for the controls (Sections 6.1–6.4 & 8.5).
+> 2. Persist cleanup/audit history (last runs, actors, errors) and surface it beside the manual trigger controls (Sections 7.4–7.5 & 5.4).
+> 3. Kick off the alerting/rollout automation tracks (Sections 8.6–8.9) once the expanded metrics feed is live.

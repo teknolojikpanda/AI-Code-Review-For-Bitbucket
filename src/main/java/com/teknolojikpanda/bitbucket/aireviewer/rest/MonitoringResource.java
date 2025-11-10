@@ -4,6 +4,7 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
@@ -37,6 +38,7 @@ public class MonitoringResource {
     private final ReviewWorkerPool workerPool;
     private final ReviewRateLimiter rateLimiter;
     private final ReviewHistoryService historyService;
+    private final ReviewHistoryCleanupStatusService cleanupStatusService;
     private final ReviewSchedulerStateService schedulerStateService;
 
     @Inject
@@ -45,12 +47,14 @@ public class MonitoringResource {
                               ReviewWorkerPool workerPool,
                               ReviewRateLimiter rateLimiter,
                               ReviewHistoryService historyService,
+                              ReviewHistoryCleanupStatusService cleanupStatusService,
                               ReviewSchedulerStateService schedulerStateService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
         this.historyService = Objects.requireNonNull(historyService, "historyService");
+        this.cleanupStatusService = Objects.requireNonNull(cleanupStatusService, "cleanupStatusService");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
     }
 
@@ -66,8 +70,10 @@ public class MonitoringResource {
         payload.put("queue", queueSnapshotToMap(queueStats));
         payload.put("schedulerState", schedulerStateToMap(queueStats.getSchedulerState()));
         payload.put("workerPool", workerPoolStatsToMap(workerPool.snapshot()));
+        ReviewHistoryCleanupStatusService.Status cleanupStatus = cleanupStatusService.getStatus();
         payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(200)));
+        payload.put("retention", retentionToMap(cleanupStatus));
         return Response.ok(payload).build();
     }
 
@@ -119,6 +125,12 @@ public class MonitoringResource {
         return map;
     }
 
+    private Map<String, Object> retentionToMap(ReviewHistoryCleanupStatusService.Status status) {
+        Map<String, Object> map = new LinkedHashMap<>(historyService.getRetentionStats(status.getRetentionDays()));
+        map.put("schedule", cleanupStatusToMap(status));
+        return map;
+    }
+
     private List<Map<String, Object>> bucketStatesToList(Map<String, ReviewRateLimiter.RateLimitSnapshot.BucketState> states) {
         if (states == null || states.isEmpty()) {
             return List.of();
@@ -134,6 +146,20 @@ public class MonitoringResource {
             list.add(map);
         });
         return list;
+    }
+
+    private Map<String, Object> cleanupStatusToMap(ReviewHistoryCleanupStatusService.Status status) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("enabled", status.isEnabled());
+        map.put("retentionDays", status.getRetentionDays());
+        map.put("batchSize", status.getBatchSize());
+        map.put("intervalMinutes", status.getIntervalMinutes());
+        map.put("lastRun", status.getLastRun());
+        map.put("lastDurationMs", status.getLastDurationMs());
+        map.put("lastDeletedHistories", status.getLastDeletedHistories());
+        map.put("lastDeletedChunks", status.getLastDeletedChunks());
+        map.put("lastError", status.getLastError());
+        return map;
     }
 
     private Map<String, Object> schedulerStateToMap(ReviewSchedulerStateService.SchedulerState state) {

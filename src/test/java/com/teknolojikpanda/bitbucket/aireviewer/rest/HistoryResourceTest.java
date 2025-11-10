@@ -4,7 +4,9 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupScheduler;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
@@ -20,8 +22,10 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
@@ -37,6 +41,8 @@ public class HistoryResourceTest {
     private ReviewRateLimiter rateLimiter;
     private ReviewWorkerPool workerPool;
     private ReviewHistoryCleanupService cleanupService;
+    private ReviewHistoryCleanupStatusService cleanupStatusService;
+    private ReviewHistoryCleanupScheduler cleanupScheduler;
     private HistoryResource resource;
 
     @Before
@@ -44,12 +50,14 @@ public class HistoryResourceTest {
         System.setProperty("javax.ws.rs.ext.RuntimeDelegate", "com.sun.jersey.server.impl.provider.RuntimeDelegateImpl");
         userManager = mock(UserManager.class);
         historyService = mock(ReviewHistoryService.class);
-        when(historyService.getRetentionStats(anyInt())).thenReturn(Collections.emptyMap());
+        when(historyService.getRetentionStats(anyInt())).thenReturn(new java.util.LinkedHashMap<>());
         progressRegistry = mock(ProgressRegistry.class);
         concurrencyController = mock(ReviewConcurrencyController.class);
         rateLimiter = mock(ReviewRateLimiter.class);
         workerPool = mock(ReviewWorkerPool.class);
         cleanupService = mock(ReviewHistoryCleanupService.class);
+        cleanupStatusService = mock(ReviewHistoryCleanupStatusService.class);
+        cleanupScheduler = mock(ReviewHistoryCleanupScheduler.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         ReviewSchedulerStateService.SchedulerState schedulerState =
@@ -76,7 +84,10 @@ public class HistoryResourceTest {
         when(rateLimiter.snapshot(anyInt())).thenReturn(rateSnapshot);
         ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = createWorkerPoolSnapshot();
         when(workerPool.snapshot()).thenReturn(workerSnapshot);
-        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool, cleanupService);
+        ReviewHistoryCleanupStatusService.Status cleanupStatus =
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
+        when(cleanupStatusService.getStatus()).thenReturn(cleanupStatus);
+        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool, cleanupService, cleanupStatusService, cleanupScheduler);
     }
 
     private ReviewRateLimiter.RateLimitSnapshot createRateLimitSnapshot() {
@@ -160,6 +171,8 @@ public class HistoryResourceTest {
 
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
         verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
+        verify(cleanupStatusService, never()).updateSchedule(anyInt(), anyInt(), anyInt(), anyBoolean());
+        verify(cleanupScheduler, never()).reschedule();
     }
 
     @Test
@@ -172,11 +185,17 @@ public class HistoryResourceTest {
         HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
         body.retentionDays = 60;
         body.batchSize = 100;
+        body.intervalMinutes = 180;
+        body.enabled = true;
+        body.runNow = true;
 
         Response response = resource.cleanupHistory(request, body);
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         verify(cleanupService).cleanupOlderThanDays(60, 100);
+        verify(cleanupStatusService).updateSchedule(60, 100, 180, true);
+        verify(cleanupScheduler).reschedule();
+        verify(cleanupStatusService).recordRun(any(), anyLong());
     }
 
     @Test
@@ -209,5 +228,67 @@ public class HistoryResourceTest {
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertSame(summary, payload);
         verify(historyService).getMetricsSummary(eq("WOR"), eq("repo"), eq(7L), isNull(), isNull());
+    }
+
+    @Test
+    public void cleanupHistoryRunsImmediatelyWhenRequested() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        ReviewHistoryCleanupStatusService.Status current =
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
+        ReviewHistoryCleanupStatusService.Status updated =
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 60, 500, 30, System.currentTimeMillis(), 2500L, 12, 24, null);
+        when(cleanupStatusService.getStatus()).thenReturn(current, updated);
+        ReviewHistoryCleanupService.CleanupResult result =
+                new ReviewHistoryCleanupService.CleanupResult(60, 500, 3, 12, 5, System.currentTimeMillis());
+        when(cleanupService.cleanupOlderThanDays(60, 500)).thenReturn(result);
+
+        HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
+        body.retentionDays = 60;
+        body.batchSize = 500;
+        body.intervalMinutes = 30;
+        body.enabled = true;
+        body.runNow = true;
+
+        Response response = resource.cleanupHistory(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(cleanupStatusService).updateSchedule(60, 500, 30, true);
+        verify(cleanupScheduler).reschedule();
+        verify(cleanupService).cleanupOlderThanDays(60, 500);
+        verify(cleanupStatusService).recordRun(eq(result), anyLong());
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertTrue(payload.containsKey("result"));
+        assertTrue(payload.containsKey("status"));
+    }
+
+    @Test
+    public void cleanupHistorySkipsImmediateRunWhenNotRequested() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        ReviewHistoryCleanupStatusService.Status status =
+                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 100, 60, 0L, 0L, 0, 0, "recent failure");
+        when(cleanupStatusService.getStatus()).thenReturn(status, status);
+
+        HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
+        body.retentionDays = 45;
+        body.batchSize = 100;
+        body.intervalMinutes = 60;
+        body.enabled = false;
+        body.runNow = false;
+
+        Response response = resource.cleanupHistory(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(cleanupStatusService).updateSchedule(45, 100, 60, false);
+        verify(cleanupScheduler).reschedule();
+        verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertTrue(payload.containsKey("status"));
+        assertTrue(!payload.containsKey("result"));
     }
 }

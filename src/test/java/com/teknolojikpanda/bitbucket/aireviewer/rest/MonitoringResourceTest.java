@@ -4,6 +4,7 @@ import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
@@ -29,6 +30,7 @@ public class MonitoringResourceTest {
     private ReviewWorkerPool workerPool;
     private ReviewRateLimiter rateLimiter;
     private ReviewHistoryService historyService;
+    private ReviewHistoryCleanupStatusService cleanupStatusService;
     private ReviewSchedulerStateService schedulerStateService;
     private MonitoringResource resource;
     private HttpServletRequest request;
@@ -41,6 +43,7 @@ public class MonitoringResourceTest {
         workerPool = mock(ReviewWorkerPool.class);
         rateLimiter = mock(ReviewRateLimiter.class);
         historyService = mock(ReviewHistoryService.class);
+        cleanupStatusService = mock(ReviewHistoryCleanupStatusService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
@@ -69,7 +72,11 @@ public class MonitoringResourceTest {
         when(rateLimiter.snapshot()).thenReturn(createRateSnapshot());
         when(historyService.getRecentDurationStats(anyInt())).thenReturn(ReviewHistoryService.DurationStats.empty());
 
-        resource = new MonitoringResource(userManager, concurrencyController, workerPool, rateLimiter, historyService, schedulerStateService);
+        ReviewHistoryCleanupStatusService.Status cleanupStatus =
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
+        when(cleanupStatusService.getStatus()).thenReturn(cleanupStatus);
+        when(historyService.getRetentionStats(anyInt())).thenReturn(new java.util.LinkedHashMap<>());
+        resource = new MonitoringResource(userManager, concurrencyController, workerPool, rateLimiter, historyService, cleanupStatusService, schedulerStateService);
     }
 
     @Test
@@ -109,6 +116,10 @@ public class MonitoringResourceTest {
         assertTrue(payload.containsKey("workerPool"));
         assertTrue(payload.containsKey("rateLimiter"));
         assertTrue(payload.containsKey("reviewDurations"));
+        assertTrue(payload.containsKey("retention"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> retention = (Map<String, Object>) payload.get("retention");
+        assertTrue(retention.containsKey("schedule"));
     }
 
     private ReviewWorkerPool.WorkerPoolSnapshot createWorkerSnapshot() {
