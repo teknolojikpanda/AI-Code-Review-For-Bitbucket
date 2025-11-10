@@ -77,4 +77,7 @@
 8. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
-> **Next Steps:** Surface the persisted queue audit trail inside the admin UI and Bitbucket audit feed (Sections 5.2–5.4), then extend the fairness work into ETA/backpressure scheduling plus auto-snooze rate-limit overrides (Sections 1.4–1.8 & 2.3–2.8). After that, focus on the retention cleanup + alert/health dashboards (Sections 6.5–6.7 & 7.3–7.6) before tackling rollout/load-test/runbook automation (Sections 8.6–8.9).
+> **Next Steps:**
+> 1. Emit queue override actions into Bitbucket's native audit log so every admin intervention has a tamper-resistant trail (Sections 5.3–5.4).
+> 2. Implement the ETA/backpressure scheduler improvements plus auto-snooze rate-limit overrides so fairness controls react dynamically (Sections 1.4–1.8 & 2.3–2.8).
+> 3. Design and build the retention cleanup + alert/health dashboards, wiring the metrics into `/metrics` and admin panels (Sections 6.5–6.7 & 7.3–7.6), before tackling rollout/load-test/runbook automation (Sections 8.6–8.9).

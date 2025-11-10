@@ -6,6 +6,7 @@
                   window.location.origin + (AJS.contextPath() || '');
 
     var historyUrl = baseUrl + '/rest/ai-reviewer/1.0/history';
+    var queueAdminUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/queue';
     var selectedHistoryId = null;
     var Common = (window.AIReviewer && window.AIReviewer.Common) || null;
 
@@ -28,6 +29,7 @@
 
     function loadHistory(newOffset) {
         setHistoryMessage('info', 'Loading review history...', true);
+        loadQueueAdminData();
 
         if (typeof newOffset === 'number') {
             pagination.offset = Math.max(newOffset, 0);
@@ -197,6 +199,149 @@
             ? 'Waiting ' + waiting + ' review' + (waiting === 1 ? '' : 's')
             : 'Queue is empty';
         $('#queue-note').text(note);
+    }
+
+    function loadQueueAdminData() {
+        if (!queueAdminUrl) {
+            return;
+        }
+        var $message = $('#queue-admin-message');
+        if ($message.length) {
+            $message.hide().removeClass('error info').text('');
+        }
+        showQueuePlaceholder('entries', 'Loading queued reviews…');
+        showQueuePlaceholder('actions', 'Loading audit log…');
+
+        $.ajax({
+            url: queueAdminUrl,
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(response) {
+            var entries = response && Array.isArray(response.entries) ? response.entries : [];
+            var actions = response && Array.isArray(response.actions) ? response.actions : [];
+            renderQueueEntries(entries);
+            renderQueueActions(actions);
+        }).fail(function(xhr, status, error) {
+            renderQueueEntries([]);
+            renderQueueActions([]);
+            setQueueAdminMessage('error', 'Unable to load queue details: ' + (error || status || 'unknown error'));
+        });
+    }
+
+    function showQueuePlaceholder(type, message) {
+        var emptyId = type === 'actions' ? '#queue-actions-empty' : '#queue-entries-empty';
+        var tableId = type === 'actions' ? '#queue-actions-table' : '#queue-entries-table';
+        var $empty = $(emptyId);
+        var $table = $(tableId);
+        if ($table.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+        }
+        if ($empty.length) {
+            $empty.text(message || 'Loading…').show();
+        }
+        var countId = type === 'actions' ? '#queue-actions-count' : '#queue-entries-count';
+        $(countId).text('');
+    }
+
+    function setQueueAdminMessage(type, message) {
+        var $message = $('#queue-admin-message');
+        if (!$message.length) {
+            return;
+        }
+        if (!message) {
+            $message.hide().text('').removeClass('info error');
+            return;
+        }
+        $message.removeClass('info error').addClass(type === 'error' ? 'error' : 'info');
+        $message.text(message).show();
+    }
+
+    function renderQueueEntries(entries) {
+        var $table = $('#queue-entries-table');
+        var $empty = $('#queue-entries-empty');
+        var $count = $('#queue-entries-count');
+        if (!$table.length || !$empty.length) {
+            return;
+        }
+        if (!entries || !entries.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No queued reviews.').show();
+            if ($count.length) {
+                $count.text('');
+            }
+            return;
+        }
+        var rows = entries.map(function(entry, index) {
+            var repo = formatQueueRepo(entry);
+            var waiting = formatDurationMs(entry.waitingMs);
+            var scope = formatScopePressure(entry);
+            var requestedBy = entry.requestedBy ? escapeHtml(entry.requestedBy) : '—';
+            return '<tr>' +
+                '<td>' + (index + 1) + '</td>' +
+                '<td>' + escapeHtml(repo) + '</td>' +
+                '<td>' + requestedBy + '</td>' +
+                '<td>' + escapeHtml(waiting) + '</td>' +
+                '<td>' + escapeHtml(scope) + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
+        if ($count.length) {
+            $count.text(entries.length + (entries.length === 1 ? ' queued item' : ' queued items'));
+        }
+        setQueueAdminMessage(null, null);
+    }
+
+    function renderQueueActions(actions) {
+        var $table = $('#queue-actions-table');
+        var $empty = $('#queue-actions-empty');
+        var $count = $('#queue-actions-count');
+        if (!$table.length || !$empty.length) {
+            return;
+        }
+        if (!actions || !actions.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No recent queue actions.').show();
+            if ($count.length) {
+                $count.text('');
+            }
+            return;
+        }
+        var rows = actions.map(function(action) {
+            var when = formatTimestamp(action.timestamp);
+            var actor = action.actor ? escapeHtml(action.actor) : 'system';
+            var target = formatQueueTarget(action);
+            var note = action.note ? escapeHtml(action.note) : '—';
+            var meta = [];
+            if (action.manual) {
+                meta.push('manual');
+            }
+            if (action.update) {
+                meta.push('update');
+            }
+            if (action.force) {
+                meta.push('force');
+            }
+            var metaLabel = meta.length ? '<div class="queue-meta">' + meta.join(', ') + '</div>' : '';
+            return '<tr>' +
+                '<td>' + escapeHtml(when) + '</td>' +
+                '<td>' + escapeHtml(formatStageLabel(action.action)) + '</td>' +
+                '<td>' + actor + '</td>' +
+                '<td>' + escapeHtml(target) + metaLabel + '</td>' +
+                '<td>' + note + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
+        if ($count.length) {
+            $count.text(actions.length + (actions.length === 1 ? ' action' : ' actions'));
+        }
+        setQueueAdminMessage(null, null);
     }
 
     function showMetricsSection() {
@@ -397,23 +542,30 @@
     }
 
     function formatDurationMs(durationMs) {
-        if (!durationMs && durationMs !== 0) {
+        if (durationMs == null || isNaN(durationMs)) {
             return '—';
         }
-        var ms = parseInt(durationMs, 10);
-        if (isNaN(ms)) {
-            return '—';
-        }
+        var ms = Math.max(0, parseInt(durationMs, 10));
         if (ms < 1000) {
             return ms + ' ms';
         }
-        var seconds = ms / 1000;
+        var seconds = Math.floor(ms / 1000);
         if (seconds < 60) {
-            return seconds.toFixed(1) + ' s';
+            return seconds + ' s';
         }
         var minutes = Math.floor(seconds / 60);
-        var rem = (seconds % 60).toFixed(0);
-        return minutes + 'm ' + rem + 's';
+        var hours = Math.floor(minutes / 60);
+        var days = Math.floor(hours / 24);
+        if (days > 0) {
+            var remHours = hours % 24;
+            return days + 'd ' + remHours + 'h';
+        }
+        if (hours > 0) {
+            var remMinutes = minutes % 60;
+            return hours + 'h ' + remMinutes + 'm';
+        }
+        var remSeconds = seconds % 60;
+        return minutes + 'm ' + remSeconds + 's';
     }
 
     function formatDuration(durationSeconds) {
@@ -482,6 +634,41 @@
             return entry.projectKey + '/' + entry.repositorySlug + pr;
         }
         return entry.pullRequestId || '—';
+    }
+
+    function formatQueueRepo(entry) {
+        if (!entry) {
+            return '—';
+        }
+        var repo = (entry.projectKey || '—') + '/' + (entry.repositorySlug || '—');
+        var pr = entry.pullRequestId != null ? (' #' + entry.pullRequestId) : '';
+        return repo + pr;
+    }
+
+    function formatScopePressure(entry) {
+        if (!entry) {
+            return '—';
+        }
+        var repoWaiting = entry.repoWaiting != null ? entry.repoWaiting : 0;
+        var projectWaiting = entry.projectWaiting != null ? entry.projectWaiting : 0;
+        return 'Repo ' + repoWaiting + ' / Project ' + projectWaiting;
+    }
+
+    function formatQueueTarget(action) {
+        if (!action) {
+            return '—';
+        }
+        var repo = '';
+        if (action.projectKey && action.repositorySlug) {
+            repo = action.projectKey + '/' + action.repositorySlug;
+        }
+        var pr = action.pullRequestId != null && action.pullRequestId >= 0 ? (' #' + action.pullRequestId) : '';
+        var run = action.runId ? (' (' + action.runId + ')') : '';
+        var target = (repo + pr).trim();
+        if (!target && !run) {
+            target = action.runId ? action.runId : '—';
+        }
+        return (target + run).trim() || '—';
     }
 
     function formatStatus(entry) {
