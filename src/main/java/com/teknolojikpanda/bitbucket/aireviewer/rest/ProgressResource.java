@@ -36,6 +36,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -458,6 +459,10 @@ public class ProgressResource {
         map.put("waiting", stats.getWaiting());
         map.put("capturedAt", stats.getCapturedAt());
         map.put("schedulerState", schedulerStateToMap(stats.getSchedulerState()));
+        map.put("maxQueuedPerRepo", stats.getMaxQueuedPerRepo());
+        map.put("maxQueuedPerProject", stats.getMaxQueuedPerProject());
+        map.put("repoWaiters", scopeStatsToList(stats.getTopRepoWaiters()));
+        map.put("projectWaiters", scopeStatsToList(stats.getTopProjectWaiters()));
         return map;
     }
 
@@ -469,6 +474,21 @@ public class ProgressResource {
         map.put("updatedByDisplayName", state.getUpdatedByDisplayName());
         map.put("updatedAt", state.getUpdatedAt());
         return map;
+    }
+
+    private List<Map<String, Object>> scopeStatsToList(List<ReviewConcurrencyController.QueueStats.ScopeQueueStats> stats) {
+        if (stats == null || stats.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (ReviewConcurrencyController.QueueStats.ScopeQueueStats scope : stats) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", scope.getScope());
+            map.put("waiting", scope.getWaiting());
+            map.put("limit", scope.getLimit());
+            list.add(map);
+        }
+        return list;
     }
 
     private Access requireSystemAdmin(HttpServletRequest request) {

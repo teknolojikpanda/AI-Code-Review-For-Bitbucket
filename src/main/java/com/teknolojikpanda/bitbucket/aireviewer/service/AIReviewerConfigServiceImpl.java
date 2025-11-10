@@ -72,6 +72,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "parallelThreads",
             "maxConcurrentReviews",
             "maxQueuedReviews",
+            "maxQueuedPerRepo",
+            "maxQueuedPerProject",
             "repoRateLimitPerHour",
             "projectRateLimitPerHour",
             "connectTimeout",
@@ -108,6 +110,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final int DEFAULT_PARALLEL_THREADS = 4;
     private static final int DEFAULT_MAX_CONCURRENT_REVIEWS = 2;
     private static final int DEFAULT_MAX_QUEUED_REVIEWS = 25;
+    private static final int DEFAULT_MAX_QUEUED_PER_REPO = 5;
+    private static final int DEFAULT_MAX_QUEUED_PER_PROJECT = 15;
     private static final int DEFAULT_REPO_RATE_LIMIT_PER_HOUR = 12;
     private static final int DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR = 60;
     private static final int DEFAULT_CONNECT_TIMEOUT = 10000;
@@ -143,6 +147,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "parallelThreads",
                 "maxConcurrentReviews",
                 "maxQueuedReviews",
+                "maxQueuedPerRepo",
+                "maxQueuedPerProject",
                 "repoRateLimitPerHour",
                 "projectRateLimitPerHour",
                 "connectTimeout",
@@ -280,6 +286,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "parallelThreads", 1, 16, errors);
         validateIntegerRange(configMap, "maxConcurrentReviews", 1, 32, errors);
         validateIntegerRange(configMap, "maxQueuedReviews", 0, 500, errors);
+        validateIntegerRange(configMap, "maxQueuedPerRepo", 0, 200, errors);
+        validateIntegerRange(configMap, "maxQueuedPerProject", 0, 500, errors);
         validateIntegerRange(configMap, "repoRateLimitPerHour", 0, 1000, errors);
         validateIntegerRange(configMap, "projectRateLimitPerHour", 0, 2000, errors);
         validateIntegerRange(configMap, "maxIssuesPerFile", 1, 100, errors);
@@ -1050,6 +1058,12 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (configMap.containsKey("maxQueuedReviews")) {
             config.setMaxQueuedReviews(getIntValue(configMap, "maxQueuedReviews"));
         }
+        if (configMap.containsKey("maxQueuedPerRepo")) {
+            config.setMaxQueuedPerRepo(getIntValue(configMap, "maxQueuedPerRepo"));
+        }
+        if (configMap.containsKey("maxQueuedPerProject")) {
+            config.setMaxQueuedPerProject(getIntValue(configMap, "maxQueuedPerProject"));
+        }
         if (configMap.containsKey("repoRateLimitPerHour")) {
             config.setRepoRateLimitPerHour(getIntValue(configMap, "repoRateLimitPerHour"));
         }
@@ -1188,6 +1202,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             config.setMaxQueuedReviews(DEFAULT_MAX_QUEUED_REVIEWS);
             updated = true;
         }
+        if (config.getMaxQueuedPerRepo() <= 0) {
+            config.setMaxQueuedPerRepo(DEFAULT_MAX_QUEUED_PER_REPO);
+            updated = true;
+        }
+        if (config.getMaxQueuedPerProject() <= 0) {
+            config.setMaxQueuedPerProject(DEFAULT_MAX_QUEUED_PER_PROJECT);
+            updated = true;
+        }
         if (config.getRepoRateLimitPerHour() < 0) {
             config.setRepoRateLimitPerHour(DEFAULT_REPO_RATE_LIMIT_PER_HOUR);
             updated = true;
@@ -1289,6 +1311,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("parallelThreads", defaultInt(config.getParallelChunkThreads(), DEFAULT_PARALLEL_THREADS));
         map.put("maxConcurrentReviews", defaultInt(config.getMaxConcurrentReviews(), DEFAULT_MAX_CONCURRENT_REVIEWS));
         map.put("maxQueuedReviews", defaultInt(config.getMaxQueuedReviews(), DEFAULT_MAX_QUEUED_REVIEWS));
+        map.put("maxQueuedPerRepo", defaultInt(config.getMaxQueuedPerRepo(), DEFAULT_MAX_QUEUED_PER_REPO));
+        map.put("maxQueuedPerProject", defaultInt(config.getMaxQueuedPerProject(), DEFAULT_MAX_QUEUED_PER_PROJECT));
         map.put("repoRateLimitPerHour", defaultIntAllowZero(config.getRepoRateLimitPerHour(), DEFAULT_REPO_RATE_LIMIT_PER_HOUR));
         map.put("projectRateLimitPerHour", defaultIntAllowZero(config.getProjectRateLimitPerHour(), DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR));
         map.put("connectTimeout", defaultInt(config.getConnectTimeout(), DEFAULT_CONNECT_TIMEOUT));

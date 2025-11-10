@@ -56,7 +56,17 @@ public class HistoryResourceTest {
                         "All good",
                         System.currentTimeMillis());
         ReviewConcurrencyController.QueueStats stats =
-                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis(), schedulerState);
+                new ReviewConcurrencyController.QueueStats(
+                        2,
+                        25,
+                        0,
+                        0,
+                        System.currentTimeMillis(),
+                        schedulerState,
+                        5,
+                        15,
+                        Collections.emptyList(),
+                        Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         ReviewRateLimiter.RateLimitSnapshot rateSnapshot = createRateLimitSnapshot();
         when(rateLimiter.snapshot(anyInt())).thenReturn(rateSnapshot);

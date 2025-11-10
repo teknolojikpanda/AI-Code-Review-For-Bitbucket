@@ -70,7 +70,17 @@ public class ProgressResourceTest {
                         System.currentTimeMillis());
         when(schedulerStateService.getState()).thenReturn(schedulerState);
         ReviewConcurrencyController.QueueStats stats =
-                new ReviewConcurrencyController.QueueStats(2, 25, 0, 0, System.currentTimeMillis(), schedulerState);
+                new ReviewConcurrencyController.QueueStats(
+                        2,
+                        25,
+                        0,
+                        0,
+                        System.currentTimeMillis(),
+                        schedulerState,
+                        5,
+                        15,
+                        Collections.emptyList(),
+                        Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         resource = new ProgressResource(userManager, userService, repositoryService, permissionService, progressRegistry, historyService, schedulerStateService, concurrencyController);
     }

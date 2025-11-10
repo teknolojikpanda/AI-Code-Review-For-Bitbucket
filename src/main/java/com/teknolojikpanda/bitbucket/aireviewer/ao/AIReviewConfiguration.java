@@ -77,6 +77,12 @@ public interface AIReviewConfiguration extends Entity {
     int getMaxQueuedReviews();
     void setMaxQueuedReviews(int maxQueued);
 
+    int getMaxQueuedPerRepo();
+    void setMaxQueuedPerRepo(int value);
+
+    int getMaxQueuedPerProject();
+    void setMaxQueuedPerProject(int value);
+
     int getRepoRateLimitPerHour();
     void setRepoRateLimitPerHour(int limit);
 

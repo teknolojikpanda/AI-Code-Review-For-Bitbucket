@@ -4,7 +4,7 @@
 1. Add new config parameters (global + per-repository) for `maxConcurrentReviews`, `maxQueuedReviews`, and `maxParallelChunks`.
 2. Introduce a cluster-aware scheduler service that enqueues review requests and only dispatches when slots are available (manual/merge-blocking runs get priority).
 3. Persist queue metadata (in-memory + short-term AO table) so UI can show pending runs; add admin REST endpoints to inspect/flush the queue.
-4. Implement fairness policies (per-project weight, round-robin buckets) plus backpressure rules so one repository cannot starve the rest.
+4. Implement fairness policies (per-project weight, round-robin buckets) plus backpressure rules so one repository cannot starve the rest. _(Per-repo/per-project queue caps now enforced; weighted dispatch/backpressure next)_
 5. Stream queue state to the UI (progress drawer + admin page) via SSE/polling, including estimated start times and reason codes when items are deferred.
 6. Add predictive ETAs by sampling historical review durations per repo/project so users get realistic wait times.
 7. Provide bulk actions (pause/resume specific repositories, reorder queue items) for admins to triage incidents.
@@ -77,4 +77,4 @@
 8. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
-> **Next Steps:** Finish the remaining Admin Controls work by adding cancel endpoints and queue/override auditing (Sections 5.2–5.7), implement the queue fairness + ETA/backpressure logic (Sections 1.4–1.8) alongside shared rate-limit auto-snooze controls (Sections 2.3–2.8), and then design the retention cleanup plus alert/health dashboards (Sections 6.5–6.7 & 7.3–7.6) before tackling the rollout/load-test/runbook automation (Sections 8.6–8.9).
+> **Next Steps:** Finish the remaining Admin Controls work by adding cancel endpoints and queue/override auditing (Sections 5.2–5.7), extend the new fairness limits into full ETA/backpressure scheduling plus auto-snooze rate-limit overrides (Sections 1.4–1.8 & 2.3–2.8), and then design the retention cleanup plus alert/health dashboards (Sections 6.5–6.7 & 7.3–7.6) before moving on to rollout/load-test/runbook automation (Sections 8.6–8.9).
