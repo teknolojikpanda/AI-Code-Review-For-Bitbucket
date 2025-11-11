@@ -42,7 +42,7 @@ public class AlertsResource {
         if (!access.allowed) {
             return access.response;
         }
-        GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAlerts();
+        GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAndNotify();
         Map<String, Object> payload = new HashMap<>();
         payload.put("generatedAt", snapshot.getGeneratedAt());
         payload.put("alerts", snapshot.getAlerts());

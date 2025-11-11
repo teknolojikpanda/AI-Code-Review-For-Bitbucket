@@ -10,17 +10,20 @@ import java.util.Map;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class GuardrailsAlertingServiceTest {
 
     private GuardrailsTelemetryService telemetryService;
+    private GuardrailsAlertChannelService channelService;
     private GuardrailsAlertingService alertingService;
 
     @Before
     public void setUp() {
         telemetryService = mock(GuardrailsTelemetryService.class);
-        alertingService = new GuardrailsAlertingService(telemetryService);
+        channelService = mock(GuardrailsAlertChannelService.class);
+        alertingService = new GuardrailsAlertingService(telemetryService, channelService);
     }
 
     @Test
@@ -89,5 +92,20 @@ public class GuardrailsAlertingServiceTest {
         GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAlerts();
 
         assertFalse(snapshot.getAlerts().stream().anyMatch(alert -> !"info".equals(alert.get("severity"))));
+    }
+
+    @Test
+    public void evaluateAndNotifyHitsChannels() {
+        Map<String, Object> runtime = Map.of(
+                "queue", Map.of("maxConcurrent", 1, "active", 1, "waiting", 1),
+                "retention", Map.of("schedule", Map.of("enabled", true, "lastRun", System.currentTimeMillis()),
+                        "recentRuns", Collections.emptyList())
+        );
+        when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
+
+        GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAndNotify();
+
+        assertFalse(snapshot.getAlerts().isEmpty());
+        verify(channelService).notifyChannels(snapshot);
     }
 }

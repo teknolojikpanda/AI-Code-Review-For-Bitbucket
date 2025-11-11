@@ -63,8 +63,8 @@
 2. Compress large `progress`/`metrics` blobs before persisting to reduce AO load.
 3. Add a background AO maintenance task that runs during off-peak hours, batching deletes to avoid table locks and emitting metrics for processed rows.
 4. Surface retention/cleanup status in the admin UI (last run, duration, records purged) so operators can confirm hygiene jobs run successfully. _(Health dashboard now shows schedule controls plus recent cleanup runs.)_
-5. Provide export tooling (CSV/JSON) before cleanup runs so teams can archive long-lived data externally.
-6. Introduce integrity checks that ensure orphaned progress/metrics records are detected and repaired automatically.
+5. Provide export tooling (CSV/JSON) before cleanup runs so teams can archive long-lived data externally. _(Retention export REST + streaming download endpoints implemented.)_
+6. Introduce integrity checks that ensure orphaned progress/metrics records are detected and repaired automatically. _(Integrity reporting + auto-repair REST endpoint shipped.)_
 
 ### 8. Testing & Rollout
 1. Unit + integration tests covering scheduler limits, rate limiting, circuit breaker fallback, and admin controls.
@@ -78,5 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Provide pre-cleanup export tooling plus automated integrity checks so admins can archive data before retention jobs run (Sections 7.5–7.6).
-> 2. Automate guardrails rollout/rollback flows and wire the new alert feed into outbound channels (Sections 8.7–8.9).
+> 1. Automate guardrails rollout/rollback flows and wire the new alert feed into outbound channels (Sections 8.7–8.9).
+> 2. Add admin UI + documentation for the new automation endpoints so operators can configure channels/rollouts without REST calls (Section 8.5 follow-up).

@@ -10,15 +10,22 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupSche
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService.RetentionChunkExport;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService.RetentionExportBatch;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService.RetentionExportEntry;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService.RetentionIntegrityReport;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import org.junit.Before;
 import org.junit.Test;
 
+import javax.ws.rs.core.StreamingOutput;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Response;
 import java.lang.reflect.Constructor;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +34,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -55,11 +63,78 @@ public class HistoryResourceTest {
         userManager = mock(UserManager.class);
         historyService = mock(ReviewHistoryService.class);
         when(historyService.getRetentionStats(anyInt())).thenReturn(new java.util.LinkedHashMap<>());
-        when(historyService.exportRetentionCandidates(anyInt(), anyInt())).thenReturn(Collections.emptyList());
         Map<String, Object> integrityReport = new java.util.LinkedHashMap<>();
         integrityReport.put("retentionDays", 90);
         integrityReport.put("chunkMismatches", 0);
         when(historyService.checkRetentionIntegrity(anyInt(), anyInt())).thenReturn(integrityReport);
+        RetentionChunkExport chunkExport = new RetentionChunkExport(
+                "chunk-1",
+                1,
+                "gpt-4",
+                "endpoint",
+                "overview",
+                true,
+                1,
+                0,
+                500L,
+                false,
+                200,
+                false,
+                1024L,
+                2048L,
+                null);
+        RetentionExportEntry exportEntry = new RetentionExportEntry(
+                10L,
+                "PROJ",
+                "repo",
+                42L,
+                1_000L,
+                2_000L,
+                "COMPLETED",
+                "APPROVED",
+                "gpt-4",
+                "default",
+                15L,
+                true,
+                3,
+                3,
+                5,
+                1,
+                2,
+                1,
+                1,
+                12.5,
+                "deadbeef",
+                "aaaa",
+                "bbbb",
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                4096L,
+                500,
+                List.of(chunkExport));
+        RetentionExportBatch exportBatch =
+                new RetentionExportBatch(60, 25, 0L, 123_000L, List.of(exportEntry));
+        when(historyService.buildRetentionExport(anyInt(), anyInt(), anyBoolean())).thenReturn(exportBatch);
+        RetentionIntegrityReport integritySnapshot = new RetentionIntegrityReport(
+                60,
+                0L,
+                123_000L,
+                10,
+                5,
+                0,
+                0,
+                0,
+                0,
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Collections.emptyList(),
+                Collections.emptyList(),
+                false);
+        when(historyService.runRetentionIntegrityCheck(anyInt(), anyInt(), anyBoolean())).thenReturn(integritySnapshot);
         progressRegistry = mock(ProgressRegistry.class);
         concurrencyController = mock(ReviewConcurrencyController.class);
         rateLimiter = mock(ReviewRateLimiter.class);
@@ -315,7 +390,7 @@ public class HistoryResourceTest {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
 
-        Response response = resource.exportCleanupCandidates(request, null, null);
+        Response response = resource.exportCleanupCandidates(request, null, null, false);
 
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
     }
@@ -324,17 +399,54 @@ public class HistoryResourceTest {
     public void cleanupExportReturnsEntries() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
-        List<Map<String, Object>> entries = List.of(Collections.singletonMap("historyId", 99L));
-        when(historyService.exportRetentionCandidates(eq(60), eq(25))).thenReturn(entries);
 
-        Response response = resource.exportCleanupCandidates(request, 60, 25);
+        Response response = resource.exportCleanupCandidates(request, 60, 25, false);
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
-        assertSame(entries, payload.get("entries"));
         assertEquals(60, payload.get("retentionDays"));
         assertEquals(25, payload.get("limit"));
+        assertTrue(payload.containsKey("entries"));
+        verify(historyService).buildRetentionExport(60, 25, false);
+    }
+
+    @Test
+    public void downloadCleanupExportRequiresAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.downloadCleanupExport(request, null, null, "json", false);
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void downloadCleanupExportAsJson() throws Exception {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+
+        Response response = resource.downloadCleanupExport(request, 45, 50, "json", true);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertEquals("application/json", String.valueOf(response.getMetadata().getFirst("Content-Type")));
+        String content = renderStreamingBody(response);
+        assertTrue(content.contains("\"retentionDays\""));
+        verify(historyService).buildRetentionExport(45, 50, true);
+    }
+
+    @Test
+    public void downloadCleanupExportAsCsvIncludesChunks() throws Exception {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+
+        Response response = resource.downloadCleanupExport(request, null, null, "csv", true);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertEquals("text/csv", String.valueOf(response.getMetadata().getFirst("Content-Type")));
+        String csv = renderStreamingBody(response);
+        assertTrue(csv.contains("chunkId"));
+        assertTrue(csv.contains("chunk-1"));
     }
 
     @Test
@@ -359,5 +471,39 @@ public class HistoryResourceTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         assertSame(report, response.getEntity());
+    }
+
+    @Test
+    public void repairCleanupIntegrityRequiresAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.repairRetentionIntegrity(request, new HistoryResource.IntegrityRequest());
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+        verify(historyService, never()).runRetentionIntegrityCheck(anyInt(), anyInt(), anyBoolean());
+    }
+
+    @Test
+    public void repairCleanupIntegrityInvokesService() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        HistoryResource.IntegrityRequest body = new HistoryResource.IntegrityRequest();
+        body.retentionDays = 30;
+        body.sample = 15;
+        body.repair = true;
+
+        Response response = resource.repairRetentionIntegrity(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(historyService).runRetentionIntegrityCheck(30, 15, true);
+        assertTrue(response.getEntity() instanceof Map);
+    }
+
+    private String renderStreamingBody(Response response) throws Exception {
+        StreamingOutput stream = (StreamingOutput) response.getEntity();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        stream.write(baos);
+        return baos.toString(StandardCharsets.UTF_8);
     }
 }

@@ -68,7 +68,7 @@ public class AlertsResourceTest {
         when(snapshot.getGeneratedAt()).thenReturn(123L);
         when(snapshot.getAlerts()).thenReturn(Collections.emptyList());
         when(snapshot.getRuntime()).thenReturn(Collections.emptyMap());
-        when(alertingService.evaluateAlerts()).thenReturn(snapshot);
+        when(alertingService.evaluateAndNotify()).thenReturn(snapshot);
 
         Response response = resource.getAlerts(request);
 

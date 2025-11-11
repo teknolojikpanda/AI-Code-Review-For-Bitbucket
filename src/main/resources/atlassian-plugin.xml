@@ -21,6 +21,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupStatus</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupAudit</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel</entity>
     </ao>
 
     <!--
@@ -175,6 +176,11 @@
     <component key="guardrailsAlertingService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertingService">
         <description>Evaluates guardrail alerts based on telemetry snapshots</description>
+    </component>
+
+    <component key="guardrailsAlertChannelService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService">
+        <description>Stores outbound alert destinations and dispatches notifications</description>
     </component>
 
     <component key="progressRegistry"

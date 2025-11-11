@@ -15,6 +15,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +24,7 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
@@ -32,6 +34,11 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.StreamingOutput;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -55,7 +62,58 @@ public class HistoryResource {
     private static final Logger log = LoggerFactory.getLogger(HistoryResource.class);
 
     private static final int MAX_RATE_LIMIT_SAMPLES = 10;
-    private static final int DEFAULT_RETENTION_DAYS = 90;
+    private static final DateTimeFormatter EXPORT_FILENAME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneId.of("UTC"));
+    private static final String[] RETENTION_ENTRY_COLUMNS = {
+            "historyId",
+            "projectKey",
+            "repositorySlug",
+            "pullRequestId",
+            "reviewStartTime",
+            "reviewEndTime",
+            "reviewStatus",
+            "reviewOutcome",
+            "modelUsed",
+            "profileKey",
+            "summaryCommentId",
+            "autoApproveEnabled",
+            "totalChunksRecorded",
+            "actualChunks",
+            "totalIssuesFound",
+            "criticalIssues",
+            "highIssues",
+            "mediumIssues",
+            "lowIssues",
+            "analysisTimeSeconds",
+            "commitId",
+            "fromCommit",
+            "toCommit",
+            "primaryModelInvocations",
+            "primaryModelSuccesses",
+            "primaryModelFailures",
+            "fallbackModelInvocations",
+            "fallbackModelSuccesses",
+            "fallbackModelFailures",
+            "diffSize",
+            "lineCount"
+    };
+    private static final String[] RETENTION_CHUNK_COLUMNS = {
+            "chunkId",
+            "sequence",
+            "role",
+            "model",
+            "endpoint",
+            "success",
+            "attempts",
+            "retries",
+            "durationMs",
+            "timeout",
+            "statusCode",
+            "modelNotFound",
+            "requestBytes",
+            "responseBytes",
+            "lastError"
+    };
 
     private final UserManager userManager;
     private final ReviewHistoryService historyService;
@@ -67,6 +125,7 @@ public class HistoryResource {
     private final ReviewHistoryCleanupStatusService cleanupStatusService;
     private final ReviewHistoryCleanupAuditService cleanupAuditService;
     private final ReviewHistoryCleanupScheduler cleanupScheduler;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Inject
     public HistoryResource(@ComponentImport UserManager userManager,
@@ -300,7 +359,8 @@ public class HistoryResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response exportCleanupCandidates(@Context HttpServletRequest request,
                                             @QueryParam("retentionDays") Integer retentionDays,
-                                            @QueryParam("limit") Integer limitParam) {
+                                            @QueryParam("limit") Integer limitParam,
+                                            @QueryParam("includeChunks") @DefaultValue("false") boolean includeChunks) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (!isSystemAdmin(profile)) {
             return Response.status(Response.Status.FORBIDDEN)
@@ -308,14 +368,35 @@ public class HistoryResource {
         }
         int days = retentionDays == null ? cleanupStatusService.getStatus().getRetentionDays() : Math.max(1, retentionDays);
         int limit = limitParam == null ? 100 : Math.max(1, limitParam);
-        List<Map<String, Object>> entries = historyService.exportRetentionCandidates(days, limit);
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("retentionDays", days);
-        payload.put("limit", limit);
-        payload.put("count", entries.size());
-        payload.put("generatedAt", System.currentTimeMillis());
-        payload.put("entries", entries);
-        return Response.ok(payload).build();
+        ReviewHistoryService.RetentionExportBatch batch = historyService.buildRetentionExport(days, limit, includeChunks);
+        return Response.ok(batch.toMap(includeChunks)).build();
+    }
+
+    @GET
+    @Path("/cleanup/export/download")
+    @Produces({MediaType.APPLICATION_JSON, "text/csv"})
+    public Response downloadCleanupExport(@Context HttpServletRequest request,
+                                          @QueryParam("retentionDays") Integer retentionDays,
+                                          @QueryParam("limit") Integer limitParam,
+                                          @QueryParam("format") @DefaultValue("json") String formatParam,
+                                          @QueryParam("includeChunks") @DefaultValue("false") boolean includeChunks) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required.")).build();
+        }
+        int days = retentionDays == null ? cleanupStatusService.getStatus().getRetentionDays() : Math.max(1, retentionDays);
+        int limit = limitParam == null ? 100 : Math.max(1, limitParam);
+        ExportFormat format = ExportFormat.from(formatParam);
+        ReviewHistoryService.RetentionExportBatch batch = historyService.buildRetentionExport(days, limit, includeChunks);
+        StreamingOutput stream = format == ExportFormat.JSON
+                ? jsonExportStream(batch, includeChunks)
+                : csvExportStream(batch, includeChunks);
+        MediaType mediaType = format == ExportFormat.JSON ? MediaType.APPLICATION_JSON_TYPE : MediaType.valueOf("text/csv");
+        String filename = buildExportFilename(batch, format);
+        return Response.ok(stream, mediaType)
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .build();
     }
 
     @GET
@@ -333,6 +414,28 @@ public class HistoryResource {
         int sample = sampleLimit == null ? 100 : Math.max(1, sampleLimit);
         Map<String, Object> report = historyService.checkRetentionIntegrity(days, sample);
         return Response.ok(report).build();
+    }
+
+    @POST
+    @Path("/cleanup/integrity")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response repairRetentionIntegrity(@Context HttpServletRequest request,
+                                             IntegrityRequest requestBody) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required.")).build();
+        }
+        int days = requestBody != null && requestBody.retentionDays != null
+                ? Math.max(1, requestBody.retentionDays)
+                : cleanupStatusService.getStatus().getRetentionDays();
+        int sample = requestBody != null && requestBody.sample != null
+                ? Math.max(1, requestBody.sample)
+                : 100;
+        boolean repair = requestBody != null && Boolean.TRUE.equals(requestBody.repair);
+        ReviewHistoryService.RetentionIntegrityReport report = historyService.runRetentionIntegrityCheck(days, sample, repair);
+        return Response.ok(report.toMap()).build();
     }
 
     private boolean isSystemAdmin(UserProfile profile) {
@@ -665,12 +768,139 @@ public class HistoryResource {
         return map;
     }
 
+    private StreamingOutput jsonExportStream(ReviewHistoryService.RetentionExportBatch batch, boolean includeChunks) {
+        return output -> objectMapper.writeValue(output, batch.toMap(includeChunks));
+    }
+
+    private StreamingOutput csvExportStream(ReviewHistoryService.RetentionExportBatch batch, boolean includeChunks) {
+        return output -> {
+            Writer writer = new OutputStreamWriter(output, StandardCharsets.UTF_8);
+            writeCsvHeader(writer, includeChunks);
+            for (ReviewHistoryService.RetentionExportEntry entry : batch.getEntries()) {
+                Map<String, Object> entryMap = entry.toMap(includeChunks);
+                if (includeChunks) {
+                    List<Map<String, Object>> chunks = extractChunks(entryMap);
+                    if (chunks.isEmpty()) {
+                        writeCsvRow(writer, entryMap, null, true);
+                    } else {
+                        for (Map<String, Object> chunk : chunks) {
+                            writeCsvRow(writer, entryMap, chunk, true);
+                        }
+                    }
+                } else {
+                    writeCsvRow(writer, entryMap, null, false);
+                }
+            }
+            writer.flush();
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> extractChunks(Map<String, Object> entryMap) {
+        Object raw = entryMap.get("chunks");
+        if (raw instanceof List) {
+            return (List<Map<String, Object>>) raw;
+        }
+        return Collections.emptyList();
+    }
+
+    private void writeCsvHeader(Writer writer, boolean includeChunks) throws IOException {
+        StringBuilder builder = new StringBuilder();
+        appendCsvValues(builder, RETENTION_ENTRY_COLUMNS);
+        if (includeChunks) {
+            appendCsvValues(builder, RETENTION_CHUNK_COLUMNS);
+        }
+        builder.append('\n');
+        writer.write(builder.toString());
+    }
+
+    private void writeCsvRow(Writer writer,
+                             Map<String, Object> entry,
+                             Map<String, Object> chunk,
+                             boolean includeChunks) throws IOException {
+        StringBuilder builder = new StringBuilder();
+        appendCsvValues(builder, entry, RETENTION_ENTRY_COLUMNS);
+        if (includeChunks) {
+            if (chunk == null) {
+                appendCsvValues(builder, new String[RETENTION_CHUNK_COLUMNS.length]);
+            } else {
+                appendCsvValues(builder, chunk, RETENTION_CHUNK_COLUMNS);
+            }
+        }
+        builder.append('\n');
+        writer.write(builder.toString());
+    }
+
+    private void appendCsvValues(StringBuilder builder, String[] columns) {
+        if (columns == null) {
+            return;
+        }
+        for (String column : columns) {
+            appendCsvValue(builder, column);
+        }
+    }
+
+    private void appendCsvValues(StringBuilder builder,
+                                 Map<String, Object> source,
+                                 String[] columns) {
+        for (String column : columns) {
+            appendCsvValue(builder, source.get(column));
+        }
+    }
+
+    private void appendCsvValue(StringBuilder builder, Object value) {
+        if (builder.length() > 0) {
+            builder.append(',');
+        }
+        String text = value == null ? "" : String.valueOf(value);
+        builder.append('"').append(text.replace("\"", "\"\"")).append('"');
+    }
+
+    private String buildExportFilename(ReviewHistoryService.RetentionExportBatch batch, ExportFormat format) {
+        String timestamp = EXPORT_FILENAME_FORMAT.format(Instant.ofEpochMilli(batch.getGeneratedAt()));
+        return String.format("ai-review-retention-export-%dd-%s.%s",
+                batch.getRetentionDays(),
+                timestamp,
+                format.getExtension());
+    }
+
+    private enum ExportFormat {
+        JSON("json"),
+        CSV("csv");
+
+        private final String extension;
+
+        ExportFormat(String extension) {
+            this.extension = extension;
+        }
+
+        static ExportFormat from(String value) {
+            if (value == null) {
+                return JSON;
+            }
+            if ("csv".equalsIgnoreCase(value)) {
+                return CSV;
+            }
+            return JSON;
+        }
+
+        String getExtension() {
+            return extension;
+        }
+    }
+
     public static final class CleanupRequest {
         public Integer retentionDays;
         public Integer batchSize;
         public Integer intervalMinutes;
         public Boolean enabled;
         public Boolean runNow;
+    }
+
+    public static final class IntegrityRequest {
+        public Integer retentionDays;
+        public Integer sample;
+        public Boolean repair;
     }
 
     @GET

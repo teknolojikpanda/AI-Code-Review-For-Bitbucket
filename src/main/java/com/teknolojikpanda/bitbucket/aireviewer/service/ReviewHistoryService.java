@@ -972,9 +972,20 @@ public class ReviewHistoryService {
     }
 
     public List<Map<String, Object>> exportRetentionCandidates(int retentionDays, int limit) {
+        RetentionExportBatch batch = buildRetentionExport(retentionDays, limit, false);
+        if (batch.getEntries().isEmpty()) {
+            return Collections.emptyList();
+        }
+        return batch.getEntries().stream()
+                .map(entry -> entry.toMap(false))
+                .collect(Collectors.toList());
+    }
+
+    public RetentionExportBatch buildRetentionExport(int retentionDays, int limit, boolean includeChunks) {
         final int days = Math.max(1, retentionDays);
         final int rowLimit = limit <= 0 ? 100 : limit;
-        final long cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days);
+        final long now = System.currentTimeMillis();
+        final long cutoff = now - TimeUnit.DAYS.toMillis(days);
         return ao.executeInTransaction(() -> {
             AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
                     Query.select()
@@ -982,69 +993,210 @@ public class ReviewHistoryService {
                             .order("REVIEW_START_TIME ASC")
                             .limit(rowLimit));
             if (histories.length == 0) {
-                return java.util.Collections.emptyList();
+                return new RetentionExportBatch(days, rowLimit, cutoff, now, Collections.emptyList());
             }
-            List<Map<String, Object>> exports = new java.util.ArrayList<>(histories.length);
+            List<RetentionExportEntry> entries = new ArrayList<>(histories.length);
             for (AIReviewHistory history : histories) {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("historyId", history.getID());
-                map.put("projectKey", history.getProjectKey());
-                map.put("repositorySlug", history.getRepositorySlug());
-                map.put("pullRequestId", history.getPullRequestId());
-                map.put("reviewStartTime", history.getReviewStartTime());
-                map.put("reviewEndTime", history.getReviewEndTime());
-                map.put("totalChunksRecorded", history.getTotalChunks());
-                AIReviewChunk[] chunks = history.getChunks();
-                map.put("actualChunks", chunks.length);
-                map.put("reviewStatus", history.getReviewStatus());
-                map.put("reviewOutcome", history.getReviewOutcome());
-                map.put("modelUsed", history.getModelUsed());
-                map.put("summaryCommentId", history.getSummaryCommentId());
-                map.put("autoApproveEnabled", history.isAutoApproveEnabled());
-                exports.add(map);
+                entries.add(toRetentionExportEntry(history, includeChunks));
             }
-            return exports;
+            return new RetentionExportBatch(days, rowLimit, cutoff, now, entries);
         });
     }
 
     public Map<String, Object> checkRetentionIntegrity(int retentionDays, int sampleLimit) {
+        return runRetentionIntegrityCheck(retentionDays, sampleLimit, false).toMap();
+    }
+
+    public RetentionIntegrityReport runRetentionIntegrityCheck(int retentionDays,
+                                                               int sampleLimit,
+                                                               boolean repair) {
         final int days = Math.max(1, retentionDays);
         final int limit = sampleLimit <= 0 ? 100 : sampleLimit;
         final long now = System.currentTimeMillis();
         final long cutoff = now - TimeUnit.DAYS.toMillis(days);
         return ao.executeInTransaction(() -> {
-            Map<String, Object> report = new LinkedHashMap<>();
-            report.put("retentionDays", days);
-            report.put("generatedAt", now);
             int totalCandidates = ao.count(AIReviewHistory.class,
                     Query.select().where("REVIEW_START_TIME < ?", cutoff));
-            report.put("totalCandidates", totalCandidates);
             AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
                     Query.select()
                             .where("REVIEW_START_TIME < ?", cutoff)
                             .order("REVIEW_START_TIME ASC")
                             .limit(limit));
-            report.put("sampledEntries", histories.length);
-            List<Map<String, Object>> mismatches = new java.util.ArrayList<>();
+            List<RetentionIntegrityReport.Mismatch> mismatches = new ArrayList<>();
+            List<RetentionIntegrityReport.JsonIssue> progressIssues = new ArrayList<>();
+            List<RetentionIntegrityReport.JsonIssue> metricIssues = new ArrayList<>();
+            List<RetentionIntegrityReport.RepairAction> repairs = new ArrayList<>();
+            int mismatchCount = 0;
+            int progressCount = 0;
+            int metricCount = 0;
+            int repairsApplied = 0;
+            final int sampleLimitPerList = 50;
+
             for (AIReviewHistory history : histories) {
+                boolean dirty = false;
+                List<String> actions = new ArrayList<>();
                 int expected = Math.max(0, history.getTotalChunks());
                 int actual = history.getChunks().length;
                 if (expected != actual) {
-                    Map<String, Object> mismatch = new LinkedHashMap<>();
-                    mismatch.put("historyId", history.getID());
-                    mismatch.put("projectKey", history.getProjectKey());
-                    mismatch.put("repositorySlug", history.getRepositorySlug());
-                    mismatch.put("pullRequestId", history.getPullRequestId());
-                    mismatch.put("expectedChunks", expected);
-                    mismatch.put("actualChunks", actual);
-                    mismatch.put("reviewStartTime", history.getReviewStartTime());
-                    mismatches.add(mismatch);
+                    mismatchCount++;
+                    if (mismatches.size() < sampleLimitPerList) {
+                        mismatches.add(new RetentionIntegrityReport.Mismatch(
+                                history.getID(),
+                                history.getProjectKey(),
+                                history.getRepositorySlug(),
+                                history.getPullRequestId(),
+                                expected,
+                                actual,
+                                history.getReviewStartTime()));
+                    }
+                    if (repair) {
+                        history.setTotalChunks(actual);
+                        dirty = true;
+                        actions.add("totalChunks=" + actual);
+                    }
+                }
+
+                JsonStatus progressStatus = validateJson(history.getProgressJson());
+                if (!progressStatus.valid) {
+                    progressCount++;
+                    if (progressIssues.size() < sampleLimitPerList) {
+                        progressIssues.add(new RetentionIntegrityReport.JsonIssue(
+                                history.getID(),
+                                "progressJson",
+                                progressStatus.message));
+                    }
+                    if (repair && history.getProgressJson() != null) {
+                        history.setProgressJson(null);
+                        dirty = true;
+                        actions.add("progressJsonCleared");
+                    }
+                }
+
+                JsonStatus metricsStatus = validateJson(history.getMetricsJson());
+                if (!metricsStatus.valid) {
+                    metricCount++;
+                    if (metricIssues.size() < sampleLimitPerList) {
+                        metricIssues.add(new RetentionIntegrityReport.JsonIssue(
+                                history.getID(),
+                                "metricsJson",
+                                metricsStatus.message));
+                    }
+                    if (repair && history.getMetricsJson() != null) {
+                        history.setMetricsJson(null);
+                        dirty = true;
+                        actions.add("metricsJsonCleared");
+                    }
+                }
+
+                if (dirty) {
+                    history.save();
+                    repairsApplied++;
+                    if (!actions.isEmpty() && repairs.size() < sampleLimitPerList) {
+                        repairs.add(new RetentionIntegrityReport.RepairAction(
+                                history.getID(),
+                                history.getProjectKey(),
+                                history.getRepositorySlug(),
+                                history.getPullRequestId(),
+                                actions));
+                    }
                 }
             }
-            report.put("chunkMismatches", mismatches.size());
-            report.put("mismatchEntries", mismatches);
-            return report;
+
+            return new RetentionIntegrityReport(
+                    days,
+                    cutoff,
+                    now,
+                    totalCandidates,
+                    histories.length,
+                    mismatchCount,
+                    progressCount,
+                    metricCount,
+                    repairsApplied,
+                    mismatches,
+                    progressIssues,
+                    metricIssues,
+                    repairs,
+                    repair);
         });
+    }
+
+    private RetentionExportEntry toRetentionExportEntry(AIReviewHistory history, boolean includeChunks) {
+        List<RetentionChunkExport> chunks = includeChunks
+                ? Arrays.stream(history.getChunks())
+                .map(this::toRetentionChunkExport)
+                .collect(Collectors.toList())
+                : Collections.emptyList();
+        String commitId = limitString(history.getCommitId(), 255);
+        String fromCommit = limitString(history.getFromCommit(), 40);
+        String toCommit = limitString(history.getToCommit(), 40);
+        return new RetentionExportEntry(
+                history.getID(),
+                history.getProjectKey(),
+                history.getRepositorySlug(),
+                history.getPullRequestId(),
+                history.getReviewStartTime(),
+                history.getReviewEndTime(),
+                history.getReviewStatus(),
+                history.getReviewOutcome(),
+                history.getModelUsed(),
+                history.getProfileKey(),
+                history.getSummaryCommentId(),
+                history.isAutoApproveEnabled(),
+                history.getTotalChunks(),
+                chunks.size(),
+                history.getTotalIssuesFound(),
+                history.getCriticalIssues(),
+                history.getHighIssues(),
+                history.getMediumIssues(),
+                history.getLowIssues(),
+                resolveDurationSeconds(history),
+                commitId,
+                fromCommit,
+                toCommit,
+                history.getPrimaryModelInvocations(),
+                history.getPrimaryModelSuccesses(),
+                history.getPrimaryModelFailures(),
+                history.getFallbackModelInvocations(),
+                history.getFallbackModelSuccesses(),
+                history.getFallbackModelFailures(),
+                history.getDiffSize(),
+                history.getLineCount(),
+                chunks);
+    }
+
+    private RetentionChunkExport toRetentionChunkExport(AIReviewChunk chunk) {
+        return new RetentionChunkExport(
+                chunk.getChunkId(),
+                chunk.getSequence(),
+                chunk.getModel(),
+                chunk.getEndpoint(),
+                chunk.getRole(),
+                chunk.isSuccess(),
+                chunk.getAttempts(),
+                chunk.getRetries(),
+                chunk.getDurationMs(),
+                chunk.isTimeout(),
+                chunk.getStatusCode(),
+                chunk.isModelNotFound(),
+                chunk.getRequestBytes(),
+                chunk.getResponseBytes(),
+                truncate(chunk.getLastError(), 1024));
+    }
+
+    private JsonStatus validateJson(String payload) {
+        if (payload == null) {
+            return JsonStatus.valid();
+        }
+        String trimmed = payload.trim();
+        if (trimmed.isEmpty()) {
+            return JsonStatus.valid();
+        }
+        try {
+            PROGRESS_MAPPER.readTree(trimmed);
+            return JsonStatus.valid();
+        } catch (Exception ex) {
+            return JsonStatus.invalid(truncate(ex.getMessage(), 200));
+        }
     }
 
     private Map<String, Double> toAverageMap(Map<String, RunningStats> stats) {
@@ -1160,6 +1312,453 @@ public class ReviewHistoryService {
                 return project;
             }
             return project + "/" + repo;
+        }
+    }
+
+    public static final class RetentionExportBatch {
+        private final int retentionDays;
+        private final int limit;
+        private final long cutoffEpochMs;
+        private final long generatedAt;
+        private final List<RetentionExportEntry> entries;
+
+        public RetentionExportBatch(int retentionDays,
+                             int limit,
+                             long cutoffEpochMs,
+                             long generatedAt,
+                             List<RetentionExportEntry> entries) {
+            this.retentionDays = retentionDays;
+            this.limit = limit;
+            this.cutoffEpochMs = cutoffEpochMs;
+            this.generatedAt = generatedAt;
+            this.entries = entries != null ? entries : Collections.emptyList();
+        }
+
+        public int getRetentionDays() {
+            return retentionDays;
+        }
+
+        public int getLimit() {
+            return limit;
+        }
+
+        public long getCutoffEpochMs() {
+            return cutoffEpochMs;
+        }
+
+        public long getGeneratedAt() {
+            return generatedAt;
+        }
+
+        public List<RetentionExportEntry> getEntries() {
+            return entries;
+        }
+
+        public Map<String, Object> toMap(boolean includeChunks) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("retentionDays", retentionDays);
+            map.put("limit", limit);
+            map.put("generatedAt", generatedAt);
+            map.put("cutoffEpochMs", cutoffEpochMs);
+            map.put("count", entries.size());
+            map.put("entries", entries.stream()
+                    .map(entry -> entry.toMap(includeChunks))
+                    .collect(Collectors.toList()));
+            return map;
+        }
+    }
+
+    public static final class RetentionExportEntry {
+        private final long historyId;
+        private final String projectKey;
+        private final String repositorySlug;
+        private final long pullRequestId;
+        private final long reviewStartTime;
+        private final long reviewEndTime;
+        private final String reviewStatus;
+        private final String reviewOutcome;
+        private final String modelUsed;
+        private final String profileKey;
+        private final long summaryCommentId;
+        private final boolean autoApproveEnabled;
+        private final int totalChunksRecorded;
+        private final int actualChunks;
+        private final int totalIssues;
+        private final int criticalIssues;
+        private final int highIssues;
+        private final int mediumIssues;
+        private final int lowIssues;
+        private final double analysisTimeSeconds;
+        private final String commitId;
+        private final String fromCommit;
+        private final String toCommit;
+        private final int primaryInvocations;
+        private final int primarySuccesses;
+        private final int primaryFailures;
+        private final int fallbackInvocations;
+        private final int fallbackSuccesses;
+        private final int fallbackFailures;
+        private final long diffSize;
+        private final int lineCount;
+        private final List<RetentionChunkExport> chunks;
+
+        public RetentionExportEntry(long historyId,
+                             String projectKey,
+                             String repositorySlug,
+                             long pullRequestId,
+                             long reviewStartTime,
+                             long reviewEndTime,
+                             String reviewStatus,
+                             String reviewOutcome,
+                             String modelUsed,
+                             String profileKey,
+                             long summaryCommentId,
+                             boolean autoApproveEnabled,
+                             int totalChunksRecorded,
+                             int actualChunks,
+                             int totalIssues,
+                             int criticalIssues,
+                             int highIssues,
+                             int mediumIssues,
+                             int lowIssues,
+                             double analysisTimeSeconds,
+                             String commitId,
+                             String fromCommit,
+                             String toCommit,
+                             int primaryInvocations,
+                             int primarySuccesses,
+                             int primaryFailures,
+                             int fallbackInvocations,
+                             int fallbackSuccesses,
+                             int fallbackFailures,
+                             long diffSize,
+                             int lineCount,
+                             List<RetentionChunkExport> chunks) {
+            this.historyId = historyId;
+            this.projectKey = projectKey;
+            this.repositorySlug = repositorySlug;
+            this.pullRequestId = pullRequestId;
+            this.reviewStartTime = reviewStartTime;
+            this.reviewEndTime = reviewEndTime;
+            this.reviewStatus = reviewStatus;
+            this.reviewOutcome = reviewOutcome;
+            this.modelUsed = modelUsed;
+            this.profileKey = profileKey;
+            this.summaryCommentId = summaryCommentId;
+            this.autoApproveEnabled = autoApproveEnabled;
+            this.totalChunksRecorded = totalChunksRecorded;
+            this.actualChunks = actualChunks;
+            this.totalIssues = totalIssues;
+            this.criticalIssues = criticalIssues;
+            this.highIssues = highIssues;
+            this.mediumIssues = mediumIssues;
+            this.lowIssues = lowIssues;
+            this.analysisTimeSeconds = analysisTimeSeconds;
+            this.commitId = commitId;
+            this.fromCommit = fromCommit;
+            this.toCommit = toCommit;
+            this.primaryInvocations = primaryInvocations;
+            this.primarySuccesses = primarySuccesses;
+            this.primaryFailures = primaryFailures;
+            this.fallbackInvocations = fallbackInvocations;
+            this.fallbackSuccesses = fallbackSuccesses;
+            this.fallbackFailures = fallbackFailures;
+            this.diffSize = diffSize;
+            this.lineCount = lineCount;
+            this.chunks = chunks != null ? chunks : Collections.emptyList();
+        }
+
+        public Map<String, Object> toMap(boolean includeChunks) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("historyId", historyId);
+            map.put("projectKey", projectKey);
+            map.put("repositorySlug", repositorySlug);
+            map.put("pullRequestId", pullRequestId);
+            map.put("reviewStartTime", reviewStartTime);
+            map.put("reviewEndTime", reviewEndTime);
+            map.put("reviewStatus", reviewStatus);
+            map.put("reviewOutcome", reviewOutcome);
+            map.put("modelUsed", modelUsed);
+            map.put("profileKey", profileKey);
+            map.put("summaryCommentId", summaryCommentId);
+            map.put("autoApproveEnabled", autoApproveEnabled);
+            map.put("totalChunksRecorded", totalChunksRecorded);
+            map.put("actualChunks", actualChunks);
+            map.put("totalIssuesFound", totalIssues);
+            map.put("criticalIssues", criticalIssues);
+            map.put("highIssues", highIssues);
+            map.put("mediumIssues", mediumIssues);
+            map.put("lowIssues", lowIssues);
+            map.put("analysisTimeSeconds", analysisTimeSeconds);
+            map.put("commitId", commitId);
+            map.put("fromCommit", fromCommit);
+            map.put("toCommit", toCommit);
+            map.put("primaryModelInvocations", primaryInvocations);
+            map.put("primaryModelSuccesses", primarySuccesses);
+            map.put("primaryModelFailures", primaryFailures);
+            map.put("fallbackModelInvocations", fallbackInvocations);
+            map.put("fallbackModelSuccesses", fallbackSuccesses);
+            map.put("fallbackModelFailures", fallbackFailures);
+            map.put("diffSize", diffSize);
+            map.put("lineCount", lineCount);
+            if (includeChunks) {
+                map.put("chunks", chunks.stream()
+                        .map(RetentionChunkExport::toMap)
+                        .collect(Collectors.toList()));
+            }
+            return map;
+        }
+    }
+
+    public static final class RetentionChunkExport {
+        private final String chunkId;
+        private final int sequence;
+        private final String model;
+        private final String endpoint;
+        private final String role;
+        private final boolean success;
+        private final int attempts;
+        private final int retries;
+        private final long durationMs;
+        private final boolean timeout;
+        private final int statusCode;
+        private final boolean modelNotFound;
+        private final long requestBytes;
+        private final long responseBytes;
+        private final String lastError;
+
+        public RetentionChunkExport(String chunkId,
+                             int sequence,
+                             String model,
+                             String endpoint,
+                             String role,
+                             boolean success,
+                             int attempts,
+                             int retries,
+                             long durationMs,
+                             boolean timeout,
+                             int statusCode,
+                             boolean modelNotFound,
+                             long requestBytes,
+                             long responseBytes,
+                             String lastError) {
+            this.chunkId = chunkId;
+            this.sequence = sequence;
+            this.model = model;
+            this.endpoint = endpoint;
+            this.role = role;
+            this.success = success;
+            this.attempts = attempts;
+            this.retries = retries;
+            this.durationMs = durationMs;
+            this.timeout = timeout;
+            this.statusCode = statusCode;
+            this.modelNotFound = modelNotFound;
+            this.requestBytes = requestBytes;
+            this.responseBytes = responseBytes;
+            this.lastError = lastError;
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("chunkId", chunkId);
+            map.put("sequence", sequence);
+            map.put("model", model);
+            map.put("endpoint", endpoint);
+            map.put("role", role);
+            map.put("success", success);
+            map.put("attempts", attempts);
+            map.put("retries", retries);
+            map.put("durationMs", durationMs);
+            map.put("timeout", timeout);
+            map.put("statusCode", statusCode);
+            map.put("modelNotFound", modelNotFound);
+            map.put("requestBytes", requestBytes);
+            map.put("responseBytes", responseBytes);
+            if (lastError != null && !lastError.isEmpty()) {
+                map.put("lastError", lastError);
+            }
+            return map;
+        }
+    }
+
+    public static final class RetentionIntegrityReport {
+        private final int retentionDays;
+        private final long cutoffEpochMs;
+        private final long generatedAt;
+        private final int totalCandidates;
+        private final int sampledEntries;
+        private final int chunkMismatches;
+        private final int progressAnomalies;
+        private final int metricAnomalies;
+        private final int repairsApplied;
+        private final List<Mismatch> mismatchSamples;
+        private final List<JsonIssue> progressIssues;
+        private final List<JsonIssue> metricIssues;
+        private final List<RepairAction> repairActions;
+        private final boolean repairAttempted;
+
+        public RetentionIntegrityReport(int retentionDays,
+                                 long cutoffEpochMs,
+                                 long generatedAt,
+                                 int totalCandidates,
+                                 int sampledEntries,
+                                 int chunkMismatches,
+                                 int progressAnomalies,
+                                 int metricAnomalies,
+                                 int repairsApplied,
+                                 List<Mismatch> mismatchSamples,
+                                 List<JsonIssue> progressIssues,
+                                 List<JsonIssue> metricIssues,
+                                 List<RepairAction> repairActions,
+                                 boolean repairAttempted) {
+            this.retentionDays = retentionDays;
+            this.cutoffEpochMs = cutoffEpochMs;
+            this.generatedAt = generatedAt;
+            this.totalCandidates = totalCandidates;
+            this.sampledEntries = sampledEntries;
+            this.chunkMismatches = chunkMismatches;
+            this.progressAnomalies = progressAnomalies;
+            this.metricAnomalies = metricAnomalies;
+            this.repairsApplied = repairsApplied;
+            this.mismatchSamples = mismatchSamples != null ? mismatchSamples : Collections.emptyList();
+            this.progressIssues = progressIssues != null ? progressIssues : Collections.emptyList();
+            this.metricIssues = metricIssues != null ? metricIssues : Collections.emptyList();
+            this.repairActions = repairActions != null ? repairActions : Collections.emptyList();
+            this.repairAttempted = repairAttempted;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("retentionDays", retentionDays);
+            map.put("cutoffEpochMs", cutoffEpochMs);
+            map.put("generatedAt", generatedAt);
+            map.put("totalCandidates", totalCandidates);
+            map.put("sampledEntries", sampledEntries);
+            map.put("chunkMismatches", chunkMismatches);
+            map.put("progressAnomalies", progressAnomalies);
+            map.put("metricsAnomalies", metricAnomalies);
+            map.put("repairsApplied", repairsApplied);
+            map.put("repairAttempted", repairAttempted);
+            map.put("mismatchSamples", mismatchSamples.stream()
+                    .map(Mismatch::toMap)
+                    .collect(Collectors.toList()));
+            map.put("progressIssues", progressIssues.stream()
+                    .map(JsonIssue::toMap)
+                    .collect(Collectors.toList()));
+            map.put("metricIssues", metricIssues.stream()
+                    .map(JsonIssue::toMap)
+                    .collect(Collectors.toList()));
+            map.put("repairActions", repairActions.stream()
+                    .map(RepairAction::toMap)
+                    .collect(Collectors.toList()));
+            return map;
+        }
+
+        public static final class Mismatch {
+            private final long historyId;
+            private final String projectKey;
+            private final String repositorySlug;
+            private final long pullRequestId;
+            private final int expectedChunks;
+            private final int actualChunks;
+            private final long reviewStartTime;
+
+            public Mismatch(long historyId,
+                     String projectKey,
+                     String repositorySlug,
+                     long pullRequestId,
+                     int expectedChunks,
+                     int actualChunks,
+                     long reviewStartTime) {
+                this.historyId = historyId;
+                this.projectKey = projectKey;
+                this.repositorySlug = repositorySlug;
+                this.pullRequestId = pullRequestId;
+                this.expectedChunks = expectedChunks;
+                this.actualChunks = actualChunks;
+                this.reviewStartTime = reviewStartTime;
+            }
+
+            Map<String, Object> toMap() {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("historyId", historyId);
+                map.put("projectKey", projectKey);
+                map.put("repositorySlug", repositorySlug);
+                map.put("pullRequestId", pullRequestId);
+                map.put("expectedChunks", expectedChunks);
+                map.put("actualChunks", actualChunks);
+                map.put("reviewStartTime", reviewStartTime);
+                return map;
+            }
+        }
+
+        public static final class JsonIssue {
+            private final long historyId;
+            private final String field;
+            private final String message;
+
+            public JsonIssue(long historyId, String field, String message) {
+                this.historyId = historyId;
+                this.field = field;
+                this.message = message;
+            }
+
+            Map<String, Object> toMap() {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("historyId", historyId);
+                map.put("field", field);
+                map.put("message", message);
+                return map;
+            }
+        }
+
+        public static final class RepairAction {
+            private final long historyId;
+            private final String projectKey;
+            private final String repositorySlug;
+            private final long pullRequestId;
+            private final List<String> actions;
+
+            public RepairAction(long historyId,
+                         String projectKey,
+                         String repositorySlug,
+                         long pullRequestId,
+                         List<String> actions) {
+                this.historyId = historyId;
+                this.projectKey = projectKey;
+                this.repositorySlug = repositorySlug;
+                this.pullRequestId = pullRequestId;
+                this.actions = actions != null ? new ArrayList<>(actions) : Collections.emptyList();
+            }
+
+            Map<String, Object> toMap() {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("historyId", historyId);
+                map.put("projectKey", projectKey);
+                map.put("repositorySlug", repositorySlug);
+                map.put("pullRequestId", pullRequestId);
+                map.put("actions", actions);
+                return map;
+            }
+        }
+    }
+
+    private static final class JsonStatus {
+        final boolean valid;
+        final String message;
+
+        private JsonStatus(boolean valid, String message) {
+            this.valid = valid;
+            this.message = message;
+        }
+
+        static JsonStatus valid() {
+            return new JsonStatus(true, null);
+        }
+
+        static JsonStatus invalid(String message) {
+            return new JsonStatus(false, message);
         }
     }
 

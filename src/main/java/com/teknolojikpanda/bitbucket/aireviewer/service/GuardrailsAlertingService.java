@@ -19,10 +19,13 @@ public class GuardrailsAlertingService {
 
     private static final long CLEANUP_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000L; // 24 hours
     private final GuardrailsTelemetryService telemetryService;
+    private final GuardrailsAlertChannelService channelService;
 
     @Inject
-    public GuardrailsAlertingService(GuardrailsTelemetryService telemetryService) {
+    public GuardrailsAlertingService(GuardrailsTelemetryService telemetryService,
+                                     GuardrailsAlertChannelService channelService) {
         this.telemetryService = Objects.requireNonNull(telemetryService, "telemetryService");
+        this.channelService = Objects.requireNonNull(channelService, "channelService");
     }
 
     public AlertSnapshot evaluateAlerts() {
@@ -44,6 +47,14 @@ public class GuardrailsAlertingService {
         snapshot.generatedAt = System.currentTimeMillis();
         snapshot.runtime = runtime;
         snapshot.alerts = alerts;
+        return snapshot;
+    }
+
+    public AlertSnapshot evaluateAndNotify() {
+        AlertSnapshot snapshot = evaluateAlerts();
+        if (!snapshot.getAlerts().isEmpty()) {
+            channelService.notifyChannels(snapshot);
+        }
         return snapshot;
     }
 
