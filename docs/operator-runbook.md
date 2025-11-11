@@ -13,6 +13,13 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `GET /rest/ai-reviewer/1.0/history/cleanup/export/download` | Streams the same data as a JSON or CSV attachment (`format=csv`) so you can archive it with incident tickets. |
 | `GET /rest/ai-reviewer/1.0/history/cleanup/integrity` | Runs integrity checks (chunk mismatch + corrupt progress/metrics detection) against the oldest review records. |
 | `POST /rest/ai-reviewer/1.0/history/cleanup/integrity` | Same report as above, but with optional `repair=true` to automatically zero out corrupt JSON blobs and re-align chunk counts before cleanup resumes. |
+| `GET /rest/ai-reviewer/1.0/automation/rollout/state` | Shows the current scheduler mode (ACTIVE, PAUSED, DRAINING), actor, timestamp, and reason. |
+| `POST /rest/ai-reviewer/1.0/automation/rollout/{mode}` | Switches the scheduler mode (`active`, `pause`, `drain`) with an optional `reason` payload so rollout/rollback can be automated. |
+| `GET /rest/ai-reviewer/1.0/automation/channels` | Lists outbound guardrails alert channels with pagination metadata (`limit`, `offset`, `total`). |
+| `POST /rest/ai-reviewer/1.0/automation/channels` | Creates a webhook channel (HTTP/S) that receives synthesized guardrail alerts whenever `evaluateAndNotify` raises non-empty alert sets. |
+| `PUT /rest/ai-reviewer/1.0/automation/channels/{id}` | Updates channel description/enablement without touching the URL. |
+| `DELETE /rest/ai-reviewer/1.0/automation/channels/{id}` | Removes a channel (used when rotating credentials or off-boarding an incident room). |
+| `POST /rest/ai-reviewer/1.0/automation/channels/{id}/test` | Sends a benign sample alert to the target URL so operators can verify wiring before relying on production alerts. |
 
 Core metric names emitted via `/metrics`:
 

@@ -5,6 +5,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService.Channel;
+import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 
 import javax.inject.Inject;
@@ -18,10 +19,12 @@ import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -86,14 +89,34 @@ public class AutomationResource {
     }
 
     @GET
-    @Path("/channels")
-    public Response listChannels(@Context HttpServletRequest request) {
+    @Path("/rollout/state")
+    public Response getRolloutState(@Context HttpServletRequest request) {
         Access access = requireSystemAdmin(request);
         if (!access.allowed) {
             return access.response;
         }
-        List<Channel> channels = channelService.listChannels();
-        return Response.ok(Map.of("channels", channels)).build();
+        ReviewSchedulerStateService.SchedulerState state = schedulerStateService.getState();
+        return Response.ok(schedulerStateToMap(state)).build();
+    }
+
+    @GET
+    @Path("/channels")
+    public Response listChannels(@Context HttpServletRequest request,
+                                 @QueryParam("limit") Integer limitParam,
+                                 @QueryParam("offset") Integer offsetParam) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        int limit = limitParam == null ? 50 : Math.max(1, Math.min(limitParam, 200));
+        int offset = offsetParam == null ? 0 : Math.max(0, offsetParam);
+        Page<Channel> page = channelService.listChannels(offset, limit);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("channels", page.getValues());
+        payload.put("total", page.getTotal());
+        payload.put("limit", page.getLimit());
+        payload.put("offset", page.getOffset());
+        return Response.ok(payload).build();
     }
 
     @POST
@@ -105,8 +128,9 @@ public class AutomationResource {
         if (!access.allowed) {
             return access.response;
         }
+        body.validateForCreate();
         Channel channel = channelService.createChannel(
-                Objects.requireNonNull(body.url, "url"),
+                body.url,
                 body.description,
                 body.enabled != null ? body.enabled : true);
         return Response.ok(channel).build();
@@ -138,6 +162,20 @@ public class AutomationResource {
         return Response.noContent().build();
     }
 
+    @POST
+    @Path("/channels/{id}/test")
+    public Response testChannel(@Context HttpServletRequest request,
+                                @PathParam("id") int id) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        boolean delivered = channelService.sendTestAlert(id);
+        return Response.ok(Map.of(
+                "channelId", id,
+                "delivered", delivered)).build();
+    }
+
     private Access requireSystemAdmin(HttpServletRequest request) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (profile == null) {
@@ -155,6 +193,12 @@ public class AutomationResource {
         public String url;
         public String description;
         public Boolean enabled;
+
+        void validateForCreate() {
+            if (url == null || url.trim().isEmpty()) {
+                throw new IllegalArgumentException("Channel URL is required");
+            }
+        }
     }
 
     private static final class Access {
@@ -175,5 +219,15 @@ public class AutomationResource {
         static Access denied(Response response) {
             return new Access(false, response, null);
         }
+    }
+
+    private Map<String, Object> schedulerStateToMap(ReviewSchedulerStateService.SchedulerState state) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("mode", state.getMode().name());
+        map.put("updatedBy", state.getUpdatedBy());
+        map.put("updatedByDisplayName", state.getUpdatedByDisplayName());
+        map.put("reason", state.getReason());
+        map.put("updatedAt", state.getUpdatedAt());
+        return map;
     }
 }

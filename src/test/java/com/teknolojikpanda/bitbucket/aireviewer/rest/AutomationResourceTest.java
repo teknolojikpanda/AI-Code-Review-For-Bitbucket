@@ -5,6 +5,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService.Channel;
+import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import org.junit.Before;
 import org.junit.Test;
@@ -19,11 +20,7 @@ import static org.junit.Assert.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 public class AutomationResourceTest {
 
@@ -42,6 +39,10 @@ public class AutomationResourceTest {
         resource = new AutomationResource(userManager, schedulerStateService, channelService);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
+        Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L);
+        Page<Channel> page = new Page<>(List.of(channel), 1, 50, 0);
+        when(channelService.listChannels(anyInt(), anyInt())).thenReturn(page);
+        when(channelService.sendTestAlert(anyInt())).thenReturn(true);
     }
 
     @Test
@@ -81,7 +82,7 @@ public class AutomationResourceTest {
     public void channelCrudRequiresAdmin() {
         when(userManager.getRemoteUser(request)).thenReturn(null);
 
-        Response response = resource.listChannels(request);
+        Response response = resource.listChannels(request, null, null);
 
         assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
         verifyNoInteractions(channelService);
@@ -94,12 +95,13 @@ public class AutomationResourceTest {
         when(profile.getUserKey()).thenReturn(key);
         when(userManager.isSystemAdmin(key)).thenReturn(true);
         Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L);
-        when(channelService.listChannels()).thenReturn(List.of(channel));
+        when(channelService.listChannels(anyInt(), anyInt())).thenReturn(new Page<>(List.of(channel), 1, 50, 0));
         when(channelService.createChannel(anyString(), anyString(), anyBoolean())).thenReturn(channel);
         when(channelService.updateChannel(1, "Ops Pager", true)).thenReturn(channel);
 
-        Response list = resource.listChannels(request);
+        Response list = resource.listChannels(request, null, null);
         assertEquals(Response.Status.OK.getStatusCode(), list.getStatus());
+        verify(channelService).listChannels(0, 50);
 
         AutomationResource.ChannelRequest body = new AutomationResource.ChannelRequest();
         body.url = "https://example";
@@ -115,5 +117,43 @@ public class AutomationResourceTest {
         Response delete = resource.deleteChannel(request, 1);
         assertEquals(Response.Status.NO_CONTENT.getStatusCode(), delete.getStatus());
         verify(channelService).deleteChannel(1);
+    }
+
+    @Test
+    public void rolloutStateEndpointReturnsStateForAdmins() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+        ReviewSchedulerStateService.SchedulerState state =
+                new ReviewSchedulerStateService.SchedulerState(
+                        ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
+                        "admin",
+                        "Admin",
+                        "all good",
+                        123L);
+        when(schedulerStateService.getState()).thenReturn(state);
+
+        Response response = resource.getRolloutState(request);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals("ACTIVE", payload.get("mode"));
+        assertEquals("all good", payload.get("reason"));
+    }
+
+    @Test
+    public void testChannelEndpointTriggersDelivery() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+        when(channelService.sendTestAlert(1)).thenReturn(true);
+
+        Response response = resource.testChannel(request, 1);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(channelService).sendTestAlert(1);
     }
 }

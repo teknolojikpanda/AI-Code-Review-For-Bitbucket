@@ -73,10 +73,10 @@
 4. Stage rollout via dark feature toggles per customer cohort, with telemetry hooks to validate performance before default-on.
 5. Create a regression checklist (manual + automated) to run before enabling guardrails cluster-wide.
 6. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly.
-7. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents.
+7. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents. _(Automation REST endpoints + webhook channel manager implemented; UI shortcuts + scripting docs next.)_
 8. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Automate guardrails rollout/rollback flows and wire the new alert feed into outbound channels (Sections 8.7–8.9).
-> 2. Add admin UI + documentation for the new automation endpoints so operators can configure channels/rollouts without REST calls (Section 8.5 follow-up).
+> 1. Add Bitbucket admin UI + documentation that surfaces the rollout mode controls and webhook channel manager so operators do not need raw REST calls (Section 8.5 follow-up).
+> 2. Persist alert delivery history + operator acknowledgements to close the loop on outbound notifications (Section 6.7) and expose that audit trail via REST/UI.

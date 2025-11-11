@@ -43,11 +43,7 @@ public class GuardrailsAlertingService {
         evaluateQueueAlerts(queue, alerts);
         evaluateRetentionAlerts(schedule, recentRuns, alerts);
 
-        AlertSnapshot snapshot = new AlertSnapshot();
-        snapshot.generatedAt = System.currentTimeMillis();
-        snapshot.runtime = runtime;
-        snapshot.alerts = alerts;
-        return snapshot;
+        return new AlertSnapshot(System.currentTimeMillis(), runtime, alerts);
     }
 
     public AlertSnapshot evaluateAndNotify() {
@@ -199,9 +195,17 @@ public class GuardrailsAlertingService {
     }
 
     public static class AlertSnapshot {
-        private long generatedAt;
-        private Map<String, Object> runtime;
-        private List<Map<String, Object>> alerts;
+        private final long generatedAt;
+        private final Map<String, Object> runtime;
+        private final List<Map<String, Object>> alerts;
+
+        public AlertSnapshot(long generatedAt,
+                             Map<String, Object> runtime,
+                             List<Map<String, Object>> alerts) {
+            this.generatedAt = generatedAt;
+            this.runtime = runtime != null ? runtime : Collections.emptyMap();
+            this.alerts = alerts != null ? alerts : Collections.emptyList();
+        }
 
         public long getGeneratedAt() {
             return generatedAt;
@@ -213,6 +217,19 @@ public class GuardrailsAlertingService {
 
         public List<Map<String, Object>> getAlerts() {
             return alerts;
+        }
+
+        public static AlertSnapshot sample(String description) {
+            Map<String, Object> runtime = Map.of(
+                    "type", "guardrails-test",
+                    "description", description != null ? description : "Guardrails webhook test");
+            Map<String, Object> alert = Map.of(
+                    "severity", "info",
+                    "summary", "Guardrails webhook test",
+                    "detail", "This is a test notification to verify the AI Review Guardrails webhook configuration.",
+                    "recommendation", "No action needed.",
+                    "generatedAt", System.currentTimeMillis());
+            return new AlertSnapshot(System.currentTimeMillis(), runtime, List.of(alert));
         }
     }
 }
