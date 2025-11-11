@@ -89,6 +89,17 @@
         <description>Persists shared limiter windows and incidents</description>
     </component>
 
+    <component key="guardrailsRateLimitOverrideService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitOverrideService">
+        <description>Manages limiter overrides and auto-snooze records</description>
+        <interface>com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitOverrideService</interface>
+    </component>
+
+    <component key="guardrailsAutoSnoozeService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAutoSnoozeService">
+        <description>Handles priority repo/project auto-snooze application</description>
+    </component>
+
     <component key="guardrailsBurstCreditService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService">
         <description>Manages burst credit grants and consumption</description>
