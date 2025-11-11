@@ -74,7 +74,7 @@
         var older = valueOrDash(retention.entriesOlderThanRetention);
         var cutoff = retention.cutoffEpochMs ? formatTimestamp(retention.cutoffEpochMs) : '—';
         $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
-        renderCleanup(retention.schedule || {}, null);
+        renderCleanup(retention.schedule || {}, retention.recentRuns || [], null);
     }
 
     function renderQueue(data) {
@@ -209,7 +209,7 @@
         $count.text(actions.length + (actions.length === 1 ? ' action' : ' actions'));
     }
 
-    function renderCleanup(status, latestResult) {
+    function renderCleanup(status, recentRuns, latestResult) {
         status = status || {};
         setFieldValue('#cleanup-retention-days', status.retentionDays);
         setFieldValue('#cleanup-batch-size', status.batchSize);
@@ -242,6 +242,8 @@
         } else {
             $outcomeNote.text('Waiting for first run').css('color', '');
         }
+
+        renderCleanupLog(recentRuns);
 
         if (latestResult) {
             var message = formatCleanupResult(latestResult);
@@ -278,7 +280,7 @@
             data: JSON.stringify(payload)
         }).done(function(resp) {
             if (resp && resp.status) {
-                renderCleanup(resp.status, runNow ? resp.result : null);
+                renderCleanup(resp.status, resp.recentRuns || [], runNow ? resp.result : null);
             }
             if (!runNow) {
                 setCleanupMessage('info', 'Cleanup schedule updated.', false);
@@ -343,6 +345,49 @@
         var remaining = valueOrDash(result.remainingCandidates);
         return 'Deleted ' + deletedHistories + ' histories / ' + deletedChunks +
             ' chunks • Remaining candidates ' + remaining;
+    }
+
+    function renderCleanupLog(runs) {
+        var $table = $('#cleanup-log-table');
+        var $empty = $('#cleanup-log-empty');
+        var $count = $('#cleanup-log-count');
+        if (!runs || !runs.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No cleanup runs recorded yet.').show();
+            $count.text('');
+            return;
+        }
+        var rows = runs.map(function(run) {
+            var statusLabel = run.success ? 'Success' : 'Failed';
+            if (run.manual) {
+                statusLabel += ' (manual)';
+            }
+            var statusHtml = escapeHtml(statusLabel);
+            if (!run.success && run.errorMessage) {
+                statusHtml += '<div class="queue-meta">Error: ' + escapeHtml(run.errorMessage) + '</div>';
+            }
+            var deleted = valueOrDash(run.deletedHistories) + ' / ' + valueOrDash(run.deletedChunks);
+            var actor = run.actorDisplayName || run.actorUserKey || '—';
+            if (run.actorUserKey && run.actorUserKey !== actor) {
+                actor += ' (' + run.actorUserKey + ')';
+            }
+            var duration = run.durationMs ? formatDurationMs(run.durationMs) : '—';
+            if (duration === '—' && run.durationMs === 0 && run.success) {
+                duration = 'instant';
+            }
+            return '<tr>' +
+                '<td>' + escapeHtml(formatTimestamp(run.runTimestamp)) + '</td>' +
+                '<td>' + escapeHtml(duration) + '</td>' +
+                '<td>' + escapeHtml(deleted) + '</td>' +
+                '<td>' + escapeHtml(actor) + '</td>' +
+                '<td>' + statusHtml + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
+        $count.text(runs.length + (runs.length === 1 ? ' run' : ' runs'));
     }
 
     function formatRepo(entry) {

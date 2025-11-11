@@ -62,7 +62,7 @@
 1. Implement configurable retention (e.g., keep last N days) and periodic cleanup job for `AIReviewHistory` plus chunk telemetry. _(Automated job + AO-backed status + admin controls implemented.)_
 2. Compress large `progress`/`metrics` blobs before persisting to reduce AO load.
 3. Add a background AO maintenance task that runs during off-peak hours, batching deletes to avoid table locks and emitting metrics for processed rows.
-4. Surface retention/cleanup status in the admin UI (last run, duration, records purged) so operators can confirm hygiene jobs run successfully.
+4. Surface retention/cleanup status in the admin UI (last run, duration, records purged) so operators can confirm hygiene jobs run successfully. _(Health dashboard now shows schedule controls plus recent cleanup runs.)_
 5. Provide export tooling (CSV/JSON) before cleanup runs so teams can archive long-lived data externally.
 6. Introduce integrity checks that ensure orphaned progress/metrics records are detected and repaired automatically.
 
@@ -78,5 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Persist cleanup/audit history (last runs, actors, errors) and surface it beside the manual trigger controls (Sections 7.4–7.5 & 5.4).
-> 2. Kick off the alerting/rollout automation tracks (Sections 8.6–8.9) now that the `/metrics` export and operator runbook are in place.
+> 1. Kick off the alerting/rollout automation tracks (Sections 8.6–8.9) now that the `/metrics` export and operator runbook are in place.
+> 2. Provide pre-cleanup export tooling plus automated integrity checks so admins can archive data before retention jobs run (Sections 7.5–7.6).

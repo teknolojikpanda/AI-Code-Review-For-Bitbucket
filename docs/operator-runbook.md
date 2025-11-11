@@ -31,7 +31,7 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 ## 3. Retention Cleanup Playbook
 
 1. **Watch retention backlog:** `ai.retention.entriesOlderThanWindow` shows how many history rows exceed the retention window.
-2. **Validate scheduler health:** `ai.retention.cleanup.enabled` (should be 1) and `ai.retention.cleanup.lastErrorFlag` (should be 0). A high `ai.retention.cleanup.lastRunAgeSeconds` means the job has not run recently.
+2. **Validate scheduler health:** `ai.retention.cleanup.enabled` (should be 1) and `ai.retention.cleanup.lastErrorFlag` (should be 0). A high `ai.retention.cleanup.lastRunAgeSeconds` means the job has not run recently. Use the “Recent Cleanup Runs” table on the Health dashboard to inspect the last few executions (duration, actor, manual/system, error text).
 3. **Actions:**
    - Trigger a manual cleanup from the Health Dashboard (Run Once) if backlog keeps growing.
    - Adjust `ai.retention.cleanup.intervalMinutes` and `batchSize` to keep up with growth.

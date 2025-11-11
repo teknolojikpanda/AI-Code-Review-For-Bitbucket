@@ -8,6 +8,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupScheduler;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
@@ -64,6 +65,7 @@ public class HistoryResource {
     private final ReviewWorkerPool workerPool;
     private final ReviewHistoryCleanupService cleanupService;
     private final ReviewHistoryCleanupStatusService cleanupStatusService;
+    private final ReviewHistoryCleanupAuditService cleanupAuditService;
     private final ReviewHistoryCleanupScheduler cleanupScheduler;
 
     @Inject
@@ -75,6 +77,7 @@ public class HistoryResource {
                            ReviewWorkerPool workerPool,
                            ReviewHistoryCleanupService cleanupService,
                            ReviewHistoryCleanupStatusService cleanupStatusService,
+                           ReviewHistoryCleanupAuditService cleanupAuditService,
                            ReviewHistoryCleanupScheduler cleanupScheduler) {
         this.userManager = userManager;
         this.historyService = historyService;
@@ -84,6 +87,7 @@ public class HistoryResource {
         this.workerPool = workerPool;
         this.cleanupService = cleanupService;
         this.cleanupStatusService = cleanupStatusService;
+        this.cleanupAuditService = cleanupAuditService;
         this.cleanupScheduler = cleanupScheduler;
     }
 
@@ -261,13 +265,33 @@ public class HistoryResource {
         cleanupScheduler.reschedule();
 
         Map<String, Object> payload = new LinkedHashMap<>();
+        String actorKey = profile != null && profile.getUserKey() != null
+                ? profile.getUserKey().getStringValue()
+                : "system";
+        String actorName = profile != null && profile.getFullName() != null
+                ? profile.getFullName()
+                : actorKey;
         if (Boolean.TRUE.equals(req.runNow)) {
             long start = System.currentTimeMillis();
-            ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(retentionDays, batchSize);
-            cleanupStatusService.recordRun(result, System.currentTimeMillis() - start);
-            payload.put("result", cleanupResultToMap(result));
+            try {
+                ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(retentionDays, batchSize);
+                long duration = System.currentTimeMillis() - start;
+                cleanupStatusService.recordRun(result, duration);
+                cleanupAuditService.recordRun(start, duration,
+                        result.getDeletedHistories(),
+                        result.getDeletedChunks(),
+                        true,
+                        actorKey,
+                        actorName);
+                payload.put("result", cleanupResultToMap(result));
+            } catch (Exception ex) {
+                cleanupAuditService.recordFailure(start, true, actorKey, actorName, ex.getMessage());
+                cleanupStatusService.recordFailure(ex.getMessage());
+                throw ex;
+            }
         }
         payload.put("status", cleanupStatusToMap(cleanupStatusService.getStatus()));
+        payload.put("recentRuns", cleanupAuditService.listRecent(10));
         return Response.ok(payload).build();
     }
 

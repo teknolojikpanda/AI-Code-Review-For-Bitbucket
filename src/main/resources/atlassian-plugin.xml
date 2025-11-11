@@ -20,6 +20,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewSchedulerState</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupStatus</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupAudit</entity>
     </ao>
 
     <!--
@@ -154,6 +155,11 @@
     <component key="reviewHistoryCleanupStatusService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService">
         <description>Persists cleanup schedule configuration and last-run outcomes</description>
+    </component>
+
+    <component key="reviewHistoryCleanupAuditService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService">
+        <description>Stores cleanup run audit history</description>
     </component>
 
     <component key="reviewHistoryCleanupScheduler"

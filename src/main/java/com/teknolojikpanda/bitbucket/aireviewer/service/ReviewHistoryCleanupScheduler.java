@@ -32,16 +32,19 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
     private final SchedulerService schedulerService;
     private final ReviewHistoryCleanupService cleanupService;
     private final ReviewHistoryCleanupStatusService statusService;
+    private final ReviewHistoryCleanupAuditService auditService;
     private final JobRunner cleanupRunner = new CleanupJobRunner();
     private volatile boolean lifecycleStarted;
 
     @Inject
     public ReviewHistoryCleanupScheduler(@ComponentImport SchedulerService schedulerService,
                                          ReviewHistoryCleanupService cleanupService,
-                                         ReviewHistoryCleanupStatusService statusService) {
+                                         ReviewHistoryCleanupStatusService statusService,
+                                         ReviewHistoryCleanupAuditService auditService) {
         this.schedulerService = Objects.requireNonNull(schedulerService, "schedulerService");
         this.cleanupService = Objects.requireNonNull(cleanupService, "cleanupService");
         this.statusService = Objects.requireNonNull(statusService, "statusService");
+        this.auditService = Objects.requireNonNull(auditService, "auditService");
     }
 
     public void reschedule() {
@@ -116,9 +119,17 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
                 ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(status.getRetentionDays(), status.getBatchSize());
                 long duration = System.currentTimeMillis() - start;
                 statusService.recordRun(result, duration);
+                auditService.recordRun(start,
+                        duration,
+                        result.getDeletedHistories(),
+                        result.getDeletedChunks(),
+                        false,
+                        "system",
+                        "System");
                 return JobRunnerResponse.success("Deleted " + result.getDeletedHistories() + " histories");
             } catch (Exception ex) {
                 statusService.recordFailure(ex.getMessage());
+                auditService.recordFailure(start, false, "system", "System", ex.getMessage());
                 log.warn("AI review history cleanup job failed: {}", ex.getMessage(), ex);
                 return JobRunnerResponse.failed(ex);
             }

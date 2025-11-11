@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
@@ -21,6 +22,7 @@ public class GuardrailsTelemetryServiceTest {
     private ReviewRateLimiter rateLimiter;
     private ReviewHistoryService historyService;
     private ReviewHistoryCleanupStatusService cleanupStatusService;
+    private ReviewHistoryCleanupAuditService cleanupAuditService;
     private ReviewSchedulerStateService schedulerStateService;
     private GuardrailsTelemetryService telemetryService;
 
@@ -31,6 +33,7 @@ public class GuardrailsTelemetryServiceTest {
         rateLimiter = mock(ReviewRateLimiter.class);
         historyService = mock(ReviewHistoryService.class);
         cleanupStatusService = mock(ReviewHistoryCleanupStatusService.class);
+        cleanupAuditService = mock(ReviewHistoryCleanupAuditService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
@@ -62,6 +65,8 @@ public class GuardrailsTelemetryServiceTest {
         ReviewHistoryCleanupStatusService.Status cleanupStatus =
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 60, System.currentTimeMillis() - 5_000L, 1200L, 25, 60, null);
         when(cleanupStatusService.getStatus()).thenReturn(cleanupStatus);
+        when(cleanupAuditService.listRecent(10)).thenReturn(Collections.singletonList(
+                Map.of("runTimestamp", System.currentTimeMillis(), "success", true)));
         when(schedulerStateService.getState()).thenReturn(schedulerState);
 
         telemetryService = new GuardrailsTelemetryService(
@@ -70,6 +75,7 @@ public class GuardrailsTelemetryServiceTest {
                 rateLimiter,
                 historyService,
                 cleanupStatusService,
+                cleanupAuditService,
                 schedulerStateService);
     }
 
@@ -85,6 +91,8 @@ public class GuardrailsTelemetryServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> retention = (Map<String, Object>) snapshot.get("retention");
         assertTrue(retention.containsKey("schedule"));
+        assertTrue(retention.containsKey("recentRuns"));
+        assertEquals(1, ((List<?>) retention.get("recentRuns")).size());
     }
 
     @Test

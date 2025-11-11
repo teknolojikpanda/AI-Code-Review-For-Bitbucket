@@ -182,6 +182,25 @@
                         </div>
                         <div class="aui-message info" id="cleanup-message" style="display:none;"></div>
                     </form>
+                    <div class="queue-panel" style="margin-top: 16px;">
+                        <header>
+                            <h3>Recent Cleanup Runs</h3>
+                            <span class="queue-panel-count" id="cleanup-log-count"></span>
+                        </header>
+                        <div class="queue-empty" id="cleanup-log-empty">No cleanup runs recorded yet.</div>
+                        <table class="aui aui-table aui-table-rowhover" id="cleanup-log-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>When</th>
+                                <th>Duration</th>
+                                <th>Deleted</th>
+                                <th>Actor</th>
+                                <th>Status</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </section>
             </div>
         </section>

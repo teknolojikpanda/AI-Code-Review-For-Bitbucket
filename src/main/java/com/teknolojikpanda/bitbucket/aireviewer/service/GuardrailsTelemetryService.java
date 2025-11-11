@@ -30,6 +30,7 @@ public class GuardrailsTelemetryService {
     private final ReviewHistoryService historyService;
     private final ReviewHistoryCleanupStatusService cleanupStatusService;
     private final ReviewSchedulerStateService schedulerStateService;
+    private final ReviewHistoryCleanupAuditService cleanupAuditService;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -37,12 +38,14 @@ public class GuardrailsTelemetryService {
                                       ReviewRateLimiter rateLimiter,
                                       ReviewHistoryService historyService,
                                       ReviewHistoryCleanupStatusService cleanupStatusService,
+                                      ReviewHistoryCleanupAuditService cleanupAuditService,
                                       ReviewSchedulerStateService schedulerStateService) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
         this.historyService = Objects.requireNonNull(historyService, "historyService");
         this.cleanupStatusService = Objects.requireNonNull(cleanupStatusService, "cleanupStatusService");
+        this.cleanupAuditService = Objects.requireNonNull(cleanupAuditService, "cleanupAuditService");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
     }
 
@@ -212,6 +215,7 @@ public class GuardrailsTelemetryService {
     private Map<String, Object> retentionToMap(ReviewHistoryCleanupStatusService.Status status) {
         Map<String, Object> map = new LinkedHashMap<>(historyService.getRetentionStats(status.getRetentionDays()));
         map.put("schedule", cleanupStatusToMap(status));
+        map.put("recentRuns", cleanupAuditService.listRecent(10));
         return map;
     }
 

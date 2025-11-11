@@ -1,10 +1,13 @@
 package com.teknolojikpanda.bitbucket.aireviewer.rest;
 
+import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupScheduler;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
@@ -42,6 +45,7 @@ public class HistoryResourceTest {
     private ReviewWorkerPool workerPool;
     private ReviewHistoryCleanupService cleanupService;
     private ReviewHistoryCleanupStatusService cleanupStatusService;
+    private ReviewHistoryCleanupAuditService cleanupAuditService;
     private ReviewHistoryCleanupScheduler cleanupScheduler;
     private HistoryResource resource;
 
@@ -57,9 +61,13 @@ public class HistoryResourceTest {
         workerPool = mock(ReviewWorkerPool.class);
         cleanupService = mock(ReviewHistoryCleanupService.class);
         cleanupStatusService = mock(ReviewHistoryCleanupStatusService.class);
+        cleanupAuditService = mock(ReviewHistoryCleanupAuditService.class);
         cleanupScheduler = mock(ReviewHistoryCleanupScheduler.class);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
+        UserKey adminKey = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(adminKey);
+        when(profile.getFullName()).thenReturn("Admin");
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
                         ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
@@ -87,7 +95,8 @@ public class HistoryResourceTest {
         ReviewHistoryCleanupStatusService.Status cleanupStatus =
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
         when(cleanupStatusService.getStatus()).thenReturn(cleanupStatus);
-        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool, cleanupService, cleanupStatusService, cleanupScheduler);
+        when(cleanupAuditService.listRecent(anyInt())).thenReturn(Collections.emptyList());
+        resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool, cleanupService, cleanupStatusService, cleanupAuditService, cleanupScheduler);
     }
 
     private ReviewRateLimiter.RateLimitSnapshot createRateLimitSnapshot() {
@@ -257,11 +266,13 @@ public class HistoryResourceTest {
         verify(cleanupScheduler).reschedule();
         verify(cleanupService).cleanupOlderThanDays(60, 500);
         verify(cleanupStatusService).recordRun(eq(result), anyLong());
+        verify(cleanupAuditService).recordRun(anyLong(), anyLong(), eq(3), eq(12), eq(true), eq("admin"), eq("Admin"));
 
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertTrue(payload.containsKey("result"));
         assertTrue(payload.containsKey("status"));
+        assertTrue(payload.containsKey("recentRuns"));
     }
 
     @Test
@@ -285,10 +296,12 @@ public class HistoryResourceTest {
         verify(cleanupStatusService).updateSchedule(45, 100, 60, false);
         verify(cleanupScheduler).reschedule();
         verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
+        verify(cleanupAuditService, never()).recordRun(anyLong(), anyLong(), anyInt(), anyInt(), anyBoolean(), any(), any());
 
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertTrue(payload.containsKey("status"));
         assertTrue(!payload.containsKey("result"));
+        assertTrue(payload.containsKey("recentRuns"));
     }
 }
