@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -127,6 +128,8 @@ public class GuardrailsTelemetryService {
                 "Repositories tracked by the limiter");
         addMetric(metrics, "ai.rateLimiter.trackedProjectBuckets", limiter.get("trackedProjectBuckets"), "count",
                 "Projects tracked by the limiter");
+        addLimiterBucketMetrics(metrics, "repo", asList(limiter.get("topRepoBuckets")), 5);
+        addLimiterBucketMetrics(metrics, "project", asList(limiter.get("topProjectBuckets")), 5);
 
         addMetric(metrics, "ai.retention.windowDays", retention.get("retentionDays"), "days",
                 "Retention window applied to AI review history");
@@ -292,6 +295,10 @@ public class GuardrailsTelemetryService {
             map.put("limit", state.getLimit());
             map.put("remaining", state.getRemaining());
             map.put("resetInMs", state.getResetInMs());
+             map.put("updatedAt", state.getUpdatedAt());
+             map.put("throttledCount", state.getThrottledCount());
+             map.put("lastThrottleAt", state.getLastThrottleAt());
+             map.put("averageRetryAfterMs", state.getAverageRetryAfterMs());
             list.add(map);
         });
         return list;
@@ -303,6 +310,14 @@ public class GuardrailsTelemetryService {
             return (Map<String, Object>) value;
         }
         return Collections.emptyMap();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asList(Object value) {
+        if (value instanceof List) {
+            return (List<Map<String, Object>>) value;
+        }
+        return Collections.emptyList();
     }
 
     private void addMetric(List<Map<String, Object>> metrics,
@@ -324,6 +339,38 @@ public class GuardrailsTelemetryService {
             metric.put("description", description);
         }
         metrics.add(metric);
+    }
+
+    private void addLimiterBucketMetrics(List<Map<String, Object>> metrics,
+                                         String scopeType,
+                                         List<Map<String, Object>> buckets,
+                                         int maxBuckets) {
+        if (buckets == null || buckets.isEmpty()) {
+            return;
+        }
+        int count = 0;
+        for (Map<String, Object> bucket : buckets) {
+            if (count++ >= maxBuckets) {
+                break;
+            }
+            String scope = sanitizeMetricScope((String) bucket.get("scope"));
+            String prefix = "ai.rateLimiter." + scopeType + "." + scope;
+            addMetric(metrics, prefix + ".consumed", bucket.get("consumed"), "reviews",
+                    "Reviews consumed for " + scopeType + " " + scope);
+            addMetric(metrics, prefix + ".remaining", bucket.get("remaining"), "reviews",
+                    "Reviews remaining before throttling for " + scopeType + " " + scope);
+            addMetric(metrics, prefix + ".resetInMs", bucket.get("resetInMs"), "ms",
+                    "Milliseconds until rate window resets for " + scopeType + " " + scope);
+            addMetric(metrics, prefix + ".throttledCount", bucket.get("throttledCount"), "events",
+                    "Throttle events recorded for " + scopeType + " " + scope + " within the last window");
+        }
+    }
+
+    private String sanitizeMetricScope(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return "unknown";
+        }
+        return raw.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
     }
 
     private Number toNumber(Object value) {

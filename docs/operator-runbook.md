@@ -68,6 +68,30 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 * **Rate limiter:** High values for `ai.rateLimiter.trackedRepoBuckets` with `repoLimitPerHour` throttling legitimate work => raise limits temporarily and watch `/metrics` to confirm automation catches up.
 * **Worker saturation:** When `ai.worker.activeThreads` equals `ai.worker.configuredSize` and `ai.worker.queuedTasks` keeps climbing, consider scaling the node pool or lowering `maxParallelChunks`.
 
+### Limiter snapshot, overrides, and incidents
+
+* `GET /rest/ai-reviewer/1.0/config/limiter` returns a single payload with:
+  * `snapshot`: Current repo/project budgets, remaining tokens, reset ETAs, and recent throttle counts per hot scope.
+  * `overrides`: Active manual overrides (scope, identifier, limit, expiry, actor, reason).
+  * `incidents`: Recent throttle events with scope, repo/project coordinates, retry-after, and reason.
+* **Granting a temporary override:** `POST /rest/ai-reviewer/1.0/config/limiter/overrides`
+
+```json
+{
+  "scope": "repository",           // repository | project | global
+  "identifier": "payment-service", // omit for global
+  "limitPerHour": 30,
+  "durationMinutes": 90,           // optional; falls back to indefinite when omitted
+  "reason": "High-priority hotfix"
+}
+```
+
+  * Overrides are persisted cluster-wide (AO) and respected immediately thanks to the persistent limiter buckets.
+  * `durationMinutes` is clamped to 7 days; alternatively supply an absolute `expiresAt` epoch millis.
+  * Every override stores the Bitbucket user key/display name so you can audit who relaxed limits.
+* **Revoking overrides:** `DELETE /rest/ai-reviewer/1.0/config/limiter/overrides/{id}` removes the entry (use the `overrides` list to discover IDs). 404 is returned if the override already expired/was deleted.
+* **Investigating throttles:** The `incidents` list (also exposed via the Config payload) shows the last 40 throttle events. Pair these with `/metrics` (`ai.rateLimiter.repo|project.*`) to decide whether to grant burst credits or adjust defaults.
+
 ## 5. Alert Integration Checklist
 
 1. Point your monitoring system at `/rest/ai-reviewer/1.0/metrics` (for raw metrics) or `/rest/ai-reviewer/1.0/alerts` (for synthesized alerts).

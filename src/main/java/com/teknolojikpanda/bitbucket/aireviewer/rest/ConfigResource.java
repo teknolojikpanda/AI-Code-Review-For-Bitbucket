@@ -15,6 +15,13 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ConfigurationValidationException;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitOverrideService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitOverrideService.OverrideRecord;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitScope;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore.ThrottleIncident;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,9 +38,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
@@ -62,19 +71,31 @@ public class ConfigResource {
     private static final long USER_SEARCH_WINDOW_MS = TimeUnit.SECONDS.toMillis(60);
     private static final int USER_SEARCH_LIMIT = 40;
     private static final int USER_SEARCH_PAGE_LIMIT = 25;
+    private static final int LIMITER_SNAPSHOT_BUCKETS = 10;
+    private static final long MAX_OVERRIDE_DURATION_MINUTES = TimeUnit.DAYS.toMinutes(7);
+    private static final int RECENT_LIMITER_INCIDENTS = 40;
 
     private final UserManager userManager;
     private final UserService userService;
     private final AIReviewerConfigService configService;
+    private final ReviewRateLimiter rateLimiter;
+    private final GuardrailsRateLimitOverrideService overrideService;
+    private final GuardrailsRateLimitStore rateLimitStore;
 
     @Inject
     public ConfigResource(
             @ComponentImport UserManager userManager,
             @ComponentImport UserService userService,
-            AIReviewerConfigService configService) {
+            AIReviewerConfigService configService,
+            ReviewRateLimiter rateLimiter,
+            GuardrailsRateLimitOverrideService overrideService,
+            GuardrailsRateLimitStore rateLimitStore) {
         this.userManager = userManager;
         this.userService = userService;
         this.configService = configService;
+        this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
+        this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
+        this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
     }
 
     /**
@@ -103,6 +124,9 @@ public class ConfigResource {
             config.putIfAbsent("apiDelay", config.getOrDefault("apiDelayMs", defaultApiDelay));
             config.put("profilePresets", ReviewProfilePreset.descriptors());
             config.put("repositoryOverrides", configService.listRepositoryConfigurations());
+            config.put("limiter", limiterSnapshot());
+            config.put("rateLimitOverrides", overridesToList(overrideService.listOverrides(false)));
+            config.put("rateLimitIncidents", incidentsToList(rateLimitStore.fetchRecentIncidents(RECENT_LIMITER_INCIDENTS)));
             return Response.ok(config).build();
         } catch (Exception e) {
             log.error("Error getting configuration", e);
@@ -110,6 +134,95 @@ public class ConfigResource {
                     .entity(error("Failed to get configuration: " + e.getMessage()))
                     .build();
         }
+    }
+
+    @GET
+    @Path("/limiter")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response getLimiterDetails(@Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("snapshot", limiterSnapshot());
+        payload.put("overrides", overridesToList(overrideService.listOverrides(false)));
+        payload.put("incidents", incidentsToList(rateLimitStore.fetchRecentIncidents(RECENT_LIMITER_INCIDENTS)));
+        return Response.ok(payload).build();
+    }
+
+    @POST
+    @Path("/limiter/overrides")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response createOverride(Map<String, Object> payload,
+                                   @Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+        Response rateLimited = enforceRateLimit(request, profile,
+                "limiter-override",
+                "limiter overrides",
+                CONFIG_WRITE_LIMIT,
+                CONFIG_WRITE_WINDOW_MS);
+        if (rateLimited != null) {
+            return rateLimited;
+        }
+        try {
+            GuardrailsRateLimitScope scope = parseOverrideScope(payload.get("scope"));
+            String identifier = normalizeOverrideIdentifier(scope, payload.get("identifier"));
+            int limitPerHour = parsePositiveInt(payload.get("limitPerHour"), "limitPerHour");
+            long expiresAt = resolveOverrideExpiry(payload);
+            String reason = stringValue(payload.get("reason"));
+            String userKey = profile != null && profile.getUserKey() != null
+                    ? profile.getUserKey().getStringValue()
+                    : null;
+            String displayName = profile != null ? profile.getFullName() : null;
+            OverrideRecord record = overrideService.upsertOverride(
+                    scope,
+                    identifier,
+                    limitPerHour,
+                    expiresAt,
+                    reason,
+                    userKey,
+                    displayName);
+            return Response.ok(overrideToMap(record)).build();
+        } catch (IllegalArgumentException ex) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error(ex.getMessage()))
+                    .build();
+        }
+    }
+
+    @DELETE
+    @Path("/limiter/overrides/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response deleteOverride(@PathParam("id") int id,
+                                   @Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+        if (id <= 0) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Override id must be positive"))
+                    .build();
+        }
+        java.util.Optional<OverrideRecord> existing = overrideService.getOverride(id);
+        if (existing.isEmpty()) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(error("Override " + id + " not found"))
+                    .build();
+        }
+        overrideService.deleteOverride(id);
+        return Response.ok(success("Override removed")).build();
     }
 
     /**
@@ -526,6 +639,165 @@ public class ConfigResource {
     /**
      * Create error response
      */
+    private Map<String, Object> limiterSnapshot() {
+        RateLimitSnapshot snapshot = rateLimiter.snapshot(LIMITER_SNAPSHOT_BUCKETS);
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("repoLimitPerHour", snapshot.getRepoLimit());
+        map.put("projectLimitPerHour", snapshot.getProjectLimit());
+        map.put("trackedRepoBuckets", snapshot.getTrackedRepoBuckets());
+        map.put("trackedProjectBuckets", snapshot.getTrackedProjectBuckets());
+        map.put("capturedAt", snapshot.getCapturedAt());
+        map.put("topRepoBuckets", bucketStatesToList(snapshot.getTopRepoBuckets()));
+        map.put("topProjectBuckets", bucketStatesToList(snapshot.getTopProjectBuckets()));
+        return map;
+    }
+
+    private List<Map<String, Object>> bucketStatesToList(Map<String, RateLimitSnapshot.BucketState> buckets) {
+        if (buckets == null || buckets.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(buckets.size());
+        buckets.forEach((scope, state) -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", scope);
+            map.put("consumed", state.getConsumed());
+            map.put("limit", state.getLimit());
+            map.put("remaining", state.getRemaining());
+            map.put("resetInMs", state.getResetInMs());
+            map.put("updatedAt", state.getUpdatedAt());
+            map.put("throttledCount", state.getThrottledCount());
+            map.put("lastThrottleAt", state.getLastThrottleAt());
+            map.put("averageRetryAfterMs", state.getAverageRetryAfterMs());
+            list.add(map);
+        });
+        return list;
+    }
+
+    private List<Map<String, Object>> overridesToList(List<OverrideRecord> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(overrides.size());
+        for (OverrideRecord override : overrides) {
+            list.add(overrideToMap(override));
+        }
+        return list;
+    }
+
+    private Map<String, Object> overrideToMap(OverrideRecord record) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", record.getId());
+        map.put("scope", record.getScope().name().toLowerCase(Locale.ROOT));
+        map.put("identifier", record.getIdentifier());
+        map.put("limitPerHour", record.getLimitPerHour());
+        map.put("createdAt", record.getCreatedAt());
+        map.put("expiresAt", record.getExpiresAt());
+        map.put("createdBy", record.getCreatedBy());
+        map.put("createdByDisplayName", record.getCreatedByDisplayName());
+        map.put("reason", record.getReason());
+        return map;
+    }
+
+    private List<Map<String, Object>> incidentsToList(List<ThrottleIncident> incidents) {
+        if (incidents == null || incidents.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(incidents.size());
+        for (ThrottleIncident incident : incidents) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", incident.getScope().name().toLowerCase(Locale.ROOT));
+            map.put("identifier", incident.getIdentifier());
+            map.put("projectKey", incident.getProjectKey());
+            map.put("repositorySlug", incident.getRepositorySlug());
+            map.put("occurredAt", incident.getOccurredAt());
+            map.put("limitPerHour", incident.getLimitPerHour());
+            map.put("retryAfterMs", incident.getRetryAfterMs());
+            map.put("reason", incident.getReason());
+            list.add(map);
+        }
+        return list;
+    }
+
+    private GuardrailsRateLimitScope parseOverrideScope(Object raw) {
+        String scope = stringValue(raw);
+        if (scope == null) {
+            throw new IllegalArgumentException("scope is required");
+        }
+        switch (scope.trim().toLowerCase(Locale.ROOT)) {
+            case "global":
+                return GuardrailsRateLimitScope.GLOBAL;
+            case "project":
+                return GuardrailsRateLimitScope.PROJECT;
+            case "repo":
+            case "repository":
+                return GuardrailsRateLimitScope.REPOSITORY;
+            default:
+                throw new IllegalArgumentException("Unsupported scope value: " + scope);
+        }
+    }
+
+    private String normalizeOverrideIdentifier(GuardrailsRateLimitScope scope, Object identifierValue) {
+        if (scope == GuardrailsRateLimitScope.GLOBAL) {
+            return null;
+        }
+        String identifier = stringValue(identifierValue);
+        if (identifier == null || identifier.isEmpty()) {
+            throw new IllegalArgumentException("identifier is required for " + scope.name().toLowerCase(Locale.ROOT));
+        }
+        if (scope == GuardrailsRateLimitScope.PROJECT) {
+            String upper = identifier.toUpperCase(Locale.ROOT);
+            if (!PROJECT_KEY_PATTERN.matcher(upper).matches()) {
+                throw new IllegalArgumentException("Invalid project key: " + identifier);
+            }
+            return upper;
+        }
+        if (!REPOSITORY_SLUG_PATTERN.matcher(identifier).matches()) {
+            throw new IllegalArgumentException("Invalid repository slug: " + identifier);
+        }
+        return identifier;
+    }
+
+    private int parsePositiveInt(Object raw, String field) {
+        if (raw instanceof Number) {
+            return Math.max(0, ((Number) raw).intValue());
+        }
+        if (raw instanceof String) {
+            try {
+                return Math.max(0, Integer.parseInt(((String) raw).trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        throw new IllegalArgumentException(field + " must be a number");
+    }
+
+    private long resolveOverrideExpiry(Map<String, Object> payload) {
+        long now = System.currentTimeMillis();
+        Long duration = toLong(payload.get("durationMinutes"));
+        if (duration != null && duration > 0) {
+            long clamped = Math.min(duration, MAX_OVERRIDE_DURATION_MINUTES);
+            return now + TimeUnit.MINUTES.toMillis(clamped);
+        }
+        Long explicitExpiry = toLong(payload.get("expiresAt"));
+        if (explicitExpiry != null && explicitExpiry > now) {
+            return explicitExpiry;
+        }
+        return 0L;
+    }
+
+    private Long toLong(Object raw) {
+        if (raw instanceof Number) {
+            return ((Number) raw).longValue();
+        }
+        if (raw instanceof String) {
+            try {
+                return Long.parseLong(((String) raw).trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private Map<String, Object> error(String message) {
         return error(message, null);
     }

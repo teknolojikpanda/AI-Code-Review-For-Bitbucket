@@ -1,6 +1,8 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore.IncidentAggregate;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore.WindowSample;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,8 +12,6 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
 import java.time.Instant;
-import java.util.AbstractMap;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,8 +39,8 @@ public class ReviewRateLimiter {
     private static final long MAX_SNOOZE_MS = TimeUnit.MINUTES.toMillis(30);
 
     private final AIReviewerConfigService configService;
-    private final ConcurrentHashMap<String, Bucket> repoBuckets = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Bucket> projectBuckets = new ConcurrentHashMap<>();
+    private final GuardrailsRateLimitStore rateLimitStore;
+    private final GuardrailsRateLimitOverrideService overrideService;
     private final ConcurrentHashMap<String, Long> repoSnoozes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> projectSnoozes = new ConcurrentHashMap<>();
 
@@ -49,8 +49,12 @@ public class ReviewRateLimiter {
     private volatile long lastRefresh;
 
     @Inject
-    public ReviewRateLimiter(AIReviewerConfigService configService) {
+    public ReviewRateLimiter(AIReviewerConfigService configService,
+                             GuardrailsRateLimitStore rateLimitStore,
+                             GuardrailsRateLimitOverrideService overrideService) {
         this.configService = Objects.requireNonNull(configService, "configService");
+        this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
+        this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
         this.repoLimitPerHour = DEFAULT_REPO_LIMIT;
         this.projectLimitPerHour = DEFAULT_PROJECT_LIMIT;
         this.lastRefresh = 0L;
@@ -59,21 +63,59 @@ public class ReviewRateLimiter {
     public void acquire(@Nullable String projectKey, @Nullable String repositorySlug) {
         refreshLimitsIfNeeded();
         long now = System.currentTimeMillis();
-        if (repositorySlug != null && repoLimitPerHour > 0) {
-            String repoKey = repositorySlug.toLowerCase(Locale.ROOT);
-            if (!isSnoozed(repoSnoozes, repoKey, now)) {
-                Bucket bucket = repoBuckets.computeIfAbsent(repoKey, k -> new Bucket());
-                if (!bucket.tryConsume(repoLimitPerHour, now)) {
-                    throw RateLimitExceededException.repository(repositorySlug, repoLimitPerHour, bucket.retryAfter(now));
+        long windowStart = now - (now % WINDOW_MS);
+
+        if (repositorySlug != null) {
+            int repoLimit = overrideService.resolveRepoLimit(projectKey, repositorySlug, repoLimitPerHour);
+            if (repoLimit > 0) {
+                String snoozeKey = repositorySlug.toLowerCase(Locale.ROOT);
+                if (!isSnoozed(repoSnoozes, snoozeKey, now)) {
+                    try {
+                        rateLimitStore.acquireToken(
+                                GuardrailsRateLimitScope.REPOSITORY,
+                                repositorySlug,
+                                repoLimit,
+                                windowStart,
+                                WINDOW_MS,
+                                now);
+                    } catch (RateLimitExceededException ex) {
+                        recordThrottleIncident(
+                                GuardrailsRateLimitScope.REPOSITORY,
+                                repositorySlug,
+                                projectKey,
+                                repositorySlug,
+                                repoLimit,
+                                ex.getRetryAfterMillis(),
+                                now);
+                        throw ex;
+                    }
                 }
             }
         }
-        if (projectKey != null && projectLimitPerHour > 0) {
-            String project = projectKey.toLowerCase(Locale.ROOT);
-            if (!isSnoozed(projectSnoozes, project, now)) {
-                Bucket bucket = projectBuckets.computeIfAbsent(project, k -> new Bucket());
-                if (!bucket.tryConsume(projectLimitPerHour, now)) {
-                    throw RateLimitExceededException.project(projectKey, projectLimitPerHour, bucket.retryAfter(now));
+        if (projectKey != null) {
+            int projectLimit = overrideService.resolveProjectLimit(projectKey, projectLimitPerHour);
+            if (projectLimit > 0) {
+                String snoozeKey = projectKey.toLowerCase(Locale.ROOT);
+                if (!isSnoozed(projectSnoozes, snoozeKey, now)) {
+                    try {
+                        rateLimitStore.acquireToken(
+                                GuardrailsRateLimitScope.PROJECT,
+                                projectKey,
+                                projectLimit,
+                                windowStart,
+                                WINDOW_MS,
+                                now);
+                    } catch (RateLimitExceededException ex) {
+                        recordThrottleIncident(
+                                GuardrailsRateLimitScope.PROJECT,
+                                projectKey,
+                                projectKey,
+                                repositorySlug,
+                                projectLimit,
+                                ex.getRetryAfterMillis(),
+                                now);
+                        throw ex;
+                    }
                 }
             }
         }
@@ -111,15 +153,21 @@ public class ReviewRateLimiter {
         refreshLimitsIfNeeded();
         int sampleSize = Math.max(0, maxBucketSamples);
         long now = System.currentTimeMillis();
-        Map<String, RateLimitSnapshot.BucketState> repoStates =
-                captureTopBuckets(repoBuckets, repoLimitPerHour, sampleSize, now);
-        Map<String, RateLimitSnapshot.BucketState> projectStates =
-                captureTopBuckets(projectBuckets, projectLimitPerHour, sampleSize, now);
+        List<WindowSample> repoSamples = sampleSize > 0
+                ? rateLimitStore.getTopWindows(GuardrailsRateLimitScope.REPOSITORY, sampleSize)
+                : Collections.emptyList();
+        List<WindowSample> projectSamples = sampleSize > 0
+                ? rateLimitStore.getTopWindows(GuardrailsRateLimitScope.PROJECT, sampleSize)
+                : Collections.emptyList();
+        Map<String, IncidentAggregate> repoAggregates = aggregateIncidents(GuardrailsRateLimitScope.REPOSITORY, sampleSize, now);
+        Map<String, IncidentAggregate> projectAggregates = aggregateIncidents(GuardrailsRateLimitScope.PROJECT, sampleSize, now);
+        Map<String, RateLimitSnapshot.BucketState> repoStates = windowSamplesToMap(repoSamples, repoAggregates, now);
+        Map<String, RateLimitSnapshot.BucketState> projectStates = windowSamplesToMap(projectSamples, projectAggregates, now);
         return new RateLimitSnapshot(
                 repoLimitPerHour,
                 projectLimitPerHour,
-                repoBuckets.size(),
-                projectBuckets.size(),
+                repoSamples.size(),
+                projectSamples.size(),
                 repoStates,
                 projectStates,
                 now);
@@ -191,37 +239,74 @@ public class ReviewRateLimiter {
         return defaultValue;
     }
 
-    private static final class Bucket {
-        private int count;
-        private long windowStart;
-
-        synchronized boolean tryConsume(int limit, long now) {
-            if (limit <= 0) {
-                return true;
-            }
-            if (now - windowStart >= WINDOW_MS) {
-                windowStart = now;
-                count = 0;
-            }
-            if (count >= limit) {
-                return false;
-            }
-            count++;
-            return true;
+    private Map<String, IncidentAggregate> aggregateIncidents(GuardrailsRateLimitScope scope,
+                                                              int sampleLimit,
+                                                              long now) {
+        if (sampleLimit <= 0) {
+            return Collections.emptyMap();
         }
-
-        synchronized long retryAfter(long now) {
-            long resetAt = windowStart + WINDOW_MS;
-            if (resetAt <= now) {
-                return 0L;
-            }
-            return resetAt - now;
+        long since = Math.max(0L, now - WINDOW_MS);
+        List<IncidentAggregate> aggregates = rateLimitStore.aggregateIncidents(scope, since, sampleLimit);
+        if (aggregates.isEmpty()) {
+            return Collections.emptyMap();
         }
+        Map<String, IncidentAggregate> map = new LinkedHashMap<>();
+        for (IncidentAggregate aggregate : aggregates) {
+            map.put(aggregate.getIdentifier(), aggregate);
+        }
+        return map;
+    }
 
-        synchronized RateLimitSnapshot.BucketState snapshot(int limit, long now) {
-            int remaining = Math.max(0, limit - count);
-            long resetIn = Math.max(0, (windowStart + WINDOW_MS) - now);
-            return new RateLimitSnapshot.BucketState(count, limit, remaining, resetIn);
+    private Map<String, RateLimitSnapshot.BucketState> windowSamplesToMap(List<WindowSample> samples,
+                                                                          Map<String, IncidentAggregate> aggregates,
+                                                                          long now) {
+        if (samples == null || samples.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, RateLimitSnapshot.BucketState> result = new LinkedHashMap<>(samples.size());
+        for (WindowSample sample : samples) {
+            IncidentAggregate aggregate = aggregates.get(sample.getIdentifier());
+            int throttled = aggregate != null ? aggregate.getThrottledCount() : 0;
+            long lastThrottleAt = aggregate != null ? aggregate.getLastOccurredAt() : 0L;
+            long avgRetry = aggregate != null ? aggregate.getAverageRetryAfterMs() : 0L;
+            result.put(sample.getIdentifier(), new RateLimitSnapshot.BucketState(
+                    sample.getConsumed(),
+                    sample.getLimitPerHour(),
+                    sample.getRemaining(),
+                    sample.estimateResetIn(WINDOW_MS, now),
+                    sample.getUpdatedAt(),
+                    throttled,
+                    lastThrottleAt,
+                    avgRetry));
+        }
+        return result;
+    }
+
+    private void recordThrottleIncident(GuardrailsRateLimitScope scope,
+                                        @Nullable String identifier,
+                                        @Nullable String projectKey,
+                                        @Nullable String repositorySlug,
+                                        int limitPerHour,
+                                        long retryAfterMs,
+                                        long occurredAt) {
+        if (identifier == null) {
+            return;
+        }
+        try {
+            rateLimitStore.recordIncident(
+                    scope,
+                    identifier,
+                    projectKey,
+                    repositorySlug,
+                    limitPerHour,
+                    retryAfterMs,
+                    occurredAt,
+                    "rate-limit");
+        } catch (Exception ex) {
+            log.debug("Failed to record rate-limit incident for {}:{} - {}",
+                    scope,
+                    identifier,
+                    ex.getMessage());
         }
     }
 
@@ -283,12 +368,27 @@ public class ReviewRateLimiter {
             private final int limit;
             private final int remaining;
             private final long resetInMs;
+            private final long updatedAt;
+            private final int throttledCount;
+            private final long lastThrottleAt;
+            private final long averageRetryAfterMs;
 
-            BucketState(int consumed, int limit, int remaining, long resetInMs) {
+            BucketState(int consumed,
+                        int limit,
+                        int remaining,
+                        long resetInMs,
+                        long updatedAt,
+                        int throttledCount,
+                        long lastThrottleAt,
+                        long averageRetryAfterMs) {
                 this.consumed = consumed;
                 this.limit = limit;
                 this.remaining = remaining;
                 this.resetInMs = resetInMs;
+                this.updatedAt = updatedAt;
+                this.throttledCount = throttledCount;
+                this.lastThrottleAt = lastThrottleAt;
+                this.averageRetryAfterMs = averageRetryAfterMs;
             }
 
             public int getConsumed() {
@@ -306,35 +406,22 @@ public class ReviewRateLimiter {
             public long getResetInMs() {
                 return resetInMs;
             }
-        }
-    }
 
-    private Map<String, RateLimitSnapshot.BucketState> captureTopBuckets(ConcurrentHashMap<String, Bucket> buckets,
-                                                                         int limit,
-                                                                         int maxSamples,
-                                                                         long now) {
-        if (buckets.isEmpty() || maxSamples <= 0 || limit <= 0) {
-            return Collections.emptyMap();
-        }
-        List<Map.Entry<String, RateLimitSnapshot.BucketState>> snapshots = new ArrayList<>();
-        buckets.forEach((key, bucket) -> {
-            RateLimitSnapshot.BucketState state = bucket.snapshot(limit, now);
-            if (state.getConsumed() > 0) {
-                snapshots.add(new AbstractMap.SimpleEntry<>(key, state));
+            public long getUpdatedAt() {
+                return updatedAt;
             }
-        });
-        if (snapshots.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        snapshots.sort((a, b) -> Integer.compare(b.getValue().getConsumed(), a.getValue().getConsumed()));
-        Map<String, RateLimitSnapshot.BucketState> result = new LinkedHashMap<>();
-        int count = 0;
-        for (Map.Entry<String, RateLimitSnapshot.BucketState> entry : snapshots) {
-            if (count++ >= maxSamples) {
-                break;
+
+            public int getThrottledCount() {
+                return throttledCount;
             }
-            result.put(entry.getKey(), entry.getValue());
+
+            public long getLastThrottleAt() {
+                return lastThrottleAt;
+            }
+
+            public long getAverageRetryAfterMs() {
+                return averageRetryAfterMs;
+            }
         }
-        return result;
     }
 }

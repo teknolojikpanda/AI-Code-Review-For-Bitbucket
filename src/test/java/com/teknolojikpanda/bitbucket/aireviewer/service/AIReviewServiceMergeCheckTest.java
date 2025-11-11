@@ -47,6 +47,8 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewConcurrencyController concurrencyController;
     private ReviewRateLimiter rateLimiter;
     private ReviewWorkerPool workerPool;
+    private GuardrailsRateLimitStore rateLimitStore;
+    private GuardrailsRateLimitOverrideService overrideService;
     private ReviewSchedulerStateService schedulerStateService;
     private ReviewQueueAuditService queueAuditService;
 
@@ -69,6 +71,12 @@ public class AIReviewServiceMergeCheckTest {
         repositoryHookService = mock(RepositoryHookService.class);
         userService = mock(UserService.class);
         when(configService.getConfigurationAsMap()).thenReturn(Collections.emptyMap());
+        rateLimitStore = mock(GuardrailsRateLimitStore.class);
+        overrideService = mock(GuardrailsRateLimitOverrideService.class);
+        when(overrideService.resolveRepoLimit(any(), any(), anyInt()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
+        when(overrideService.resolveProjectLimit(any(), anyInt()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         securityService = mock(SecurityService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         queueAuditService = mock(ReviewQueueAuditService.class);
@@ -81,7 +89,7 @@ public class AIReviewServiceMergeCheckTest {
                         System.currentTimeMillis());
         when(schedulerStateService.getState()).thenReturn(schedulerState);
         concurrencyController = new ReviewConcurrencyController(configService, schedulerStateService, queueAuditService);
-        rateLimiter = new ReviewRateLimiter(configService);
+        rateLimiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService);
         workerPool = new ReviewWorkerPool(configService);
 
         service = new AIReviewServiceImpl(

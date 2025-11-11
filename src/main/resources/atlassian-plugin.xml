@@ -23,6 +23,9 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupAudit</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertDelivery</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateBucket</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateIncident</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateOverride</entity>
     </ao>
 
     <!--

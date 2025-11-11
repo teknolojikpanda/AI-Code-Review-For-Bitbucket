@@ -691,6 +691,10 @@ public class HistoryResource {
             map.put("limit", state.getLimit());
             map.put("remaining", state.getRemaining());
             map.put("resetInMs", state.getResetInMs());
+            map.put("updatedAt", state.getUpdatedAt());
+            map.put("throttledCount", state.getThrottledCount());
+            map.put("lastThrottleAt", state.getLastThrottleAt());
+            map.put("averageRetryAfterMs", state.getAverageRetryAfterMs());
             entries.add(map);
         });
         return entries;
