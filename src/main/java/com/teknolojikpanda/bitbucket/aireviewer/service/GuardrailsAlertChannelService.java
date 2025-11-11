@@ -23,12 +23,12 @@ public class GuardrailsAlertChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(GuardrailsAlertChannelService.class);
     private final ActiveObjects ao;
-    private final RequestFactory<?> requestFactory;
+    private final RequestFactory requestFactory;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
     public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao,
-                                         @ComponentImport RequestFactory<?> requestFactory) {
+                                         @ComponentImport RequestFactory requestFactory) {
         this.ao = Objects.requireNonNull(ao, "activeObjects");
         this.requestFactory = Objects.requireNonNull(requestFactory, "requestFactory");
     }
