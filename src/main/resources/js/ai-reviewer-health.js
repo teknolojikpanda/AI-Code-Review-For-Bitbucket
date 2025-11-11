@@ -8,6 +8,7 @@
     var runtimeUrl = baseUrl + '/rest/ai-reviewer/1.0/monitoring/runtime';
     var queueAdminUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/queue';
     var cleanupUrl = baseUrl + '/rest/ai-reviewer/1.0/history/cleanup';
+    var alertsUrl = baseUrl + '/rest/ai-reviewer/1.0/alerts';
 
     function init() {
         $('#refresh-health-btn').on('click', function() {
@@ -32,10 +33,12 @@
         }
         var runtimeRequest = $.ajax({ url: runtimeUrl, type: 'GET', dataType: 'json' });
         var queueRequest = $.ajax({ url: queueAdminUrl, type: 'GET', dataType: 'json' });
+        var alertsRequest = $.ajax({ url: alertsUrl, type: 'GET', dataType: 'json' });
 
-        $.when(runtimeRequest, queueRequest).done(function(runtimeResp, queueResp) {
+        $.when(runtimeRequest, queueRequest, alertsRequest).done(function(runtimeResp, queueResp, alertsResp) {
             renderRuntime(runtimeResp[0]);
             renderQueue(queueResp[0]);
+            renderAlerts(alertsResp[0]);
             if (!silent) {
                 clearHealthMessage();
             }
@@ -388,6 +391,32 @@
         $table.show();
         $empty.hide();
         $count.text(runs.length + (runs.length === 1 ? ' run' : ' runs'));
+    }
+
+    function renderAlerts(data) {
+        data = data || {};
+        var alerts = data.alerts || [];
+        $('#alerts-updated').text(data.generatedAt ? formatTimestamp(data.generatedAt) : '—');
+        var $table = $('#alerts-table');
+        var $empty = $('#alerts-empty');
+        if (!alerts.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No active alerts.').show();
+            return;
+        }
+        var rows = alerts.map(function(alert) {
+            var severity = (alert.severity || '').toUpperCase();
+            return '<tr>' +
+                '<td>' + escapeHtml(severity) + '</td>' +
+                '<td>' + escapeHtml(alert.summary || '—') + '</td>' +
+                '<td>' + escapeHtml(alert.detail || '—') + '</td>' +
+                '<td>' + escapeHtml(alert.recommendation || '—') + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
     }
 
     function formatRepo(entry) {

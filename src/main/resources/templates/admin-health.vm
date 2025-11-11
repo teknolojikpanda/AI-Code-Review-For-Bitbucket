@@ -202,6 +202,28 @@
                         </table>
                     </div>
                 </section>
+
+                <section class="queue-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Guardrails Alerts</h2>
+                        <span id="alerts-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-panel">
+                        <div class="queue-empty" id="alerts-empty">No active alerts.</div>
+                        <table class="aui aui-table aui-table-rowhover" id="alerts-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Summary</th>
+                                <th>Details</th>
+                                <th>Recommendation</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                        <div class="queue-note" id="alerts-note">Alerts refresh when telemetry loads.</div>
+                    </div>
+                </section>
             </div>
         </section>
     </div>
