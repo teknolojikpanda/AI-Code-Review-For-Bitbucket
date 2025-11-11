@@ -44,6 +44,7 @@ public class GuardrailsAlertChannelService {
     private final ActiveObjects ao;
     private final GuardrailsAlertDeliveryService deliveryService;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final AlertDeliveryCache alertDeliveryCache = new AlertDeliveryCache();
 
     @Inject
     public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao,
@@ -153,6 +154,7 @@ public class GuardrailsAlertChannelService {
             }
             row.setUpdatedAt(System.currentTimeMillis());
             row.save();
+            alertDeliveryCache.invalidateOnDelete(id);
             return toValue(row);
         });
     }
@@ -177,6 +179,7 @@ public class GuardrailsAlertChannelService {
             }
             return null;
         });
+        alertDeliveryCache.invalidateOnDelete(id);
     }
 
     public boolean sendTestAlert(int id) {
@@ -315,6 +318,22 @@ public class GuardrailsAlertChannelService {
         } catch (Exception ex) {
             log.warn("Failed to record guardrails alert delivery for channel {}: {}", channel.getUrl(), ex.getMessage());
         }
+        alertDeliveryCache.record(channel.getId(), success);
+        if (alertDeliveryCache.shouldAutoDisable(channel.getId())) {
+            autoDisableChannel(channel.getId(), channel.getDescription());
+        }
+    }
+
+    private void autoDisableChannel(int channelId, String description) {
+        ao.executeInTransaction(() -> {
+            GuardrailsAlertChannel row = ao.get(GuardrailsAlertChannel.class, channelId);
+            if (row != null && row.isEnabled()) {
+                row.setEnabled(false);
+                row.save();
+                log.warn("Auto-disabled guardrails alert channel {} due to repeated failures", description != null ? description : channelId);
+            }
+            return null;
+        });
     }
 
     private URL toUrl(String value) {
@@ -456,6 +475,49 @@ public class GuardrailsAlertChannelService {
 
         public int getRetryBackoffSeconds() {
             return retryBackoffSeconds;
+        }
+    }
+
+    private static final class AlertDeliveryCache {
+        private static final int WINDOW_MS = 10_000;
+        private static final int MAX_FAILURES = 3;
+
+        private final java.util.concurrent.ConcurrentHashMap<Integer, java.util.List<Long>> failureWindows = new java.util.concurrent.ConcurrentHashMap<>();
+        private final java.util.concurrent.ConcurrentHashMap<Integer, Long> lastDisableNotification = new java.util.concurrent.ConcurrentHashMap<>();
+
+        void record(int channelId, boolean success) {
+            if (success) {
+                failureWindows.remove(channelId);
+                return;
+            }
+            failureWindows.compute(channelId, (id, list) -> {
+                long now = System.currentTimeMillis();
+                java.util.List<Long> timestamps = (list == null) ? new java.util.ArrayList<>() : new java.util.ArrayList<>(list);
+                timestamps.add(now);
+                long cutoff = now - WINDOW_MS;
+                timestamps.removeIf(ts -> ts < cutoff);
+                return timestamps;
+            });
+        }
+
+        boolean shouldAutoDisable(int channelId) {
+            java.util.List<Long> timestamps = failureWindows.get(channelId);
+            if (timestamps == null || timestamps.size() < MAX_FAILURES) {
+                return false;
+            }
+            long now = System.currentTimeMillis();
+            boolean recentNotification = lastDisableNotification.containsKey(channelId) &&
+                    now - lastDisableNotification.get(channelId) < WINDOW_MS;
+            if (recentNotification) {
+                return false;
+            }
+            lastDisableNotification.put(channelId, now);
+            return true;
+        }
+
+        void invalidateOnDelete(int channelId) {
+            failureWindows.remove(channelId);
+            lastDisableNotification.remove(channelId);
         }
     }
 }

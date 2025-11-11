@@ -65,11 +65,15 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {};
 
+    private static final String KEY_PARALLEL_THREADS = "parallelThreads";
+    private static final String KEY_MAX_PARALLEL_CHUNKS = "maxParallelChunks";
+
     private static final Set<String> INTEGER_KEYS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             "maxCharsPerChunk",
             "maxFilesPerChunk",
             "maxChunks",
-            "parallelThreads",
+            KEY_PARALLEL_THREADS,
+            KEY_MAX_PARALLEL_CHUNKS,
             "maxConcurrentReviews",
             "maxQueuedReviews",
             "maxQueuedPerRepo",
@@ -144,7 +148,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "maxCharsPerChunk",
                 "maxFilesPerChunk",
                 "maxChunks",
-                "parallelThreads",
+                KEY_PARALLEL_THREADS,
+                KEY_MAX_PARALLEL_CHUNKS,
                 "maxConcurrentReviews",
                 "maxQueuedReviews",
                 "maxQueuedPerRepo",
@@ -255,6 +260,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     @Override
     public void validateConfiguration(@Nonnull Map<String, Object> configMap) {
         Objects.requireNonNull(configMap, "configMap cannot be null");
+        normalizeParallelChunkKeys(configMap);
 
         Map<String, String> errors = new LinkedHashMap<>();
 
@@ -284,6 +290,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "maxFilesPerChunk", 1, 10, errors);
         validateIntegerRange(configMap, "maxChunks", 1, 50, errors);
         validateIntegerRange(configMap, "parallelThreads", 1, 16, errors);
+        validateIntegerRange(configMap, KEY_MAX_PARALLEL_CHUNKS, 1, 16, errors);
         validateIntegerRange(configMap, "maxConcurrentReviews", 1, 32, errors);
         validateIntegerRange(configMap, "maxQueuedReviews", 0, 500, errors);
         validateIntegerRange(configMap, "maxQueuedPerRepo", 0, 200, errors);
@@ -435,7 +442,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("maxCharsPerChunk", DEFAULT_MAX_CHARS_PER_CHUNK);
         defaults.put("maxFilesPerChunk", DEFAULT_MAX_FILES_PER_CHUNK);
         defaults.put("maxChunks", DEFAULT_MAX_CHUNKS);
-        defaults.put("parallelThreads", DEFAULT_PARALLEL_THREADS);
+        defaults.put(KEY_PARALLEL_THREADS, DEFAULT_PARALLEL_THREADS);
+        defaults.put(KEY_MAX_PARALLEL_CHUNKS, DEFAULT_PARALLEL_THREADS);
         defaults.put("connectTimeout", DEFAULT_CONNECT_TIMEOUT);
         defaults.put("readTimeout", DEFAULT_READ_TIMEOUT);
         defaults.put("ollamaTimeout", DEFAULT_OLLAMA_TIMEOUT);
@@ -1030,6 +1038,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     }
 
     private void updateConfigurationFields(AIReviewConfiguration config, Map<String, Object> configMap) {
+        normalizeParallelChunkKeys(configMap);
         // Update each field if present in the map
         if (configMap.containsKey("ollamaUrl")) {
             config.setOllamaUrl((String) configMap.get("ollamaUrl"));
@@ -1308,7 +1317,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("maxCharsPerChunk", defaultInt(config.getMaxCharsPerChunk(), DEFAULT_MAX_CHARS_PER_CHUNK));
         map.put("maxFilesPerChunk", defaultInt(config.getMaxFilesPerChunk(), DEFAULT_MAX_FILES_PER_CHUNK));
         map.put("maxChunks", defaultInt(config.getMaxChunks(), DEFAULT_MAX_CHUNKS));
-        map.put("parallelThreads", defaultInt(config.getParallelChunkThreads(), DEFAULT_PARALLEL_THREADS));
+        int parallel = defaultInt(config.getParallelChunkThreads(), DEFAULT_PARALLEL_THREADS);
+        map.put(KEY_PARALLEL_THREADS, parallel);
+        map.put(KEY_MAX_PARALLEL_CHUNKS, parallel);
         map.put("maxConcurrentReviews", defaultInt(config.getMaxConcurrentReviews(), DEFAULT_MAX_CONCURRENT_REVIEWS));
         map.put("maxQueuedReviews", defaultInt(config.getMaxQueuedReviews(), DEFAULT_MAX_QUEUED_REVIEWS));
         map.put("maxQueuedPerRepo", defaultInt(config.getMaxQueuedPerRepo(), DEFAULT_MAX_QUEUED_PER_REPO));
@@ -1339,6 +1350,19 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
         return map;
+    }
+
+    private void normalizeParallelChunkKeys(Map<String, Object> configMap) {
+        if (configMap == null) {
+            return;
+        }
+        Object maxParallel = configMap.get(KEY_MAX_PARALLEL_CHUNKS);
+        Object threads = configMap.get(KEY_PARALLEL_THREADS);
+        if (maxParallel != null && threads == null) {
+            configMap.put(KEY_PARALLEL_THREADS, maxParallel);
+        } else if (threads != null && maxParallel == null) {
+            configMap.put(KEY_MAX_PARALLEL_CHUNKS, threads);
+        }
     }
 
     private void validateUrl(String url) {

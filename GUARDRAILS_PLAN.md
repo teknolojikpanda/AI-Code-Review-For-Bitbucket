@@ -1,6 +1,6 @@
 ## AI Review Guardrails – Implementation Plan
 
-### 1. Configurable Concurrency & Queueing
+### 1. Configurable Concurrency & Queueing (X)
 1. Add new config parameters (global + per-repository) for `maxConcurrentReviews`, `maxQueuedReviews`, and `maxParallelChunks`.
 2. Introduce a cluster-aware scheduler service that enqueues review requests and only dispatches when slots are available (manual/merge-blocking runs get priority).
 3. Persist queue metadata (in-memory + short-term AO table) so UI can show pending runs; add admin REST endpoints to inspect/flush the queue.
@@ -78,5 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Surface aggregated webhook delivery metrics + acknowledgement counts via `/rest/ai-reviewer/1.0/metrics` so external monitoring can alarm on degraded channels (Sections 6.6/8.2).
-> 2. Implement auto-suppression for repeatedly failing channels (e.g., disable after N failures + send alert) and document the remediation workflow (Sections 6.7/8.5).
+> 1. Emit explicit alerts (REST + UI) whenever a channel is auto-disabled, and provide a “reason” column in the history table so operators know why it flipped (Sections 6.6/8.5).
+> 2. Add one-click re-enable/test workflows (and CLI examples) so ops teams can quickly validate and restore suppressed channels during incident response.
