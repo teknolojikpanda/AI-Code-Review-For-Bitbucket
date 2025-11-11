@@ -54,6 +54,10 @@
             event.preventDefault();
             testChannel($(this).data('id'));
         });
+        $('#channels-table').on('click', '.channel-rotate', function(event) {
+            event.preventDefault();
+            rotateChannel($(this).data('id'));
+        });
         $('#deliveries-table').on('click', '.delivery-ack', function(event) {
             event.preventDefault();
             acknowledgeDelivery($(this).data('id'));
@@ -534,14 +538,20 @@
         var rows = channels.map(function(channel) {
             var statusClass = channel.enabled ? 'channel-status-enabled' : 'channel-status-disabled';
             var statusLabel = channel.enabled ? 'Enabled' : 'Disabled';
+            var signingMeta = channel.signRequests
+                ? '<div class="queue-meta">Signed (secret: <code>' + escapeHtml(channel.secret || '—') + '</code>)</div>'
+                : '<div class="queue-meta">Unsigned</div>';
+            var retryMeta = '<div class="queue-meta">Retries ' + escapeHtml(channel.maxRetries) +
+                ' • Backoff ' + escapeHtml(channel.retryBackoffSeconds) + 's</div>';
             return '<tr>' +
                 '<td>' + escapeHtml(channel.description || '—') + '</td>' +
-                '<td><code>' + escapeHtml(channel.url || '—') + '</code></td>' +
+                '<td><code>' + escapeHtml(channel.url || '—') + '</code>' + signingMeta + retryMeta + '</td>' +
                 '<td class="' + statusClass + '">' + statusLabel + '</td>' +
                 '<td><div class="channel-actions">' +
                 '<button type="button" class="aui-button aui-button-link channel-toggle" data-id="' + channel.id + '" data-enabled="' + !!channel.enabled + '">' +
                 (channel.enabled ? 'Disable' : 'Enable') + '</button>' +
                 '<button type="button" class="aui-button aui-button-link channel-test" data-id="' + channel.id + '">Test</button>' +
+                '<button type="button" class="aui-button aui-button-link channel-rotate" data-id="' + channel.id + '">Rotate Secret</button>' +
                 '<button type="button" class="aui-button aui-button-link channel-delete" data-id="' + channel.id + '">Delete</button>' +
                 '</div></td>' +
                 '</tr>';
@@ -630,7 +640,11 @@
         var payload = {
             url: $('#channel-url').val(),
             description: $('#channel-description').val(),
-            enabled: $('#channel-enabled').is(':checked')
+            enabled: $('#channel-enabled').is(':checked'),
+            signRequests: $('#channel-signing').is(':checked'),
+            secret: $('#channel-secret').val() || null,
+            maxRetries: parseOptionalInt($('#channel-max-retries').val()),
+            retryBackoffSeconds: parseOptionalInt($('#channel-backoff').val())
         };
         var $form = $('#channel-create-form');
         var $submit = $form.find('button[type="submit"]');
@@ -646,6 +660,9 @@
             setChannelMessage('success', 'Channel created.');
             $form[0].reset();
             $('#channel-enabled').prop('checked', true);
+            $('#channel-signing').prop('checked', true);
+            $('#channel-max-retries').val('2');
+            $('#channel-backoff').val('5');
             loadChannels();
         }).fail(function(xhr) {
             setChannelMessage('error', describeError(xhr, 'Failed to create channel'));
@@ -700,6 +717,25 @@
                 delivered ? 'Test alert delivered successfully.' : 'Test alert failed. Check the remote endpoint.');
         }).fail(function(xhr) {
             setChannelMessage('error', describeError(xhr, 'Failed to send test alert'));
+        });
+    }
+
+    function rotateChannel(id) {
+        if (!confirm('Rotate the signing secret for this channel? Existing integrations must be updated.')) {
+            return;
+        }
+        setChannelMessage('info', 'Rotating secret…');
+        $.ajax({
+            url: channelsUrl + '/' + id,
+            type: 'PUT',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify({ rotateSecret: true })
+        }).done(function() {
+            setChannelMessage('success', 'Secret rotated.');
+            loadChannels();
+        }).fail(function(xhr) {
+            setChannelMessage('error', describeError(xhr, 'Failed to rotate secret'));
         });
     }
 
@@ -857,6 +893,14 @@
 
     function clearHealthMessage() {
         setHealthMessage(null, null, false);
+    }
+
+    function parseOptionalInt(value) {
+        if (value === undefined || value === null || value === '') {
+            return null;
+        }
+        var parsed = parseInt(value, 10);
+        return isNaN(parsed) ? null : parsed;
     }
 
     $(document).ready(init);

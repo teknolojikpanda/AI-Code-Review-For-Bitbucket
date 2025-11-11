@@ -78,5 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Persist guardrails alert delivery history + operator acknowledgements (Section 6.7) so admins can audit webhook performance and clear incidents.
-> 2. Add webhook delivery hardening (signing secrets, retry/backoff policy, jitter) and expose configuration knobs per channel (Section 6.5/6.7).
+> 1. Surface aggregated webhook delivery metrics + acknowledgement counts via `/rest/ai-reviewer/1.0/metrics` so external monitoring can alarm on degraded channels (Sections 6.6/8.2).
+> 2. Implement auto-suppression for repeatedly failing channels (e.g., disable after N failures + send alert) and document the remediation workflow (Sections 6.7/8.5).

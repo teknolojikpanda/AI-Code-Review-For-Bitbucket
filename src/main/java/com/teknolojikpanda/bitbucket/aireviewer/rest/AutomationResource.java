@@ -136,7 +136,11 @@ public class AutomationResource {
         Channel channel = channelService.createChannel(
                 body.url,
                 body.description,
-                body.enabled != null ? body.enabled : true);
+                body.enabled != null ? body.enabled : true,
+                body.signRequests != null ? body.signRequests : true,
+                body.secret,
+                body.maxRetries,
+                body.retryBackoffSeconds);
         return Response.ok(channel).build();
     }
 
@@ -150,7 +154,15 @@ public class AutomationResource {
         if (!access.allowed) {
             return access.response;
         }
-        Channel channel = channelService.updateChannel(id, body.description, body.enabled);
+        Channel channel = channelService.updateChannel(
+                id,
+                body.description,
+                body.enabled,
+                body.signRequests,
+                body.rotateSecret,
+                body.secret,
+                body.maxRetries,
+                body.retryBackoffSeconds);
         return Response.ok(channel).build();
     }
 
@@ -236,6 +248,11 @@ public class AutomationResource {
         public String url;
         public String description;
         public Boolean enabled;
+        public Boolean signRequests;
+        public String secret;
+        public Integer maxRetries;
+        public Integer retryBackoffSeconds;
+        public Boolean rotateSecret;
 
         void validateForCreate() {
             if (url == null || url.trim().isEmpty()) {

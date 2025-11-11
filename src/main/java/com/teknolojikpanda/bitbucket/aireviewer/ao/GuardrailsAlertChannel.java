@@ -22,4 +22,16 @@ public interface GuardrailsAlertChannel extends Entity {
 
     long getUpdatedAt();
     void setUpdatedAt(long updatedAt);
+
+    String getSecret();
+    void setSecret(String secret);
+
+    boolean isSignRequests();
+    void setSignRequests(boolean signRequests);
+
+    int getMaxRetries();
+    void setMaxRetries(int retries);
+
+    int getRetryBackoffSeconds();
+    void setRetryBackoffSeconds(int seconds);
 }

@@ -189,6 +189,23 @@
                             <input type="checkbox" class="checkbox" id="channel-enabled" checked="checked"/>
                             <label for="channel-enabled">Enabled</label>
                         </div>
+                        <div class="field-group checkbox">
+                            <input type="checkbox" class="checkbox" id="channel-signing" checked="checked"/>
+                            <label for="channel-signing">Sign requests (HMAC-SHA256)</label>
+                            <div class="description">If enabled, every alert includes `X-Guardrails-Signature` + timestamp headers computed with the secret below.</div>
+                        </div>
+                        <div class="field-group">
+                            <label for="channel-secret">Signing secret</label>
+                            <input type="text" id="channel-secret" class="text medium-field" placeholder="Leave blank to auto-generate"/>
+                            <div class="description">Share this secret with the receiving system so it can validate signatures.</div>
+                        </div>
+                        <div class="field-group">
+                            <label for="channel-max-retries">Retry attempts</label>
+                            <input type="number" id="channel-max-retries" class="text short-field" min="0" max="5" value="2"/>
+                            <label for="channel-backoff" style="margin-left:20px;">Backoff (seconds)</label>
+                            <input type="number" id="channel-backoff" class="text short-field" min="1" max="60" value="5"/>
+                            <div class="description">Failed deliveries retry with exponential backoff.</div>
+                        </div>
                         <div class="field-group">
                             <button type="submit" class="aui-button aui-button-primary">Add Channel</button>
                         </div>

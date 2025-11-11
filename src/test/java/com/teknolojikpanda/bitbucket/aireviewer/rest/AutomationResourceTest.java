@@ -42,7 +42,7 @@ public class AutomationResourceTest {
         resource = new AutomationResource(userManager, schedulerStateService, channelService, deliveryService);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
-        Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L);
+        Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L, true, "secret", 2, 5);
         Page<Channel> page = new Page<>(List.of(channel), 1, 50, 0);
         when(channelService.listChannels(anyInt(), anyInt())).thenReturn(page);
         when(channelService.sendTestAlert(anyInt())).thenReturn(true);
@@ -102,10 +102,10 @@ public class AutomationResourceTest {
         UserKey key = new UserKey("admin");
         when(profile.getUserKey()).thenReturn(key);
         when(userManager.isSystemAdmin(key)).thenReturn(true);
-        Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L);
+        Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L, true, "secret", 2, 5);
         when(channelService.listChannels(anyInt(), anyInt())).thenReturn(new Page<>(List.of(channel), 1, 50, 0));
-        when(channelService.createChannel(anyString(), anyString(), anyBoolean())).thenReturn(channel);
-        when(channelService.updateChannel(1, "Ops Pager", true)).thenReturn(channel);
+        when(channelService.createChannel(anyString(), anyString(), anyBoolean(), anyBoolean(), any(), any(), any())).thenReturn(channel);
+        when(channelService.updateChannel(eq(1), any(), any(), any(), any(), any(), any(), any())).thenReturn(channel);
 
         Response list = resource.listChannels(request, null, null);
         assertEquals(Response.Status.OK.getStatusCode(), list.getStatus());
@@ -118,6 +118,7 @@ public class AutomationResourceTest {
 
         Response create = resource.createChannel(request, body);
         assertEquals(Response.Status.OK.getStatusCode(), create.getStatus());
+        verify(channelService).createChannel(eq("https://example"), eq("Ops Pager"), eq(true), eq(true), isNull(), isNull(), isNull());
 
         Response update = resource.updateChannel(request, 1, body);
         assertEquals(Response.Status.OK.getStatusCode(), update.getStatus());

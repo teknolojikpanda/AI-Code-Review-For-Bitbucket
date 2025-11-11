@@ -5,10 +5,12 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService;
+import net.java.ao.Query;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import net.java.ao.Query;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -17,16 +19,28 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 @Named
 @Singleton
 public class GuardrailsAlertChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(GuardrailsAlertChannelService.class);
+    private static final String SIGNATURE_HEADER = "X-Guardrails-Signature";
+    private static final String SIGNED_AT_HEADER = "X-Guardrails-Signed-At";
+    private static final int DEFAULT_MAX_RETRIES = 2;
+    private static final int DEFAULT_BACKOFF_SECONDS = 5;
+    private static final int MAX_RETRIES_LIMIT = 5;
+    private static final int MAX_BACKOFF_SECONDS = 60;
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private final ActiveObjects ao;
     private final GuardrailsAlertDeliveryService deliveryService;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -69,14 +83,33 @@ public class GuardrailsAlertChannelService {
         });
     }
 
-    public Channel createChannel(String url, String description, boolean enabled) {
+    public Channel createChannel(String url,
+                                 String description,
+                                 boolean enabled,
+                                 boolean signRequests,
+                                 String sharedSecret,
+                                 Integer maxRetries,
+                                 Integer retryBackoffSeconds) {
         String sanitizedUrl = sanitize(url);
         validateUrl(sanitizedUrl);
+        int retries = normalizeRetries(maxRetries);
+        int backoff = normalizeBackoff(retryBackoffSeconds);
+        String providedSecret = sanitize(sharedSecret);
+        if (!signRequests) {
+            providedSecret = null;
+        }
+        final String secret = (signRequests && (providedSecret == null || providedSecret.length() < 16))
+                ? generateSecret()
+                : providedSecret;
         return ao.executeInTransaction(() -> {
             GuardrailsAlertChannel row = ao.create(GuardrailsAlertChannel.class);
             row.setUrl(sanitizedUrl);
             row.setDescription(sanitize(description));
             row.setEnabled(enabled);
+            row.setSignRequests(signRequests);
+            row.setSecret(secret);
+            row.setMaxRetries(retries);
+            row.setRetryBackoffSeconds(backoff);
             row.setCreatedAt(System.currentTimeMillis());
             row.setUpdatedAt(row.getCreatedAt());
             row.save();
@@ -85,7 +118,14 @@ public class GuardrailsAlertChannelService {
         });
     }
 
-    public Channel updateChannel(int id, String description, Boolean enabled) {
+    public Channel updateChannel(int id,
+                                 String description,
+                                 Boolean enabled,
+                                 Boolean signRequests,
+                                 Boolean rotateSecret,
+                                 String secretOverride,
+                                 Integer maxRetries,
+                                 Integer retryBackoffSeconds) {
         return ao.executeInTransaction(() -> {
             GuardrailsAlertChannel row = ao.get(GuardrailsAlertChannel.class, id);
             if (row == null) {
@@ -96,6 +136,20 @@ public class GuardrailsAlertChannelService {
             }
             if (enabled != null) {
                 row.setEnabled(enabled);
+            }
+            if (signRequests != null) {
+                row.setSignRequests(signRequests);
+            }
+            if (Boolean.TRUE.equals(rotateSecret)) {
+                row.setSecret(generateSecret());
+            } else if (secretOverride != null && !secretOverride.trim().isEmpty()) {
+                row.setSecret(secretOverride.trim());
+            }
+            if (maxRetries != null) {
+                row.setMaxRetries(normalizeRetries(maxRetries));
+            }
+            if (retryBackoffSeconds != null) {
+                row.setRetryBackoffSeconds(normalizeBackoff(retryBackoffSeconds));
             }
             row.setUpdatedAt(System.currentTimeMillis());
             row.save();
@@ -153,38 +207,83 @@ public class GuardrailsAlertChannelService {
             recordDelivery(channel, snapshot, false, 0, "Invalid URL", test);
             return false;
         }
-        HttpURLConnection connection = null;
+        int attempts = 0;
+        int maxRetries = channel.getMaxRetries() >= 0 ? channel.getMaxRetries() : DEFAULT_MAX_RETRIES;
+        int backoffSeconds = channel.getRetryBackoffSeconds() > 0 ? channel.getRetryBackoffSeconds() : DEFAULT_BACKOFF_SECONDS;
         boolean success = false;
         int status = 0;
         String error = null;
+        byte[] payload;
         try {
-            connection = (HttpURLConnection) target.openConnection();
-            connection.setDoOutput(true);
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-            connection.setRequestProperty("Content-Type", "application/json");
-            byte[] payload = mapper.writeValueAsBytes(snapshot);
-            try (OutputStream os = connection.getOutputStream()) {
-                os.write(payload);
-            }
-            status = connection.getResponseCode();
-            if (status >= 400) {
-                log.warn("Guardrails alert delivery to {} failed with HTTP {}", channel.getUrl(), status);
-                error = "HTTP " + status;
-                return false;
-            }
-            success = true;
-            return true;
-        } catch (IOException ex) {
-            log.warn("Failed to deliver guardrails alert to {}: {}", channel.getUrl(), ex.getMessage());
-            error = ex.getMessage();
+            payload = mapper.writeValueAsBytes(snapshot);
+        } catch (IOException e) {
+            log.warn("Failed to serialize alert snapshot: {}", e.getMessage());
+            recordDelivery(channel, snapshot, false, 0, "Serialization failure", test);
             return false;
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
+        }
+        do {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) target.openConnection();
+                connection.setDoOutput(true);
+                connection.setRequestMethod("POST");
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+                connection.setRequestProperty("Content-Type", "application/json");
+                if (channel.isSignRequests() && channel.getSecret() != null && !channel.getSecret().isEmpty()) {
+                    String timestamp = String.valueOf(System.currentTimeMillis());
+                    String signature = computeSignature(channel.getSecret(), payload, timestamp);
+                    if (signature != null) {
+                        connection.setRequestProperty(SIGNED_AT_HEADER, timestamp);
+                        connection.setRequestProperty(SIGNATURE_HEADER, signature);
+                    }
+                }
+                try (OutputStream os = connection.getOutputStream()) {
+                    os.write(payload);
+                }
+                status = connection.getResponseCode();
+                if (status >= 400) {
+                    error = "HTTP " + status;
+                    log.warn("Guardrails alert delivery to {} failed with HTTP {}", channel.getUrl(), status);
+                } else {
+                    success = true;
+                }
+            } catch (IOException ex) {
+                error = ex.getMessage();
+                log.warn("Failed to deliver guardrails alert to {} attempt {}: {}", channel.getUrl(), attempts + 1, ex.getMessage());
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
             }
-            recordDelivery(channel, snapshot, success, status, error, test);
+            if (success) {
+                break;
+            }
+            attempts++;
+            if (attempts <= maxRetries) {
+                try {
+                    TimeUnit.SECONDS.sleep((long) backoffSeconds * attempts);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        } while (attempts <= maxRetries);
+
+        recordDelivery(channel, snapshot, success, status, error, test);
+        return success;
+    }
+
+    private String computeSignature(String secret, byte[] payload, String timestamp) {
+        try {
+            String material = timestamp + "." + Base64.getEncoder().encodeToString(payload);
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] digest = mac.doFinal(material.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(digest);
+        } catch (Exception ex) {
+            log.warn("Failed to compute webhook signature: {}", ex.getMessage());
+            return null;
         }
     }
 
@@ -236,7 +335,11 @@ public class GuardrailsAlertChannelService {
                 row.getDescription(),
                 row.isEnabled(),
                 row.getCreatedAt(),
-                row.getUpdatedAt());
+                row.getUpdatedAt(),
+                row.isSignRequests(),
+                row.getSecret(),
+                normalizeRetries(row.getMaxRetries()),
+                normalizeBackoff(row.getRetryBackoffSeconds()));
     }
 
     private String sanitize(String value) {
@@ -261,6 +364,26 @@ public class GuardrailsAlertChannelService {
         }
     }
 
+    private String generateSecret() {
+        byte[] bytes = new byte[24];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private int normalizeRetries(Integer retries) {
+        if (retries == null) {
+            return DEFAULT_MAX_RETRIES;
+        }
+        return Math.max(0, Math.min(retries, MAX_RETRIES_LIMIT));
+    }
+
+    private int normalizeBackoff(Integer backoffSeconds) {
+        if (backoffSeconds == null) {
+            return DEFAULT_BACKOFF_SECONDS;
+        }
+        return Math.max(1, Math.min(backoffSeconds, MAX_BACKOFF_SECONDS));
+    }
+
     public static final class Channel {
         private final int id;
         private final String url;
@@ -268,19 +391,31 @@ public class GuardrailsAlertChannelService {
         private final boolean enabled;
         private final long createdAt;
         private final long updatedAt;
+        private final boolean signRequests;
+        private final String secret;
+        private final int maxRetries;
+        private final int retryBackoffSeconds;
 
         public Channel(int id,
                        String url,
                        String description,
                        boolean enabled,
                        long createdAt,
-                       long updatedAt) {
+                       long updatedAt,
+                       boolean signRequests,
+                       String secret,
+                       int maxRetries,
+                       int retryBackoffSeconds) {
             this.id = id;
             this.url = url;
             this.description = description;
             this.enabled = enabled;
             this.createdAt = createdAt;
             this.updatedAt = updatedAt;
+            this.signRequests = signRequests;
+            this.secret = secret;
+            this.maxRetries = maxRetries;
+            this.retryBackoffSeconds = retryBackoffSeconds;
         }
 
         public int getId() {
@@ -305,6 +440,22 @@ public class GuardrailsAlertChannelService {
 
         public long getUpdatedAt() {
             return updatedAt;
+        }
+
+        public boolean isSignRequests() {
+            return signRequests;
+        }
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public int getMaxRetries() {
+            return maxRetries;
+        }
+
+        public int getRetryBackoffSeconds() {
+            return retryBackoffSeconds;
         }
     }
 }

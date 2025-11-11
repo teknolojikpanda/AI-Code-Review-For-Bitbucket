@@ -16,10 +16,18 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `GET /rest/ai-reviewer/1.0/automation/rollout/state` | Shows the current scheduler mode (ACTIVE, PAUSED, DRAINING), actor, timestamp, and reason. |
 | `POST /rest/ai-reviewer/1.0/automation/rollout/{mode}` | Switches the scheduler mode (`active`, `pause`, `drain`) with an optional `reason` payload so rollout/rollback can be automated. |
 | `GET /rest/ai-reviewer/1.0/automation/channels` | Lists outbound guardrails alert channels with pagination metadata (`limit`, `offset`, `total`). |
-| `POST /rest/ai-reviewer/1.0/automation/channels` | Creates a webhook channel (HTTP/S) that receives synthesized guardrail alerts whenever `evaluateAndNotify` raises non-empty alert sets. |
-| `PUT /rest/ai-reviewer/1.0/automation/channels/{id}` | Updates channel description/enablement without touching the URL. |
+| `POST /rest/ai-reviewer/1.0/automation/channels` | Creates a webhook channel (HTTP/S). Payload accepts `signRequests` (default true), optional `secret`, and retry tuning (`maxRetries`, `retryBackoffSeconds`). |
+| `PUT /rest/ai-reviewer/1.0/automation/channels/{id}` | Updates description/enablement and the security knobs above. Include `rotateSecret=true` to auto-generate a new signing secret. |
 | `DELETE /rest/ai-reviewer/1.0/automation/channels/{id}` | Removes a channel (used when rotating credentials or off-boarding an incident room). |
 | `POST /rest/ai-reviewer/1.0/automation/channels/{id}/test` | Sends a benign sample alert to the target URL so operators can verify wiring before relying on production alerts. |
+| `GET /rest/ai-reviewer/1.0/automation/alerts/deliveries` | Lists recent webhook deliveries (success flag, HTTP status, payload snippet) so you can audit outages. |
+| `POST /rest/ai-reviewer/1.0/automation/alerts/deliveries/{id}/ack` | Marks a delivery as acknowledged with an optional note—use this to capture incident response hand-offs. |
+
+### Webhook Security & Retries
+
+- **Signing:** Enable “Sign requests” on a channel to append `X-Guardrails-Signed-At` and `X-Guardrails-Signature` headers (HMAC-SHA256). Share the secret displayed on the health page with the receiver. Rotate secrets regularly via the UI or `rotateSecret=true` on `PUT`.
+- **Retry policy:** Configure `maxRetries` (0-5) plus `retryBackoffSeconds` (1-60). Guardrails retries failed deliveries with linear backoff (`backoff * attempt`). Keep values conservative to avoid overwhelming degraded systems.
+- **Auditing / ACK:** Use the Alert Delivery History table (or `/automation/alerts/deliveries`) to track every attempt, then acknowledge entries once incidents are reviewed so the trail stays clean.
 | `GET /rest/ai-reviewer/1.0/automation/alerts/deliveries` | Paginates the most recent webhook deliveries (success/failure, HTTP code, payload snippet) for auditing. |
 | `POST /rest/ai-reviewer/1.0/automation/alerts/deliveries/{id}/ack` | Marks a delivery as acknowledged (optionally storing a note) so the incident log reflects operator hand-offs. |
 
