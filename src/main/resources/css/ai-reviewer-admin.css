@@ -199,6 +199,91 @@
     align-items: stretch;
 }
 
+.automation-section .rollout-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    padding: 16px;
+    background-color: #f7f8fa;
+}
+
+.rollout-state {
+    flex: 1 1 250px;
+    min-width: 250px;
+}
+
+.rollout-mode {
+    font-size: 32px;
+    font-weight: 600;
+    color: #0747a6;
+}
+
+.rollout-meta {
+    margin-top: 6px;
+    color: #6b778c;
+    font-size: 13px;
+}
+
+.rollout-actions {
+    flex: 1 1 260px;
+}
+
+.rollout-actions .rollout-label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.rollout-actions .text {
+    width: 100%;
+    max-width: 320px;
+}
+
+.rollout-buttons {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.channels-form {
+    margin-top: 16px;
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    padding: 16px;
+    background: #fff;
+}
+
+.channels-form h3 {
+    margin-top: 0;
+    margin-bottom: 12px;
+}
+
+#channels-table td code {
+    font-size: 12px;
+    background: #f4f5f7;
+    padding: 2px 4px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.channel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.channel-status-enabled {
+    color: #006644;
+    font-weight: 600;
+}
+
+.channel-status-disabled {
+    color: #a5adba;
+}
+
 .ai-reviewer-account.disabled {
     opacity: 0.5;
     pointer-events: none;

@@ -4,11 +4,16 @@
     var baseUrl = AJS.$('meta[name="application-base-url"]').attr('content') ||
         AJS.$('meta[name="ajs-context-path"]').attr('content') ||
         window.location.origin + (AJS.contextPath() || '');
+    var Common = window.AIReviewer && window.AIReviewer.Common;
 
     var runtimeUrl = baseUrl + '/rest/ai-reviewer/1.0/monitoring/runtime';
     var queueAdminUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/queue';
     var cleanupUrl = baseUrl + '/rest/ai-reviewer/1.0/history/cleanup';
     var alertsUrl = baseUrl + '/rest/ai-reviewer/1.0/alerts';
+    var automationBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/automation';
+    var rolloutStateUrl = automationBaseUrl + '/rollout/state';
+    var channelsUrl = automationBaseUrl + '/channels';
+    var channelListLimit = 200;
 
     function init() {
         $('#refresh-health-btn').on('click', function() {
@@ -22,7 +27,34 @@
             event.preventDefault();
             submitCleanup(true);
         });
+        $('.rollout-btn').on('click', function(event) {
+            event.preventDefault();
+            changeRolloutState($(this).data('mode'));
+        });
+        $('#channel-create-form').on('submit', function(event) {
+            event.preventDefault();
+            createChannel();
+        });
+        $('#channels-table').on('click', '.channel-toggle', function(event) {
+            event.preventDefault();
+            var enabled = $(this).data('enabled');
+            var isEnabled = enabled === true || enabled === 'true' || enabled === 1;
+            toggleChannel($(this).data('id'), isEnabled);
+        });
+        $('#channels-table').on('click', '.channel-delete', function(event) {
+            event.preventDefault();
+            var label = $(this).closest('tr').find('td:first').text();
+            if (!label) {
+                label = $(this).closest('tr').find('td:nth-child(2)').text();
+            }
+            deleteChannel($(this).data('id'), label);
+        });
+        $('#channels-table').on('click', '.channel-test', function(event) {
+            event.preventDefault();
+            testChannel($(this).data('id'));
+        });
         loadHealth();
+        loadAutomationData();
     }
 
     function loadHealth(options) {
@@ -44,6 +76,37 @@
             }
         }).fail(function(xhr, status, error) {
             setHealthMessage('error', 'Failed to load telemetry: ' + (error || status), false);
+        });
+    }
+
+    function loadAutomationData() {
+        loadRolloutState();
+        loadChannels();
+    }
+
+    function loadRolloutState() {
+        $.ajax({
+            url: rolloutStateUrl,
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            renderRollout(resp || {});
+            setRolloutMessage();
+        }).fail(function(xhr) {
+            setRolloutMessage('error', describeError(xhr, 'Failed to load scheduler state'));
+        });
+    }
+
+    function loadChannels() {
+        $.ajax({
+            url: channelsUrl + '?limit=' + channelListLimit + '&offset=0',
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            renderChannels(resp || {});
+            setChannelMessage();
+        }).fail(function(xhr) {
+            setChannelMessage('error', describeError(xhr, 'Failed to load alert channels'));
         });
     }
 
@@ -419,6 +482,176 @@
         $empty.hide();
     }
 
+    function renderRollout(state) {
+        state = state || {};
+        var mode = (state.mode || 'UNKNOWN').toUpperCase();
+        $('#rollout-mode').text(mode);
+        var parts = [];
+        if (state.updatedByDisplayName) {
+            parts.push('Updated by ' + state.updatedByDisplayName);
+        } else if (state.updatedBy) {
+            parts.push('Updated by ' + state.updatedBy);
+        }
+        if (state.reason) {
+            parts.push('Reason: ' + state.reason);
+        }
+        $('#rollout-meta').text(parts.length ? parts.join(' • ') : 'No recent changes recorded.');
+        $('#rollout-updated').text(state.updatedAt ? formatTimestamp(state.updatedAt) : '—');
+    }
+
+    function renderChannels(payload) {
+        payload = payload || {};
+        var channels = payload.channels || [];
+        var total = payload.total != null ? payload.total : channels.length;
+        $('#channels-count').text(total + (total === 1 ? ' channel' : ' channels'));
+        var $table = $('#channels-table');
+        var $empty = $('#channels-empty');
+        if (!channels.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.show();
+            return;
+        }
+        var rows = channels.map(function(channel) {
+            var statusClass = channel.enabled ? 'channel-status-enabled' : 'channel-status-disabled';
+            var statusLabel = channel.enabled ? 'Enabled' : 'Disabled';
+            return '<tr>' +
+                '<td>' + escapeHtml(channel.description || '—') + '</td>' +
+                '<td><code>' + escapeHtml(channel.url || '—') + '</code></td>' +
+                '<td class="' + statusClass + '">' + statusLabel + '</td>' +
+                '<td><div class="channel-actions">' +
+                '<button type="button" class="aui-button aui-button-link channel-toggle" data-id="' + channel.id + '" data-enabled="' + !!channel.enabled + '">' +
+                (channel.enabled ? 'Disable' : 'Enable') + '</button>' +
+                '<button type="button" class="aui-button aui-button-link channel-test" data-id="' + channel.id + '">Test</button>' +
+                '<button type="button" class="aui-button aui-button-link channel-delete" data-id="' + channel.id + '">Delete</button>' +
+                '</div></td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $empty.hide();
+        $table.show();
+    }
+
+    function changeRolloutState(mode) {
+        if (!mode) {
+            return;
+        }
+        var payload = {
+            reason: $('#rollout-reason').val() || null
+        };
+        setRolloutMessage('info', 'Updating scheduler…');
+        $.ajax({
+            url: automationBaseUrl + '/rollout/' + encodeURIComponent(mode),
+            type: 'POST',
+            dataType: 'json',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        }).done(function(resp) {
+            renderRollout(resp || {});
+            setRolloutMessage('success', 'Scheduler set to ' + mode.toUpperCase() + '.');
+            loadHealth({ silent: true });
+        }).fail(function(xhr) {
+            setRolloutMessage('error', describeError(xhr, 'Failed to update scheduler state'));
+        });
+    }
+
+    function setRolloutMessage(type, message) {
+        var $message = $('#rollout-message');
+        if (!message) {
+            $message.hide().text('');
+            return;
+        }
+        var css = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+        $message.removeClass('error success info').addClass(css).text(message).show();
+    }
+
+    function createChannel() {
+        var payload = {
+            url: $('#channel-url').val(),
+            description: $('#channel-description').val(),
+            enabled: $('#channel-enabled').is(':checked')
+        };
+        var $form = $('#channel-create-form');
+        var $submit = $form.find('button[type="submit"]');
+        $submit.prop('disabled', true);
+        setChannelMessage('info', 'Creating channel…');
+        $.ajax({
+            url: channelsUrl,
+            type: 'POST',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify(payload)
+        }).done(function() {
+            setChannelMessage('success', 'Channel created.');
+            $form[0].reset();
+            $('#channel-enabled').prop('checked', true);
+            loadChannels();
+        }).fail(function(xhr) {
+            setChannelMessage('error', describeError(xhr, 'Failed to create channel'));
+        }).always(function() {
+            $submit.prop('disabled', false);
+        });
+    }
+
+    function toggleChannel(id, enabled) {
+        var next = !enabled;
+        setChannelMessage('info', (next ? 'Enabling' : 'Disabling') + ' channel…');
+        $.ajax({
+            url: channelsUrl + '/' + id,
+            type: 'PUT',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify({ enabled: next })
+        }).done(function() {
+            setChannelMessage('success', 'Channel ' + (next ? 'enabled' : 'disabled') + '.');
+            loadChannels();
+        }).fail(function(xhr) {
+            setChannelMessage('error', describeError(xhr, 'Failed to update channel'));
+        });
+    }
+
+    function deleteChannel(id, description) {
+        var label = description || ('channel #' + id);
+        if (!confirm('Delete ' + label + '? Alerts will no longer be sent to this endpoint.')) {
+            return;
+        }
+        setChannelMessage('info', 'Deleting channel…');
+        $.ajax({
+            url: channelsUrl + '/' + id,
+            type: 'DELETE'
+        }).done(function() {
+            setChannelMessage('success', 'Channel deleted.');
+            loadChannels();
+        }).fail(function(xhr) {
+            setChannelMessage('error', describeError(xhr, 'Failed to delete channel'));
+        });
+    }
+
+    function testChannel(id) {
+        setChannelMessage('info', 'Sending test alert…');
+        $.ajax({
+            url: channelsUrl + '/' + id + '/test',
+            type: 'POST',
+            dataType: 'json'
+        }).done(function(resp) {
+            var delivered = resp && resp.delivered;
+            setChannelMessage(delivered ? 'success' : 'error',
+                delivered ? 'Test alert delivered successfully.' : 'Test alert failed. Check the remote endpoint.');
+        }).fail(function(xhr) {
+            setChannelMessage('error', describeError(xhr, 'Failed to send test alert'));
+        });
+    }
+
+    function setChannelMessage(type, message) {
+        var $message = $('#channel-message');
+        if (!message) {
+            $message.hide().text('');
+            return;
+        }
+        var css = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+        $message.removeClass('error success info').addClass(css).text(message).show();
+    }
+
     function formatRepo(entry) {
         if (!entry) {
             return '—';
@@ -516,6 +749,19 @@
         $message.removeClass('info error').addClass(type === 'error' ? 'error' : 'info');
         var content = showSpinner ? '<span class="aui-icon aui-icon-wait"></span> ' + escapeHtml(message) : escapeHtml(message);
         $message.html(content).show();
+    }
+
+    function describeError(xhr, fallback) {
+        if (Common && typeof Common.composeErrorDetails === 'function') {
+            return Common.composeErrorDetails(xhr, fallback);
+        }
+        var message = fallback || 'Request failed';
+        if (xhr && xhr.responseJSON && xhr.responseJSON.error) {
+            message = xhr.responseJSON.error;
+        } else if (xhr && xhr.responseText) {
+            message = xhr.responseText;
+        }
+        return message;
     }
 
     function clearHealthMessage() {

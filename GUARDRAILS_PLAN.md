@@ -78,5 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Add Bitbucket admin UI + documentation that surfaces the rollout mode controls and webhook channel manager so operators do not need raw REST calls (Section 8.5 follow-up).
-> 2. Persist alert delivery history + operator acknowledgements to close the loop on outbound notifications (Section 6.7) and expose that audit trail via REST/UI.
+> 1. Persist guardrails alert delivery history + operator acknowledgements (Section 6.7) so admins can audit webhook performance and clear incidents.
+> 2. Add webhook delivery hardening (signing secrets, retry/backoff policy, jitter) and expose configuration knobs per channel (Section 6.5/6.7).

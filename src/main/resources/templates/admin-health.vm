@@ -132,6 +132,69 @@
                     </div>
                 </section>
 
+                <section class="automation-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Rollout Controls</h2>
+                        <span id="rollout-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="rollout-panel">
+                        <div class="rollout-state">
+                            <div class="rollout-mode" id="rollout-mode">—</div>
+                            <div class="rollout-meta" id="rollout-meta">Scheduler state loading…</div>
+                        </div>
+                        <div class="rollout-actions">
+                            <label for="rollout-reason" class="rollout-label">Reason (optional)</label>
+                            <input type="text" id="rollout-reason" class="text medium-field" placeholder="e.g., Maintenance window"/>
+                            <div class="rollout-buttons">
+                                <button type="button" class="aui-button rollout-btn" data-mode="active">Resume</button>
+                                <button type="button" class="aui-button rollout-btn" data-mode="pause">Pause</button>
+                                <button type="button" class="aui-button rollout-btn" data-mode="drain">Drain</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="aui-message" id="rollout-message" style="display:none;"></div>
+                </section>
+
+                <section class="automation-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Alert Channels</h2>
+                        <span id="channels-count" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-panel">
+                        <div class="aui-message" id="channel-message" style="display:none;"></div>
+                        <div class="queue-empty" id="channels-empty">No alert channels configured.</div>
+                        <table class="aui aui-table aui-table-rowhover" id="channels-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>URL</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <form id="channel-create-form" class="channels-form">
+                        <h3>Add Channel</h3>
+                        <div class="field-group">
+                            <label for="channel-url">Webhook URL *</label>
+                            <input type="url" id="channel-url" class="text long-field" placeholder="https://hooks.example.com/guardrails" required/>
+                        </div>
+                        <div class="field-group">
+                            <label for="channel-description">Description</label>
+                            <input type="text" id="channel-description" class="text medium-field" placeholder="Ops Pager"/>
+                        </div>
+                        <div class="field-group checkbox">
+                            <input type="checkbox" class="checkbox" id="channel-enabled" checked="checked"/>
+                            <label for="channel-enabled">Enabled</label>
+                        </div>
+                        <div class="field-group">
+                            <button type="submit" class="aui-button aui-button-primary">Add Channel</button>
+                        </div>
+                    </form>
+                </section>
+
                 <section class="queue-section" style="margin-top: 24px;">
                     <header class="queue-header">
                         <h2>Retention Cleanup</h2>
