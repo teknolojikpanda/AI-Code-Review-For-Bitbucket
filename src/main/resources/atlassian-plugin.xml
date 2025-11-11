@@ -84,6 +84,16 @@
         <interface>com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter</interface>
     </component>
 
+    <component key="guardrailsRateLimitStore"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore">
+        <description>Persists shared limiter windows and incidents</description>
+    </component>
+
+    <component key="guardrailsBurstCreditService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService">
+        <description>Manages burst credit grants and consumption</description>
+    </component>
+
     <component key="reviewWorkerPool"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool">
         <description>Dedicated worker threads for AI review execution</description>
