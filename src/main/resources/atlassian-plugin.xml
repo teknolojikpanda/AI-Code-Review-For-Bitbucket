@@ -159,6 +159,9 @@
         <description>Persists cleanup schedule configuration and last-run outcomes</description>
     </component>
 
+    <component key="guardrailsAlertDeliveryService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService" />
+
     <component key="reviewHistoryCleanupAuditService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService">
         <description>Stores cleanup run audit history</description>

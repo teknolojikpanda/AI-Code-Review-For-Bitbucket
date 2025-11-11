@@ -4,7 +4,7 @@ import net.java.ao.Entity;
 import net.java.ao.schema.StringLength;
 import net.java.ao.schema.Table;
 
-@Table("AI_GUARDRAILS_ALERT_DELIVERY")
+@Table("AI_GRD_ALERT_DELIV")
 public interface GuardrailsAlertDelivery extends Entity {
 
     int getChannelId();
