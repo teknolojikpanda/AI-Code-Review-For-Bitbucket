@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import javax.inject.Named;
@@ -563,8 +564,15 @@ public class ReviewHistoryService {
         map.put("fallbackModelSuccesses", history.getFallbackModelSuccesses());
         map.put("fallbackModelFailures", history.getFallbackModelFailures());
         map.put("fallbackTriggered", history.getFallbackTriggered());
-        map.put("metricsSnapshot", safeMetrics(history.getMetricsJson()));
-        map.put("progress", safeProgress(history.getProgressJson()));
+        String metricsJson = history.getMetricsJson();
+        List<Map<String, Object>> progressEntries = safeProgress(history.getProgressJson());
+        map.put("metricsSnapshot", safeMetrics(metricsJson));
+        map.put("progress", progressEntries);
+        Map<String, Object> metricsMap = ChunkTelemetryUtil.readMetricsMap(metricsJson);
+        Map<String, Object> guardrails = buildGuardrailsTelemetry(progressEntries, metricsMap);
+        if (!guardrails.isEmpty()) {
+            map.put("guardrails", guardrails);
+        }
 
         long start = history.getReviewStartTime();
         long end = history.getReviewEndTime();
@@ -678,6 +686,232 @@ public class ReviewHistoryService {
         } catch (Exception ex) {
             log.debug("Failed to parse progress JSON: {}", ex.getMessage());
             return Collections.emptyList();
+        }
+    }
+
+    @Nonnull
+    Map<String, Object> buildGuardrailsTelemetry(@Nonnull List<Map<String, Object>> progressEntries,
+                                                 @Nonnull Map<String, Object> metricsMap) {
+        Map<String, Object> telemetry = new LinkedHashMap<>();
+        Map<String, Object> limiter = buildLimiterTelemetry(progressEntries, metricsMap);
+        if (!limiter.isEmpty()) {
+            telemetry.put("limiter", limiter);
+        }
+        Map<String, Object> circuit = buildCircuitTelemetry(progressEntries, metricsMap);
+        if (!circuit.isEmpty()) {
+            telemetry.put("circuit", circuit);
+        }
+        return telemetry.isEmpty() ? Collections.emptyMap() : telemetry;
+    }
+
+    @Nonnull
+    private Map<String, Object> buildLimiterTelemetry(@Nonnull List<Map<String, Object>> progressEntries,
+                                                      @Nonnull Map<String, Object> metricsMap) {
+        List<Map<String, Object>> incidents = new ArrayList<>();
+        for (Map<String, Object> event : progressEntries) {
+            String stage = asString(event.get("stage"));
+            if (!"review.throttled".equals(stage)) {
+                continue;
+            }
+            Map<String, Object> details = asNestedMap(event.get("details"));
+            if (details.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> incident = new LinkedHashMap<>();
+            long timestamp = asLong(event.get("timestamp"), 0);
+            if (timestamp > 0) {
+                incident.put("timestamp", timestamp);
+            }
+            putIfPresent(incident, "scope", asString(details.get("scope")));
+            putIfPresent(incident, "identifier", asString(details.get("identifier")));
+            long retryAfterMs = asLong(details.get("retryAfterMs"), -1);
+            if (retryAfterMs >= 0) {
+                incident.put("retryAfterMs", retryAfterMs);
+            }
+            Map<String, Object> snapshot = normalizeLimiterSnapshot(asNestedMap(details.get("limiterSnapshot")));
+            if (!snapshot.isEmpty()) {
+                incident.put("snapshot", snapshot);
+            }
+            incidents.add(incident);
+        }
+
+        Map<String, Object> telemetry = new LinkedHashMap<>();
+        if (!incidents.isEmpty()) {
+            telemetry.put("incidents", incidents);
+        }
+
+        Map<String, Object> snapshot = normalizeLimiterSnapshot(asNestedMap(metricsMap.get("rate.snapshot")));
+        if (snapshot.isEmpty()) {
+            snapshot = buildLimiterSnapshotFromMetrics(metricsMap);
+        }
+        if (!snapshot.isEmpty()) {
+            telemetry.put("snapshot", snapshot);
+        }
+
+        String scope = asString(metricsMap.get("rate.scope"));
+        if (scope == null) {
+            scope = asString(snapshot.get("scope"));
+        }
+        if (scope != null) {
+            telemetry.put("scope", scope);
+        }
+        String identifier = asString(metricsMap.get("rate.identifier"));
+        if (identifier == null) {
+            identifier = asString(snapshot.get("identifier"));
+        }
+        if (identifier != null) {
+            telemetry.put("identifier", identifier);
+        }
+        long retryAfter = asLong(metricsMap.get("rate.retryAfterMs"), -1);
+        if (retryAfter >= 0) {
+            telemetry.put("retryAfterMs", retryAfter);
+        } else {
+            long snapshotReset = asLong(snapshot.get("resetInMs"), -1);
+            if (snapshotReset >= 0) {
+                telemetry.put("retryAfterMs", snapshotReset);
+            }
+        }
+
+        return telemetry.isEmpty() ? Collections.emptyMap() : telemetry;
+    }
+
+    @Nonnull
+    private Map<String, Object> buildCircuitTelemetry(@Nonnull List<Map<String, Object>> progressEntries,
+                                                      @Nonnull Map<String, Object> metricsMap) {
+        List<Map<String, Object>> samples = new ArrayList<>();
+        for (Map<String, Object> event : progressEntries) {
+            Map<String, Object> details = asNestedMap(event.get("details"));
+            if (details.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> snapshot = normalizeCircuitSnapshot(asNestedMap(details.get("circuitSnapshot")));
+            if (snapshot.isEmpty()) {
+                continue;
+            }
+            Map<String, Object> sample = new LinkedHashMap<>();
+            long timestamp = asLong(event.get("timestamp"), 0);
+            if (timestamp > 0) {
+                sample.put("timestamp", timestamp);
+            }
+            String stage = asString(event.get("stage"));
+            if (stage != null) {
+                sample.put("stage", stage);
+            }
+            sample.put("snapshot", snapshot);
+            String state = asString(details.get("circuitState"));
+            if (state != null) {
+                sample.put("state", state);
+            } else if (snapshot.containsKey("state")) {
+                sample.put("state", snapshot.get("state"));
+            }
+            samples.add(sample);
+        }
+
+        Map<String, Object> telemetry = new LinkedHashMap<>();
+        if (!samples.isEmpty()) {
+            telemetry.put("samples", samples);
+        }
+
+        Map<String, Object> latest = normalizeCircuitSnapshot(asNestedMap(metricsMap.get("ai.model.circuit.snapshot")));
+        if (latest.isEmpty() && !samples.isEmpty()) {
+            Object fallback = samples.get(samples.size() - 1).get("snapshot");
+            if (fallback instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> copied = new LinkedHashMap<>((Map<String, Object>) fallback);
+                latest = copied;
+            }
+        }
+        if (!latest.isEmpty()) {
+            telemetry.put("latest", latest);
+        }
+
+        return telemetry.isEmpty() ? Collections.emptyMap() : telemetry;
+    }
+
+    @Nonnull
+    private Map<String, Object> normalizeLimiterSnapshot(@Nonnull Map<String, Object> raw) {
+        if (raw.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        putIfPresent(snapshot, "scope", asString(raw.get("scope")));
+        putIfPresent(snapshot, "identifier", asString(raw.get("identifier")));
+        putLongIfPresent(snapshot, "limitPerHour", raw.get("limitPerHour"));
+        putLongIfPresent(snapshot, "consumed", raw.get("consumed"));
+        putLongIfPresent(snapshot, "remaining", raw.get("remaining"));
+        putLongIfPresent(snapshot, "windowStart", raw.get("windowStart"));
+        putLongIfPresent(snapshot, "updatedAt", raw.get("updatedAt"));
+        putLongIfPresent(snapshot, "resetInMs", raw.get("resetInMs"));
+        return snapshot.isEmpty() ? Collections.emptyMap() : snapshot;
+    }
+
+    @Nonnull
+    private Map<String, Object> buildLimiterSnapshotFromMetrics(@Nonnull Map<String, Object> metricsMap) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        putIfPresent(snapshot, "scope", asString(metricsMap.get("rate.scope")));
+        putIfPresent(snapshot, "identifier", asString(metricsMap.get("rate.identifier")));
+        putLongIfPresent(snapshot, "limitPerHour", metricsMap.get("rate.limitPerHour"));
+        putLongIfPresent(snapshot, "remaining", metricsMap.get("rate.remaining"));
+        putLongIfPresent(snapshot, "consumed", metricsMap.get("rate.consumed"));
+        putLongIfPresent(snapshot, "retryAfterMs", metricsMap.get("rate.retryAfterMs"));
+        return snapshot.isEmpty() ? Collections.emptyMap() : snapshot;
+    }
+
+    @Nonnull
+    private Map<String, Object> normalizeCircuitSnapshot(@Nonnull Map<String, Object> raw) {
+        if (raw.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        putIfPresent(snapshot, "state", asString(raw.get("state")));
+        putLongIfPresent(snapshot, "failureCount", raw.get("failureCount"));
+        putLongIfPresent(snapshot, "openEvents", raw.get("openEvents"));
+        putLongIfPresent(snapshot, "blockedCalls", raw.get("blockedCalls"));
+        putLongIfPresent(snapshot, "succeededCalls", raw.get("succeededCalls"));
+        putLongIfPresent(snapshot, "failedCalls", raw.get("failedCalls"));
+        putLongIfPresent(snapshot, "clientBlockedCalls", raw.get("clientBlockedCalls"));
+        putLongIfPresent(snapshot, "clientHardFailures", raw.get("clientHardFailures"));
+        return snapshot.isEmpty() ? Collections.emptyMap() : snapshot;
+    }
+
+    @Nonnull
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asNestedMap(@Nullable Object value) {
+        if (!(value instanceof Map)) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        ((Map<?, ?>) value).forEach((k, v) -> {
+            if (k instanceof String && v != null) {
+                result.put((String) k, v);
+            }
+        });
+        return result;
+    }
+
+    @Nullable
+    private String asString(@Nullable Object value) {
+        if (value == null) {
+            return null;
+        }
+        String str = value.toString().trim();
+        return str.isEmpty() ? null : str;
+    }
+
+    private void putIfPresent(@Nonnull Map<String, Object> target,
+                              @Nonnull String key,
+                              @Nullable Object value) {
+        if (value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private void putLongIfPresent(@Nonnull Map<String, Object> target,
+                                  @Nonnull String key,
+                                  @Nullable Object raw) {
+        long value = asLong(raw, Long.MIN_VALUE);
+        if (value != Long.MIN_VALUE) {
+            target.put(key, value);
         }
     }
 

@@ -80,6 +80,7 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 * **Rate limiter:** High values for `ai.rateLimiter.trackedRepoBuckets` with `repoLimitPerHour` throttling legitimate work => raise limits temporarily and watch `/metrics` to confirm automation catches up.
 * **Worker saturation:** When `ai.worker.activeThreads` equals `ai.worker.configuredSize` and `ai.worker.queuedTasks` keeps climbing, consider scaling the node pool or lowering `maxParallelChunks`.
 - Every throttled review now records a `limiterSnapshot` (consumed tokens, limit, ETA until reset) inside PR progress/history metrics so you can see exactly why Guardrails blocked the run and whether tokens are about to refill.
+- The History admin screen now surfaces a “Guardrails Telemetry” card per run, showing the captured rate-limiter snapshots plus the breaker state transitions so operators can audit when a repo was throttled or when the circuit tripped without digging through raw JSON.
 
 ### Limiter snapshot, overrides, and incidents
 

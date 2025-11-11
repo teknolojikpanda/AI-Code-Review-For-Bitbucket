@@ -720,7 +720,7 @@
             ? (entry.projectKey + '/' + entry.repositorySlug + (entry.pullRequestId ? (' #' + entry.pullRequestId) : ''))
             : (entry.pullRequestId ? ('PR #' + entry.pullRequestId) : '');
 
-        var html = buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload);
+        var html = buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload, entry.guardrails || null);
         $detailRow.find('td').html(html);
 
         var Progress = window.AIReviewer && window.AIReviewer.Progress;
@@ -738,9 +738,10 @@
         }
     }
 
-    function buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload) {
+    function buildDetailCard(subtitle, overviewItems, findingItems, modelItems, chunks, chunkPayload, guardrails) {
         var chunkCount = chunkPayload && typeof chunkPayload.total === 'number' ? chunkPayload.total : chunks.length;
         var chunkSummary = chunkCount ? 'Showing ' + chunks.length + ' of ' + chunkCount + ' chunk invocations' : '';
+        var guardrailsHtml = buildGuardrailsSection(guardrails);
 
         return '<div class="history-detail-card">' +
             '<header class="history-detail-header">' +
@@ -765,6 +766,7 @@
                 '<h4>Progress Timeline</h4>' +
                 '<div class="progress-timeline history-progress-timeline"></div>' +
             '</div>' +
+            guardrailsHtml +
             '<div class="history-detail-chunks">' +
                 '<div class="chunk-summary">' + escapeHtml(chunkSummary) + '</div>' +
                 buildChunkTableHtml(chunks) +
@@ -823,6 +825,184 @@
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +
         '</table>';
+    }
+
+    function buildGuardrailsSection(guardrails) {
+        if (!guardrails) {
+            return '';
+        }
+        var sections = [];
+        var limiterHtml = buildLimiterGuardrailHtml(guardrails.limiter);
+        if (limiterHtml) {
+            sections.push(limiterHtml);
+        }
+        var circuitHtml = buildCircuitGuardrailHtml(guardrails.circuit);
+        if (circuitHtml) {
+            sections.push(circuitHtml);
+        }
+        if (!sections.length) {
+            return '';
+        }
+        return '<div class="history-detail-guardrails">' +
+            '<h4>Guardrails Telemetry</h4>' +
+            '<div class="guardrail-grid">' + sections.join('') + '</div>' +
+        '</div>';
+    }
+
+    function buildLimiterGuardrailHtml(limiter) {
+        if (!limiter) {
+            return '';
+        }
+        var snapshotHtml = buildLimiterSnapshotList(limiter.snapshot || {});
+        var incidentsHtml = buildLimiterIncidentsTable(limiter.incidents || []);
+        var metaItems = [];
+        if (!snapshotHtml) {
+            if (limiter.identifier) {
+                metaItems.push({ label: 'Identifier', value: limiter.identifier });
+            }
+            if (limiter.scope) {
+                metaItems.push({ label: 'Scope', value: limiter.scope });
+            }
+            if (limiter.retryAfterMs != null) {
+                metaItems.push({ label: 'Retry After', value: formatDurationMs(limiter.retryAfterMs) });
+            }
+            if (metaItems.length) {
+                snapshotHtml = buildDetailListHtml(metaItems);
+            }
+        }
+        var content = snapshotHtml || '<div class="guardrail-empty">No limiter snapshot captured for this run.</div>';
+        content += incidentsHtml;
+        return '<div class="guardrail-section">' +
+            '<h5>Rate Limiter</h5>' +
+            content +
+        '</div>';
+    }
+
+    function buildLimiterSnapshotList(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object' || !Object.keys(snapshot).length) {
+            return '';
+        }
+        var items = [];
+        if (snapshot.identifier) {
+            items.push({ label: 'Identifier', value: snapshot.identifier });
+        }
+        if (snapshot.scope) {
+            items.push({ label: 'Scope', value: snapshot.scope });
+        }
+        if (snapshot.limitPerHour != null || snapshot.remaining != null) {
+            items.push({ label: 'Remaining / Limit', value: formatLimiterQuota(snapshot) });
+        }
+        if (snapshot.consumed != null) {
+            items.push({ label: 'Consumed', value: snapshot.consumed });
+        }
+        if (snapshot.resetInMs != null) {
+            items.push({ label: 'Resets In', value: formatDurationMs(snapshot.resetInMs) });
+        }
+        if (snapshot.updatedAt != null) {
+            items.push({ label: 'Updated', value: formatTimestamp(snapshot.updatedAt) });
+        }
+        if (!items.length) {
+            return '';
+        }
+        return buildDetailListHtml(items);
+    }
+
+    function buildLimiterIncidentsTable(incidents) {
+        if (!Array.isArray(incidents) || !incidents.length) {
+            return '<div class="guardrail-empty">No throttle incidents recorded.</div>';
+        }
+        var limited = incidents.slice(0, 5);
+        var rows = limited.map(function(incident) {
+            var snapshot = incident.snapshot || {};
+            return '<tr>' +
+                '<td>' + escapeHtml(formatTimestamp(incident.timestamp)) + '</td>' +
+                '<td>' + escapeHtml(incident.scope || snapshot.scope || '—') + '</td>' +
+                '<td>' + escapeHtml(incident.identifier || snapshot.identifier || '—') + '</td>' +
+                '<td>' + escapeHtml(formatLimiterQuota(snapshot)) + '</td>' +
+                '<td>' + escapeHtml(incident.retryAfterMs != null ? formatDurationMs(incident.retryAfterMs) : '—') + '</td>' +
+            '</tr>';
+        }).join('');
+        var note = incidents.length > limited.length
+            ? '<div class="guardrail-note">Showing ' + limited.length + ' of ' + incidents.length + ' incidents</div>'
+            : '';
+        return '<div class="guardrail-table-wrapper">' +
+            '<table class="aui guardrail-table">' +
+                '<thead><tr>' +
+                    '<th>Time</th>' +
+                    '<th>Scope</th>' +
+                    '<th>Identifier</th>' +
+                    '<th>Remaining / Limit</th>' +
+                    '<th>Retry After</th>' +
+                '</tr></thead>' +
+                '<tbody>' + rows + '</tbody>' +
+            '</table>' +
+            note +
+        '</div>';
+    }
+
+    function buildCircuitGuardrailHtml(circuit) {
+        if (!circuit) {
+            return '';
+        }
+        var summaryItems = [];
+        if (circuit.latest && circuit.latest.state) {
+            summaryItems.push({ label: 'Current State', value: circuit.latest.state });
+        }
+        if (circuit.latest && circuit.latest.blockedCalls != null) {
+            summaryItems.push({ label: 'Blocked Calls', value: circuit.latest.blockedCalls });
+        }
+        if (circuit.latest && circuit.latest.failureCount != null) {
+            summaryItems.push({ label: 'Failures', value: circuit.latest.failureCount });
+        }
+        var summaryHtml = summaryItems.length ? buildDetailListHtml(summaryItems) : '<div class="guardrail-empty">No circuit snapshot captured.</div>';
+        var samplesHtml = buildCircuitSamplesTable(circuit.samples || []);
+        return '<div class="guardrail-section">' +
+            '<h5>Circuit Breaker</h5>' +
+            summaryHtml +
+            samplesHtml +
+        '</div>';
+    }
+
+    function buildCircuitSamplesTable(samples) {
+        if (!Array.isArray(samples) || !samples.length) {
+            return '<div class="guardrail-empty">No breaker samples recorded during this review.</div>';
+        }
+        var limited = samples.slice(0, 5);
+        var rows = limited.map(function(sample) {
+            var snapshot = sample.snapshot || {};
+            return '<tr>' +
+                '<td>' + escapeHtml(formatTimestamp(sample.timestamp)) + '</td>' +
+                '<td>' + escapeHtml(sample.stage || '—') + '</td>' +
+                '<td>' + escapeHtml(sample.state || snapshot.state || '—') + '</td>' +
+                '<td>' + escapeHtml(snapshot.blockedCalls != null ? String(snapshot.blockedCalls) : '—') + '</td>' +
+                '<td>' + escapeHtml(snapshot.failureCount != null ? String(snapshot.failureCount) : '—') + '</td>' +
+            '</tr>';
+        }).join('');
+        var note = samples.length > limited.length
+            ? '<div class="guardrail-note">Showing ' + limited.length + ' of ' + samples.length + ' samples</div>'
+            : '';
+        return '<div class="guardrail-table-wrapper">' +
+            '<table class="aui guardrail-table">' +
+                '<thead><tr>' +
+                    '<th>Time</th>' +
+                    '<th>Stage</th>' +
+                    '<th>State</th>' +
+                    '<th>Blocked</th>' +
+                    '<th>Failures</th>' +
+                '</tr></thead>' +
+                '<tbody>' + rows + '</tbody>' +
+            '</table>' +
+            note +
+        '</div>';
+    }
+
+    function formatLimiterQuota(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') {
+            return '—';
+        }
+        var remaining = snapshot.remaining != null ? snapshot.remaining : '—';
+        var limit = snapshot.limitPerHour != null ? snapshot.limitPerHour : '—';
+        return remaining + ' / ' + limit;
     }
 
     function scrollToRow($row) {
