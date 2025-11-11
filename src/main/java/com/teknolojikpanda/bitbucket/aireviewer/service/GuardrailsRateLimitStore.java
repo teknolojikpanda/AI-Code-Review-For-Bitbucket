@@ -105,6 +105,23 @@ public class GuardrailsRateLimitStore {
         return samples;
     }
 
+    @Nullable
+    public WindowSample findWindowSample(GuardrailsRateLimitScope scope, @Nullable String identifier) {
+        if (!supportsScope(scope) || identifier == null || identifier.trim().isEmpty()) {
+            return null;
+        }
+        final String normalized = normalizeIdentifier(identifier);
+        GuardrailsRateBucket[] rows = ao.find(GuardrailsRateBucket.class,
+                Query.select()
+                        .where("SCOPE = ? AND IDENTIFIER = ?", scope.name(), normalized)
+                        .order("WINDOW_START DESC")
+                        .limit(1));
+        if (rows.length == 0) {
+            return null;
+        }
+        return windowSample(scope, rows[0]);
+    }
+
     public void recordIncident(GuardrailsRateLimitScope scope,
                                String identifier,
                                @Nullable String projectKey,

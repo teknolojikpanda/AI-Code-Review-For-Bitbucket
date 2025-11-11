@@ -31,9 +31,9 @@
 
 ### 4. AI Backend Resilience
 [X] 1. Wrap AI client calls with circuit breaker + retry/backoff policies; treat vendor 429/5xx separately. _(Circuit breaker now trips on repeated 5xx/timeouts while 429 throttles get extended backoff + metrics, so retries/fallback react differently.)_
-[ ] 2. Cache overview responses keyed by commit hash to avoid duplicate processing on re-reviews. _(Completed via `OverviewCache`)_
-[ ] 3. Emit metrics for AI latency, error rates, retry counts, and circuit-breaker states (open/blocked/failure) by pushing structured snapshots through the shared `MetricsCollector`.
-[ ] 4. Return breaker + limiter telemetry to `AIReviewServiceImpl` so progress timelines, history views, and admin panels can surface when analysis is throttled or retried.
+[X] 2. Cache overview responses keyed by commit hash to avoid duplicate processing on re-reviews. _(OverviewCache now reuses rendered overview prompts per commit hash, eliminating redundant upstream calls on re-reviews.)_
+[X] 3. Emit metrics for AI latency, error rates, retry counts, and circuit-breaker states (open/blocked/failure) by pushing structured snapshots through the shared `MetricsCollector`. _(Ollama client now records `ai.chunk.call` timings + `ai.model.*` counters and circuit snapshots per invocation, all persisted in MetricsCollector for history/telemetry exports.)_
+[X] 4. Return breaker + limiter telemetry to `AIReviewServiceImpl` so progress timelines, history views, and admin panels can surface when analysis is throttled or retried. _(Rate-limit events now embed `limiterSnapshot` data + circuit snapshots in progress/metrics, giving UI + history enough context to show retries and remaining tokens.)_
 [ ] 5. Enrich `ProgressRegistry` updates (e.g., `analysis.started`, `analysis.completed`) with the latest circuit snapshot + current chunk identifiers so the PR progress panel shows exactly what is running and whether calls are throttled.
 [ ] 6. Teach `AIReviewHistoryService` to persist that telemetry so the history UI can display past breaker or rate-limiter incidents alongside chunk timing.
 [ ] 7. Add configurable retry policies per model (different backoff windows for overview vs chunk calls) with UI knobs for admins.

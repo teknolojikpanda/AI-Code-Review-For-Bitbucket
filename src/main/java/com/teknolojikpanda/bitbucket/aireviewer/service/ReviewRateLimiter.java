@@ -210,6 +210,30 @@ public class ReviewRateLimiter {
         }
     }
 
+    public Map<String, Object> describeScopeState(@Nullable RateLimitExceededException ex) {
+        if (ex == null || ex.getIdentifier() == null || ex.getIdentifier().trim().isEmpty()) {
+            return Collections.emptyMap();
+        }
+        GuardrailsRateLimitScope storeScope = ex.getScope() == RateLimitExceededException.Scope.REPOSITORY
+                ? GuardrailsRateLimitScope.REPOSITORY
+                : GuardrailsRateLimitScope.PROJECT;
+        GuardrailsRateLimitStore.WindowSample sample = rateLimitStore.findWindowSample(storeScope, ex.getIdentifier());
+        if (sample == null) {
+            return Collections.emptyMap();
+        }
+        long now = System.currentTimeMillis();
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("scope", storeScope.name().toLowerCase(Locale.ROOT));
+        snapshot.put("identifier", sample.getIdentifier());
+        snapshot.put("consumed", sample.getConsumed());
+        snapshot.put("limitPerHour", sample.getLimitPerHour());
+        snapshot.put("remaining", sample.getRemaining());
+        snapshot.put("windowStart", sample.getWindowStart());
+        snapshot.put("updatedAt", sample.getUpdatedAt());
+        snapshot.put("resetInMs", sample.estimateResetIn(WINDOW_MS, now));
+        return snapshot;
+    }
+
     private void refreshLimits() {
         Map<String, Object> config = fetchConfigSafely();
         this.repoLimitPerHour = resolveLimit(config.get("repoRateLimitPerHour"), DEFAULT_REPO_LIMIT);

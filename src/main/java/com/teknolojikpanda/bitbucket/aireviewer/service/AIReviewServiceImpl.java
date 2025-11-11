@@ -201,10 +201,15 @@ public class AIReviewServiceImpl implements AIReviewService {
             maybeAutoSnoozeRateLimit(run);
             rateLimiter.acquire(run.getProjectKey(), run.getRepositorySlug());
         } catch (RateLimitExceededException ex) {
-            recordProgress("review.throttled", 0, progressDetails(
+            Map<String, Object> throttleDetails = progressDetails(
                     "scope", ex.getScope().name().toLowerCase(Locale.ROOT),
                     "identifier", ex.getIdentifier(),
-                    "retryAfterMs", ex.getRetryAfterMillis()));
+                    "retryAfterMs", ex.getRetryAfterMillis());
+            Map<String, Object> limiterSnapshot = rateLimiter.describeScopeState(ex);
+            if (!limiterSnapshot.isEmpty()) {
+                throttleDetails.put("limiterSnapshot", limiterSnapshot);
+            }
+            recordProgress("review.throttled", 0, throttleDetails);
             log.info("AI review rate limit hit [{}] for PR #{} (retry in {} ms)", ex.getIdentifier(), pullRequest.getId(), ex.getRetryAfterMillis());
             return buildRateLimitedResult(pullRequest.getId(), ex);
         }
@@ -862,6 +867,10 @@ public class AIReviewServiceImpl implements AIReviewService {
         metrics.put("rate.identifier", ex.getIdentifier());
         metrics.put("rate.limitPerHour", ex.getLimitPerHour());
         metrics.put("rate.retryAfterMs", ex.getRetryAfterMillis());
+        Map<String, Object> limiterSnapshot = rateLimiter.describeScopeState(ex);
+        if (!limiterSnapshot.isEmpty()) {
+            metrics.put("rate.snapshot", limiterSnapshot);
+        }
         String message = String.format("AI review rate limit reached for %s. Please retry in %s.",
                 ex.getIdentifier(),
                 formatRetryDelay(ex.getRetryAfterMillis()));
