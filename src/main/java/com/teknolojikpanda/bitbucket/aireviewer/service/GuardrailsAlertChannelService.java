@@ -2,9 +2,6 @@ package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
-import com.atlassian.sal.api.net.Request;
-import com.atlassian.sal.api.net.RequestFactory;
-import com.atlassian.sal.api.net.RequestFactoryProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel;
 import org.slf4j.Logger;
@@ -13,6 +10,11 @@ import org.slf4j.LoggerFactory;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,14 +26,11 @@ public class GuardrailsAlertChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(GuardrailsAlertChannelService.class);
     private final ActiveObjects ao;
-    private final RequestFactoryProvider requestFactoryProvider;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
-    public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao,
-                                         @ComponentImport RequestFactoryProvider requestFactoryProvider) {
+    public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao) {
         this.ao = Objects.requireNonNull(ao, "activeObjects");
-        this.requestFactoryProvider = Objects.requireNonNull(requestFactoryProvider, "requestFactoryProvider");
     }
 
     public List<Channel> listChannels() {
@@ -100,16 +99,49 @@ public class GuardrailsAlertChannelService {
             if (!channel.isEnabled()) {
                 continue;
             }
-            try {
-                RequestFactory requestFactory = requestFactoryProvider.getRequestFactory();
-                Request request = requestFactory.createRequest(Request.MethodType.POST, channel.getUrl());
-                request.addHeader("Content-Type", "application/json");
-                String payload = mapper.writeValueAsString(snapshot);
-                request.setRequestBody(payload);
-                request.execute();
-            } catch (Exception ex) {
-                log.warn("Failed to deliver guardrails alert to {}: {}", channel.getUrl(), ex.getMessage());
+            deliverSnapshot(channel, snapshot);
+        }
+    }
+
+    private void deliverSnapshot(Channel channel, GuardrailsAlertingService.AlertSnapshot snapshot) {
+        URL target = toUrl(channel.getUrl());
+        if (target == null) {
+            log.warn("Skipping alert delivery; invalid URL {}", channel.getUrl());
+            return;
+        }
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) target.openConnection();
+            connection.setDoOutput(true);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            connection.setRequestProperty("Content-Type", "application/json");
+            byte[] payload = mapper.writeValueAsBytes(snapshot);
+            try (OutputStream os = connection.getOutputStream()) {
+                os.write(payload);
             }
+            int status = connection.getResponseCode();
+            if (status >= 400) {
+                log.warn("Guardrails alert delivery to {} failed with HTTP {}", channel.getUrl(), status);
+            }
+        } catch (IOException ex) {
+            log.warn("Failed to deliver guardrails alert to {}: {}", channel.getUrl(), ex.getMessage());
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private URL toUrl(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return new URL(value.trim());
+        } catch (MalformedURLException e) {
+            return null;
         }
     }
 
