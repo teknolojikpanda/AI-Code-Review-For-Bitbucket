@@ -190,6 +190,11 @@
         <description>Persists per-node worker snapshots for telemetry</description>
     </component>
 
+    <component key="guardrailsScalingAdvisor"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsScalingAdvisor">
+        <description>Generates adaptive scaling hints from queue/worker telemetry</description>
+    </component>
+
     <component key="reviewHistoryCleanupStatusService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService">
         <description>Persists cleanup schedule configuration and last-run outcomes</description>
