@@ -104,8 +104,10 @@
         $('#max-issues-per-file').val(config.maxIssuesPerFile || 50);
         $('#max-issue-comments').val(config.maxIssueComments || 30);
         $('#max-diff-size').val(config.maxDiffSize || 10000000);
-        $('#max-retries').val(config.maxRetries || 3);
-        $('#base-retry-delay').val(config.baseRetryDelay || 1000);
+        $('#overview-max-retries').val(config.overviewMaxRetries || config.maxRetries || 2);
+        $('#overview-retry-delay').val(config.overviewRetryDelay || config.baseRetryDelay || 1500);
+        $('#chunk-max-retries').val(config.chunkMaxRetries || config.maxRetries || 3);
+        $('#chunk-retry-delay').val(config.chunkRetryDelay || config.baseRetryDelay || 1000);
         $('#api-delay').val(config.apiDelay || 100);
         $('#min-severity').val(config.minSeverity || 'medium');
         $('#require-approval-for').val(config.requireApprovalFor || 'critical,high');
@@ -1320,6 +1322,10 @@
      */
     function collectFormData() {
         var reviewerUser = $('#ai-reviewer-user').val();
+        var overviewMaxRetries = parseInt($('#overview-max-retries').val());
+        var overviewRetryDelay = parseInt($('#overview-retry-delay').val());
+        var chunkMaxRetries = parseInt($('#chunk-max-retries').val());
+        var chunkRetryDelay = parseInt($('#chunk-retry-delay').val());
         return {
             ollamaUrl: $('#ollama-url').val().trim(),
             ollamaModel: $('#ollama-model').val().trim(),
@@ -1334,8 +1340,12 @@
             maxIssuesPerFile: parseInt($('#max-issues-per-file').val()),
             maxIssueComments: parseInt($('#max-issue-comments').val()),
             maxDiffSize: parseInt($('#max-diff-size').val()),
-            maxRetries: parseInt($('#max-retries').val()),
-            baseRetryDelay: parseInt($('#base-retry-delay').val()),
+            overviewMaxRetries: overviewMaxRetries,
+            overviewRetryDelay: overviewRetryDelay,
+            chunkMaxRetries: chunkMaxRetries,
+            chunkRetryDelay: chunkRetryDelay,
+            maxRetries: chunkMaxRetries,
+            baseRetryDelay: chunkRetryDelay,
             apiDelay: parseInt($('#api-delay').val()),
             minSeverity: $('#min-severity').val(),
             requireApprovalFor: $('#require-approval-for').val().trim(),
@@ -1485,6 +1495,10 @@
             maxIssuesPerFile: 50,
             maxIssueComments: 30,
             maxDiffSize: 10000000,
+            overviewMaxRetries: 2,
+            overviewRetryDelay: 1500,
+            chunkMaxRetries: 3,
+            chunkRetryDelay: 1000,
             maxRetries: 3,
             baseRetryDelay: 1000,
             apiDelay: 100,

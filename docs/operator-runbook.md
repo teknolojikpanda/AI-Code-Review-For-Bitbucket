@@ -81,6 +81,7 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 * **Worker saturation:** When `ai.worker.activeThreads` equals `ai.worker.configuredSize` and `ai.worker.queuedTasks` keeps climbing, consider scaling the node pool or lowering `maxParallelChunks`.
 - Every throttled review now records a `limiterSnapshot` (consumed tokens, limit, ETA until reset) inside PR progress/history metrics so you can see exactly why Guardrails blocked the run and whether tokens are about to refill.
 - The History admin screen now surfaces a “Guardrails Telemetry” card per run, showing the captured rate-limiter snapshots plus the breaker state transitions so operators can audit when a repo was throttled or when the circuit tripped without digging through raw JSON.
+- Retry knobs now distinguish overview vs chunk AI calls: overview defaults to 2 attempts with a 1500 ms backoff (to protect expensive prompts), while chunk processing keeps the original 3 attempts/1000 ms cadence. Use the admin UI’s Retry Configuration section to tune them independently.
 
 ### Limiter snapshot, overrides, and incidents
 

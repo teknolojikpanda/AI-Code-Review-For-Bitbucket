@@ -36,7 +36,7 @@
 [X] 4. Return breaker + limiter telemetry to `AIReviewServiceImpl` so progress timelines, history views, and admin panels can surface when analysis is throttled or retried. _(Rate-limit events now embed `limiterSnapshot` data + circuit snapshots in progress/metrics, giving UI + history enough context to show retries and remaining tokens.)_
 [X] 5. Enrich `ProgressRegistry` updates (e.g., `analysis.started`, `analysis.completed`) with the latest circuit snapshot + current chunk identifiers so the PR progress panel shows exactly what is running and whether calls are throttled. _(Analysis progress now includes circuit snapshots + chunk plan previews, while `analysis.active` events stream currently-running chunk labels.)_
 [X] 6. Teach `AIReviewHistoryService` to persist that telemetry so the history UI can display past breaker or rate-limiter incidents alongside chunk timing. _(History payloads now expose guardrails telemetry and the admin UI renders limiter/breaker cards for every run.)_
-[ ] 7. Add configurable retry policies per model (different backoff windows for overview vs chunk calls) with UI knobs for admins.
+[X] 7. Add configurable retry policies per model (different backoff windows for overview vs chunk calls) with UI knobs for admins. _(Config now persists separate overview/chunk retry policies, exposes them via REST/UI, and chunk execution honors the per-phase settings.)_
 [ ] 8. Implement proactive health probes that periodically test models and mark them “degraded” before real reviews fail, falling back automatically.
 [ ] 9. Surface cumulative AI vendor latency/error stats per endpoint so operators can justify switching models/providers if reliability drops.
 

@@ -69,6 +69,18 @@ public interface AIReviewConfiguration extends Entity {
     int getBaseRetryDelayMs();
     void setBaseRetryDelayMs(int delay);
 
+    int getOverviewMaxRetries();
+    void setOverviewMaxRetries(int maxRetries);
+
+    int getOverviewRetryDelayMs();
+    void setOverviewRetryDelayMs(int delay);
+
+    int getChunkMaxRetries();
+    void setChunkMaxRetries(int maxRetries);
+
+    int getChunkRetryDelayMs();
+    void setChunkRetryDelayMs(int delay);
+
     int getApiDelayMs();
     void setApiDelayMs(int delay);
 

@@ -184,8 +184,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
                                                      String modelRole,
                                                      MetricsRecorder metrics) {
         int attempts = 0;
-        int maxRetries = Math.max(1, config.getMaxRetries());
-        int backoff = Math.max(500, config.getBaseRetryDelayMs());
+        int maxRetries = Math.max(1, config.getChunkMaxRetries());
+        int backoff = Math.max(500, config.getChunkRetryDelayMs());
         Exception lastError = null;
         boolean modelNotFound = false;
         String modelKey = modelKey(baseUrl, model);

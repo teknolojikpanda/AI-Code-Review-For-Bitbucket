@@ -108,8 +108,10 @@ public class AdminConfigServlet extends HttpServlet {
         context.put("maxIssuesPerFile", configValues.get("maxIssuesPerFile"));
         context.put("maxIssueComments", configValues.get("maxIssueComments"));
         context.put("maxDiffSize", configValues.get("maxDiffSize"));
-        context.put("maxRetries", configValues.get("maxRetries"));
-        context.put("baseRetryDelay", configValues.get("baseRetryDelay"));
+        context.put("chunkMaxRetries", configValues.getOrDefault("chunkMaxRetries", configValues.get("maxRetries")));
+        context.put("chunkRetryDelay", configValues.getOrDefault("chunkRetryDelay", configValues.get("baseRetryDelay")));
+        context.put("overviewMaxRetries", configValues.getOrDefault("overviewMaxRetries", configValues.get("maxRetries")));
+        context.put("overviewRetryDelay", configValues.getOrDefault("overviewRetryDelay", configValues.get("baseRetryDelay")));
         context.put("apiDelay", configValues.getOrDefault("apiDelayMs", defaults.get("apiDelayMs")));
         context.put("minSeverity", configValues.get("minSeverity"));
         context.put("requireApprovalFor", configValues.get("requireApprovalFor"));

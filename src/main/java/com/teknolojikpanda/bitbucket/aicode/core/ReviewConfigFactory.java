@@ -45,8 +45,24 @@ public class ReviewConfigFactory {
         builder.parallelThreads(intValue(config.get("parallelThreads"), 4));
         builder.requestTimeoutMs(intValue(config.get("ollamaTimeout"), 300_000));
         builder.connectTimeoutMs(intValue(config.get("connectTimeout"), 10_000));
-        builder.maxRetries(intValue(config.get("maxRetries"), 3));
-        builder.baseRetryDelayMs(intValue(config.get("baseRetryDelay"), 1_000));
+        int chunkMaxRetries = intValue(config.containsKey("chunkMaxRetries")
+                ? config.get("chunkMaxRetries")
+                : config.get("maxRetries"), 3);
+        builder.chunkMaxRetries(chunkMaxRetries);
+        int chunkRetryDelay = intValue(config.containsKey("chunkRetryDelay")
+                ? config.get("chunkRetryDelay")
+                : config.get("baseRetryDelay"), 1_000);
+        builder.chunkRetryDelayMs(chunkRetryDelay);
+        int overviewMaxRetries = intValue(config.containsKey("overviewMaxRetries")
+                ? config.get("overviewMaxRetries")
+                : config.get("maxRetries"),
+                chunkMaxRetries > 0 ? chunkMaxRetries : 2);
+        builder.overviewMaxRetries(overviewMaxRetries);
+        int overviewRetryDelay = intValue(config.containsKey("overviewRetryDelay")
+                ? config.get("overviewRetryDelay")
+                : config.get("baseRetryDelay"),
+                chunkRetryDelay > 0 ? chunkRetryDelay : 1_500);
+        builder.overviewRetryDelayMs(overviewRetryDelay);
         builder.maxDiffBytes(intValue(config.get("maxDiffSize"), 10_000_000));
 
         builder.reviewableExtensions(splitToSet(config.get("reviewExtensions")));

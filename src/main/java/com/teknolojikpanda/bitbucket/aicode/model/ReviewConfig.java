@@ -22,8 +22,10 @@ public final class ReviewConfig {
     private final int parallelThreads;
     private final int requestTimeoutMs;
     private final int connectTimeoutMs;
-    private final int maxRetries;
-    private final int baseRetryDelayMs;
+    private final int chunkMaxRetries;
+    private final int chunkRetryDelayMs;
+    private final int overviewMaxRetries;
+    private final int overviewRetryDelayMs;
     private final Set<String> reviewableExtensions;
     private final List<String> ignorePatterns;
     private final List<String> ignorePaths;
@@ -42,8 +44,10 @@ public final class ReviewConfig {
         this.parallelThreads = builder.parallelThreads;
         this.requestTimeoutMs = builder.requestTimeoutMs;
         this.connectTimeoutMs = builder.connectTimeoutMs;
-        this.maxRetries = builder.maxRetries;
-        this.baseRetryDelayMs = builder.baseRetryDelayMs;
+        this.chunkMaxRetries = builder.chunkMaxRetries;
+        this.chunkRetryDelayMs = builder.chunkRetryDelayMs;
+        this.overviewMaxRetries = builder.overviewMaxRetries;
+        this.overviewRetryDelayMs = builder.overviewRetryDelayMs;
         this.reviewableExtensions = Collections.unmodifiableSet(builder.reviewableExtensions);
         this.ignorePatterns = Collections.unmodifiableList(builder.ignorePatterns);
         this.ignorePaths = Collections.unmodifiableList(builder.ignorePaths);
@@ -97,11 +101,27 @@ public final class ReviewConfig {
     }
 
     public int getMaxRetries() {
-        return maxRetries;
+        return getChunkMaxRetries();
     }
 
     public int getBaseRetryDelayMs() {
-        return baseRetryDelayMs;
+        return getChunkRetryDelayMs();
+    }
+
+    public int getChunkMaxRetries() {
+        return chunkMaxRetries;
+    }
+
+    public int getChunkRetryDelayMs() {
+        return chunkRetryDelayMs;
+    }
+
+    public int getOverviewMaxRetries() {
+        return overviewMaxRetries;
+    }
+
+    public int getOverviewRetryDelayMs() {
+        return overviewRetryDelayMs;
     }
 
     @Nonnull
@@ -148,8 +168,10 @@ public final class ReviewConfig {
         private int parallelThreads = 4;
         private int requestTimeoutMs = 300_000;
         private int connectTimeoutMs = 15_000;
-        private int maxRetries = 3;
-        private int baseRetryDelayMs = 1_000;
+        private int chunkMaxRetries = 3;
+        private int chunkRetryDelayMs = 1_000;
+        private int overviewMaxRetries = 2;
+        private int overviewRetryDelayMs = 1_500;
         private Set<String> reviewableExtensions = Collections.emptySet();
         private List<String> ignorePatterns = Collections.emptyList();
         private List<String> ignorePaths = Collections.emptyList();
@@ -207,13 +229,39 @@ public final class ReviewConfig {
             return this;
         }
 
+        public Builder chunkMaxRetries(int value) {
+            this.chunkMaxRetries = value;
+            return this;
+        }
+
+        public Builder chunkRetryDelayMs(int value) {
+            this.chunkRetryDelayMs = value;
+            return this;
+        }
+
+        public Builder overviewMaxRetries(int value) {
+            this.overviewMaxRetries = value;
+            return this;
+        }
+
+        public Builder overviewRetryDelayMs(int value) {
+            this.overviewRetryDelayMs = value;
+            return this;
+        }
+
         public Builder maxRetries(int value) {
-            this.maxRetries = value;
+            this.chunkMaxRetries = value;
+            if (this.overviewMaxRetries <= 0) {
+                this.overviewMaxRetries = value;
+            }
             return this;
         }
 
         public Builder baseRetryDelayMs(int value) {
-            this.baseRetryDelayMs = value;
+            this.chunkRetryDelayMs = value;
+            if (this.overviewRetryDelayMs <= 0) {
+                this.overviewRetryDelayMs = value;
+            }
             return this;
         }
 

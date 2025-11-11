@@ -94,7 +94,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "maxIssueComments",
             "maxDiffSize",
             "maxRetries",
+            "overviewMaxRetries",
+            "chunkMaxRetries",
             "baseRetryDelay",
+            "overviewRetryDelay",
+            "chunkRetryDelay",
             "apiDelayMs"
     )));
 
@@ -137,6 +141,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final int DEFAULT_MAX_DIFF_SIZE = 10000000;
     private static final int DEFAULT_MAX_RETRIES = 3;
     private static final int DEFAULT_BASE_RETRY_DELAY = 1000;
+    private static final int DEFAULT_CHUNK_MAX_RETRIES = DEFAULT_MAX_RETRIES;
+    private static final int DEFAULT_CHUNK_RETRY_DELAY = DEFAULT_BASE_RETRY_DELAY;
+    private static final int DEFAULT_OVERVIEW_MAX_RETRIES = 2;
+    private static final int DEFAULT_OVERVIEW_RETRY_DELAY = 1500;
     private static final int DEFAULT_API_DELAY = 100;
     private static final String DEFAULT_MIN_SEVERITY = "medium";
     private static final String DEFAULT_REQUIRE_APPROVAL_FOR = "critical,high";
@@ -193,7 +201,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "maxIssueComments",
                 "maxDiffSize",
                 "maxRetries",
+                "overviewMaxRetries",
+                "chunkMaxRetries",
                 "baseRetryDelay",
+                "overviewRetryDelay",
+                "chunkRetryDelay",
                 "apiDelayMs",
                 "minSeverity",
                 "requireApprovalFor",
@@ -331,7 +343,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "maxIssuesPerFile", 1, 100, errors);
         validateIntegerRange(configMap, "maxIssueComments", 1, 100, errors);
         validateIntegerRange(configMap, "maxRetries", 0, 10, errors);
+        validateIntegerRange(configMap, "overviewMaxRetries", 0, 10, errors);
+        validateIntegerRange(configMap, "chunkMaxRetries", 0, 10, errors);
         validateIntegerRange(configMap, "baseRetryDelay", 100, 60_000, errors);
+        validateIntegerRange(configMap, "overviewRetryDelay", 100, 120_000, errors);
+        validateIntegerRange(configMap, "chunkRetryDelay", 100, 60_000, errors);
         validateIntegerRange(configMap, "ollamaTimeout", 5_000, 600_000, errors);
         validateIntegerRange(configMap, "connectTimeout", 1_000, 120_000, errors);
         validateString(configMap, "aiReviewerUser", false, 255, errors, null);
@@ -493,7 +509,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("maxIssueComments", DEFAULT_MAX_ISSUE_COMMENTS);
         defaults.put("maxDiffSize", DEFAULT_MAX_DIFF_SIZE);
         defaults.put("maxRetries", DEFAULT_MAX_RETRIES);
+        defaults.put("chunkMaxRetries", DEFAULT_CHUNK_MAX_RETRIES);
+        defaults.put("overviewMaxRetries", DEFAULT_OVERVIEW_MAX_RETRIES);
         defaults.put("baseRetryDelay", DEFAULT_BASE_RETRY_DELAY);
+        defaults.put("chunkRetryDelay", DEFAULT_CHUNK_RETRY_DELAY);
+        defaults.put("overviewRetryDelay", DEFAULT_OVERVIEW_RETRY_DELAY);
         defaults.put("apiDelayMs", DEFAULT_API_DELAY);
         defaults.put("minSeverity", DEFAULT_MIN_SEVERITY);
         defaults.put("requireApprovalFor", DEFAULT_REQUIRE_APPROVAL_FOR);
@@ -1169,6 +1189,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setMaxDiffSize(DEFAULT_MAX_DIFF_SIZE);
         config.setMaxRetries(DEFAULT_MAX_RETRIES);
         config.setBaseRetryDelayMs(DEFAULT_BASE_RETRY_DELAY);
+        config.setChunkMaxRetries(DEFAULT_CHUNK_MAX_RETRIES);
+        config.setChunkRetryDelayMs(DEFAULT_CHUNK_RETRY_DELAY);
+        config.setOverviewMaxRetries(DEFAULT_OVERVIEW_MAX_RETRIES);
+        config.setOverviewRetryDelayMs(DEFAULT_OVERVIEW_RETRY_DELAY);
         config.setApiDelayMs(DEFAULT_API_DELAY);
         config.setMinSeverity(DEFAULT_MIN_SEVERITY);
         config.setRequireApprovalFor(DEFAULT_REQUIRE_APPROVAL_FOR);
@@ -1279,11 +1303,35 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (configMap.containsKey("maxDiffSize")) {
             config.setMaxDiffSize(getIntValue(configMap, "maxDiffSize"));
         }
+        Integer legacyMaxRetries = null;
         if (configMap.containsKey("maxRetries")) {
-            config.setMaxRetries(getIntValue(configMap, "maxRetries"));
+            legacyMaxRetries = getIntValue(configMap, "maxRetries");
+            config.setMaxRetries(legacyMaxRetries);
         }
+        Integer legacyBaseDelay = null;
         if (configMap.containsKey("baseRetryDelay")) {
-            config.setBaseRetryDelayMs(getIntValue(configMap, "baseRetryDelay"));
+            legacyBaseDelay = getIntValue(configMap, "baseRetryDelay");
+            config.setBaseRetryDelayMs(legacyBaseDelay);
+        }
+        if (configMap.containsKey("chunkMaxRetries")) {
+            config.setChunkMaxRetries(getIntValue(configMap, "chunkMaxRetries"));
+        } else if (legacyMaxRetries != null) {
+            config.setChunkMaxRetries(legacyMaxRetries);
+        }
+        if (configMap.containsKey("overviewMaxRetries")) {
+            config.setOverviewMaxRetries(getIntValue(configMap, "overviewMaxRetries"));
+        } else if (legacyMaxRetries != null) {
+            config.setOverviewMaxRetries(legacyMaxRetries);
+        }
+        if (configMap.containsKey("chunkRetryDelay")) {
+            config.setChunkRetryDelayMs(getIntValue(configMap, "chunkRetryDelay"));
+        } else if (legacyBaseDelay != null) {
+            config.setChunkRetryDelayMs(legacyBaseDelay);
+        }
+        if (configMap.containsKey("overviewRetryDelay")) {
+            config.setOverviewRetryDelayMs(getIntValue(configMap, "overviewRetryDelay"));
+        } else if (legacyBaseDelay != null) {
+            config.setOverviewRetryDelayMs(legacyBaseDelay);
         }
         if (configMap.containsKey("apiDelayMs")) {
             config.setApiDelayMs(getIntValue(configMap, "apiDelayMs"));
@@ -1480,6 +1528,22 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (config.getBaseRetryDelayMs() <= 0) {
             config.setBaseRetryDelayMs(DEFAULT_BASE_RETRY_DELAY);
+            updated = true;
+        }
+        if (config.getChunkMaxRetries() <= 0) {
+            config.setChunkMaxRetries(DEFAULT_CHUNK_MAX_RETRIES);
+            updated = true;
+        }
+        if (config.getChunkRetryDelayMs() <= 0) {
+            config.setChunkRetryDelayMs(DEFAULT_CHUNK_RETRY_DELAY);
+            updated = true;
+        }
+        if (config.getOverviewMaxRetries() <= 0) {
+            config.setOverviewMaxRetries(DEFAULT_OVERVIEW_MAX_RETRIES);
+            updated = true;
+        }
+        if (config.getOverviewRetryDelayMs() <= 0) {
+            config.setOverviewRetryDelayMs(DEFAULT_OVERVIEW_RETRY_DELAY);
             updated = true;
         }
         if (config.getApiDelayMs() <= 0) {
@@ -1701,8 +1765,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("maxIssuesPerFile", defaultInt(config.getMaxIssuesPerFile(), DEFAULT_MAX_ISSUES_PER_FILE));
         map.put("maxIssueComments", defaultInt(config.getMaxIssueComments(), DEFAULT_MAX_ISSUE_COMMENTS));
         map.put("maxDiffSize", defaultInt(config.getMaxDiffSize(), DEFAULT_MAX_DIFF_SIZE));
-        map.put("maxRetries", defaultInt(config.getMaxRetries(), DEFAULT_MAX_RETRIES));
-        map.put("baseRetryDelay", defaultInt(config.getBaseRetryDelayMs(), DEFAULT_BASE_RETRY_DELAY));
+        int chunkMaxRetries = resolveChunkMaxRetries(config);
+        map.put("chunkMaxRetries", chunkMaxRetries);
+        map.put("maxRetries", chunkMaxRetries);
+        int chunkRetryDelay = resolveChunkRetryDelay(config);
+        map.put("chunkRetryDelay", chunkRetryDelay);
+        map.put("baseRetryDelay", chunkRetryDelay);
+        map.put("overviewMaxRetries", resolveOverviewMaxRetries(config));
+        map.put("overviewRetryDelay", resolveOverviewRetryDelay(config));
         map.put("apiDelayMs", defaultInt(config.getApiDelayMs(), DEFAULT_API_DELAY));
         map.put("minSeverity", defaultString(config.getMinSeverity(), DEFAULT_MIN_SEVERITY));
         map.put("requireApprovalFor", defaultString(config.getRequireApprovalFor(), DEFAULT_REQUIRE_APPROVAL_FOR));
@@ -1720,6 +1790,38 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
         return map;
+    }
+
+    private int resolveChunkMaxRetries(AIReviewConfiguration config) {
+        int value = config.getChunkMaxRetries();
+        if (value <= 0) {
+            value = config.getMaxRetries();
+        }
+        return value > 0 ? value : DEFAULT_CHUNK_MAX_RETRIES;
+    }
+
+    private int resolveChunkRetryDelay(AIReviewConfiguration config) {
+        int value = config.getChunkRetryDelayMs();
+        if (value <= 0) {
+            value = config.getBaseRetryDelayMs();
+        }
+        return value > 0 ? value : DEFAULT_CHUNK_RETRY_DELAY;
+    }
+
+    private int resolveOverviewMaxRetries(AIReviewConfiguration config) {
+        int value = config.getOverviewMaxRetries();
+        if (value <= 0) {
+            value = config.getMaxRetries();
+        }
+        return value > 0 ? value : DEFAULT_OVERVIEW_MAX_RETRIES;
+    }
+
+    private int resolveOverviewRetryDelay(AIReviewConfiguration config) {
+        int value = config.getOverviewRetryDelayMs();
+        if (value <= 0) {
+            value = config.getBaseRetryDelayMs();
+        }
+        return value > 0 ? value : DEFAULT_OVERVIEW_RETRY_DELAY;
     }
 
     private Map<String, Integer> parseRepoAlertOverrides(@Nullable String raw) {

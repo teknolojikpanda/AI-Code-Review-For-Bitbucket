@@ -167,18 +167,34 @@
 
                         <!-- Retry Configuration -->
                         <h2>Retry Configuration</h2>
+                        <h3>Overview Calls</h3>
                         <div class="field-group">
-                            <label for="max-retries">Max Retries</label>
-                            <input class="text medium-field" type="number" id="max-retries"
-                                   name="maxRetries" value="$maxRetries" min="0" max="10">
-                            <div class="description">Maximum retry attempts for failed requests (default: 3)</div>
+                            <label for="overview-max-retries">Overview Max Retries</label>
+                            <input class="text medium-field" type="number" id="overview-max-retries"
+                                   name="overviewMaxRetries" value="$overviewMaxRetries" min="0" max="10">
+                            <div class="description">Retry attempts for expensive overview/model warmup calls (default: 2)</div>
                         </div>
 
                         <div class="field-group">
-                            <label for="base-retry-delay">Base Retry Delay (ms)</label>
-                            <input class="text medium-field" type="number" id="base-retry-delay"
-                                   name="baseRetryDelay" value="$baseRetryDelay" min="100">
-                            <div class="description">Base delay between retries in ms (default: 1000)</div>
+                            <label for="overview-retry-delay">Overview Retry Delay (ms)</label>
+                            <input class="text medium-field" type="number" id="overview-retry-delay"
+                                   name="overviewRetryDelay" value="$overviewRetryDelay" min="100">
+                            <div class="description">Base delay between overview retries (default: 1500)</div>
+                        </div>
+
+                        <h3>Chunk Calls</h3>
+                        <div class="field-group">
+                            <label for="chunk-max-retries">Chunk Max Retries</label>
+                            <input class="text medium-field" type="number" id="chunk-max-retries"
+                                   name="chunkMaxRetries" value="$chunkMaxRetries" min="0" max="10">
+                            <div class="description">Retry attempts for per-chunk analysis (default: 3)</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="chunk-retry-delay">Chunk Retry Delay (ms)</label>
+                            <input class="text medium-field" type="number" id="chunk-retry-delay"
+                                   name="chunkRetryDelay" value="$chunkRetryDelay" min="100">
+                            <div class="description">Base delay between chunk retries (default: 1000)</div>
                         </div>
 
                         <div class="field-group">
