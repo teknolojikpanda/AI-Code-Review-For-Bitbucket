@@ -2,6 +2,7 @@ package com.teknolojikpanda.bitbucket.aireviewer.ao;
 
 import net.java.ao.Entity;
 import net.java.ao.Preload;
+import net.java.ao.schema.Default;
 import net.java.ao.schema.NotNull;
 import net.java.ao.schema.StringLength;
 import net.java.ao.schema.Table;
@@ -119,6 +120,10 @@ public interface AIReviewConfiguration extends Entity {
     @StringLength(StringLength.UNLIMITED)
     String getProjectAlertOverrides();
     void setProjectAlertOverrides(String overrides);
+
+    @Default("true")
+    boolean isWorkerDegradationEnabled();
+    void setWorkerDegradationEnabled(boolean enabled);
 
     // Review Profile Configuration
     @StringLength(50)

@@ -33,6 +33,7 @@ public class GuardrailsTelemetryService {
     private final ReviewSchedulerStateService schedulerStateService;
     private final ReviewHistoryCleanupAuditService cleanupAuditService;
     private final GuardrailsAlertDeliveryService deliveryService;
+    private final GuardrailsWorkerNodeService workerNodeService;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -42,7 +43,8 @@ public class GuardrailsTelemetryService {
                                       ReviewHistoryCleanupStatusService cleanupStatusService,
                                       ReviewHistoryCleanupAuditService cleanupAuditService,
                                       ReviewSchedulerStateService schedulerStateService,
-                                      GuardrailsAlertDeliveryService deliveryService) {
+                                      GuardrailsAlertDeliveryService deliveryService,
+                                      GuardrailsWorkerNodeService workerNodeService) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -51,6 +53,7 @@ public class GuardrailsTelemetryService {
         this.cleanupAuditService = Objects.requireNonNull(cleanupAuditService, "cleanupAuditService");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
         this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
+        this.workerNodeService = Objects.requireNonNull(workerNodeService, "workerNodeService");
     }
 
     /**
@@ -63,7 +66,10 @@ public class GuardrailsTelemetryService {
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 queueStats != null ? queueStats.getSchedulerState() : schedulerStateService.getState();
         payload.put("schedulerState", schedulerStateToMap(schedulerState));
-        payload.put("workerPool", workerPoolStatsToMap(workerPool.snapshot()));
+        ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = workerPool.snapshot();
+        workerNodeService.recordLocalSnapshot(workerSnapshot);
+        payload.put("workerPool", workerPoolStatsToMap(workerSnapshot));
+        payload.put("workerPoolNodes", workerNodeSnapshotsToList(workerNodeService.listSnapshots()));
         payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
@@ -208,6 +214,30 @@ public class GuardrailsTelemetryService {
         map.put("completedTasks", snapshot.getCompletedTasks());
         map.put("capturedAt", snapshot.getCapturedAt());
         return map;
+    }
+
+    private List<Map<String, Object>> workerNodeSnapshotsToList(List<GuardrailsWorkerNodeService.WorkerNodeRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(records.size());
+        for (GuardrailsWorkerNodeService.WorkerNodeRecord record : records) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("nodeId", record.getNodeId());
+            map.put("nodeName", record.getNodeName());
+            map.put("configuredSize", record.getConfiguredSize());
+            map.put("activeThreads", record.getActiveThreads());
+            map.put("queuedTasks", record.getQueuedTasks());
+            map.put("currentPoolSize", record.getCurrentPoolSize());
+            map.put("largestPoolSize", record.getLargestPoolSize());
+            map.put("totalTasks", record.getTotalTasks());
+            map.put("completedTasks", record.getCompletedTasks());
+            map.put("capturedAt", record.getCapturedAt());
+            map.put("utilization", record.getUtilization());
+            map.put("stale", record.isStale());
+            list.add(map);
+        }
+        return list;
     }
 
     private Map<String, Object> rateLimitStatsToMap(RateLimitSnapshot snapshot) {

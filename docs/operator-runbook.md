@@ -42,6 +42,12 @@ Core metric names emitted via `/metrics`:
 
 Every response is timestamped via `generatedAt` so automation can detect stale data.
 
+### Worker Pool Degradation
+
+- The admin config page now exposes **Worker Pool Degradation** (enabled by default). When utilization stays above ~90% or the worker queue keeps growing, Guardrails halves the effective `parallelThreads` (and eventually drops to one) so nodes can recover without manual intervention.
+- Disable the toggle if you are performing controlled perf tests or want the previous “always parallel” behaviour. Re-enabling immediately reapplies the adaptive cap during the next review.
+- Each degraded run emits a `config.workerDegradation` progress event plus the `config.workerDegradationActive` gauge inside `/metrics`, so dashboards and alerts can surface when the safety net is taking effect.
+
 ## 2. Queue Saturation Playbook
 
 1. **Check `/metrics` for queue saturation:** `ai.queue.availableSlots` = 0 or `ai.queue.waiting` steadily increasing indicates saturation.

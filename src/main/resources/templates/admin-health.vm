@@ -61,6 +61,29 @@
                     </div>
                 </section>
 
+                <section class="queue-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Worker Pools by Node</h2>
+                        <span id="worker-nodes-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-panel">
+                        <div class="queue-empty" id="worker-nodes-empty">Worker nodes have not reported telemetry yet.</div>
+                        <table class="aui aui-table aui-table-rowhover" id="worker-nodes-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>Node</th>
+                                <th>Configured</th>
+                                <th>Active</th>
+                                <th>Queued</th>
+                                <th>Utilization</th>
+                                <th>Last Update</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
                 <section class="automation-section" style="margin-top: 24px;">
                     <header class="queue-header">
                         <h2>Webhook Metrics</h2>

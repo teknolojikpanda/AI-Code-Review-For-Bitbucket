@@ -18,6 +18,7 @@ import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import com.teknolojikpanda.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.WorkerDegradationService;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockitoAnnotations;
@@ -54,6 +55,7 @@ public class AIReviewServiceMergeCheckTest {
     private GuardrailsAutoSnoozeService autoSnoozeService;
     private ReviewSchedulerStateService schedulerStateService;
     private ReviewQueueAuditService queueAuditService;
+    private WorkerDegradationService workerDegradationService;
 
     private AIReviewServiceImpl service;
 
@@ -84,6 +86,7 @@ public class AIReviewServiceMergeCheckTest {
         securityService = mock(SecurityService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         queueAuditService = mock(ReviewQueueAuditService.class);
+        workerDegradationService = mock(WorkerDegradationService.class);
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
                         ReviewSchedulerStateService.SchedulerState.Mode.ACTIVE,
@@ -96,6 +99,8 @@ public class AIReviewServiceMergeCheckTest {
         rateLimiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService, burstCreditService);
         workerPool = new ReviewWorkerPool(configService);
         autoSnoozeService = mock(GuardrailsAutoSnoozeService.class);
+        when(workerDegradationService.apply(any())).thenAnswer(invocation ->
+                WorkerDegradationService.Result.passThrough(invocation.getArgument(0)));
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -115,7 +120,8 @@ public class AIReviewServiceMergeCheckTest {
                 concurrencyController,
                 rateLimiter,
                 workerPool,
-                autoSnoozeService);
+                autoSnoozeService,
+                workerDegradationService);
 
         try {
             setSecurityServiceNull();

@@ -25,6 +25,7 @@ public class GuardrailsTelemetryServiceTest {
     private ReviewHistoryCleanupAuditService cleanupAuditService;
     private ReviewSchedulerStateService schedulerStateService;
     private GuardrailsAlertDeliveryService deliveryService;
+    private GuardrailsWorkerNodeService workerNodeService;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -37,6 +38,7 @@ public class GuardrailsTelemetryServiceTest {
         cleanupAuditService = mock(ReviewHistoryCleanupAuditService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         deliveryService = mock(GuardrailsAlertDeliveryService.class);
+        workerNodeService = mock(GuardrailsWorkerNodeService.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -74,6 +76,21 @@ public class GuardrailsTelemetryServiceTest {
         when(deliveryService.aggregateRecentDeliveries(anyInt())).thenReturn(
                 new GuardrailsAlertDeliveryService.Aggregates(10, 9, 1, 2, 0.1));
 
+        when(workerNodeService.listSnapshots()).thenReturn(Collections.singletonList(
+                new GuardrailsWorkerNodeService.WorkerNodeRecord(
+                        "node-1",
+                        "Node One",
+                        6,
+                        2,
+                        1,
+                        6,
+                        6,
+                        10,
+                        8,
+                        System.currentTimeMillis(),
+                        false)
+        ));
+
         telemetryService = new GuardrailsTelemetryService(
                 concurrencyController,
                 workerPool,
@@ -82,7 +99,8 @@ public class GuardrailsTelemetryServiceTest {
                 cleanupStatusService,
                 cleanupAuditService,
                 schedulerStateService,
-                deliveryService);
+                deliveryService,
+                workerNodeService);
     }
 
     @Test
@@ -91,6 +109,8 @@ public class GuardrailsTelemetryServiceTest {
 
         assertTrue(snapshot.containsKey("queue"));
         assertTrue(snapshot.containsKey("workerPool"));
+        assertTrue(snapshot.containsKey("workerPoolNodes"));
+        assertEquals(1, ((List<?>) snapshot.get("workerPoolNodes")).size());
         assertTrue(snapshot.containsKey("rateLimiter"));
         assertTrue(snapshot.containsKey("retention"));
         assertTrue(snapshot.containsKey("schedulerState"));

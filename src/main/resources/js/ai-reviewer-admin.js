@@ -113,6 +113,7 @@
         $('#ignore-patterns').val(config.ignorePatterns || '');
         $('#ignore-paths').val(config.ignorePaths || '');
         $('#auto-approve').prop('checked', config.autoApprove === true);
+        $('#worker-degradation-enabled').prop('checked', config.workerDegradationEnabled !== false);
 
         // Checkboxes
         $('#enabled').prop('checked', config.enabled !== false);
@@ -1347,6 +1348,7 @@
             skipGeneratedFiles: $('#skip-generated-files').is(':checked'),
             skipTests: $('#skip-tests').is(':checked'),
             autoApprove: $('#auto-approve').is(':checked'),
+            workerDegradationEnabled: $('#worker-degradation-enabled').is(':checked'),
             aiReviewerUser: reviewerUser && reviewerUser.length ? reviewerUser : null
         };
     }
@@ -1496,7 +1498,8 @@
             reviewDraftPRs: false,
             skipGeneratedFiles: true,
             skipTests: false,
-            autoApprove: false
+            autoApprove: false,
+            workerDegradationEnabled: true
         };
 
         defaults.profilePresets = Object.values(profilePresets);

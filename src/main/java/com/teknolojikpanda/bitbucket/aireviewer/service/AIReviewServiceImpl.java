@@ -115,6 +115,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ReviewRateLimiter rateLimiter;
     private final ReviewWorkerPool workerPool;
     private final GuardrailsAutoSnoozeService autoSnoozeService;
+    private final WorkerDegradationService workerDegradationService;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -137,7 +138,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             ReviewConcurrencyController concurrencyController,
             ReviewRateLimiter rateLimiter,
             ReviewWorkerPool workerPool,
-            GuardrailsAutoSnoozeService autoSnoozeService) {
+            GuardrailsAutoSnoozeService autoSnoozeService,
+            WorkerDegradationService workerDegradationService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -156,6 +158,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter cannot be null");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool cannot be null");
         this.autoSnoozeService = Objects.requireNonNull(autoSnoozeService, "autoSnoozeService cannot be null");
+        this.workerDegradationService = Objects.requireNonNull(workerDegradationService, "workerDegradationService cannot be null");
 
     }
 
@@ -369,10 +372,29 @@ public class AIReviewServiceImpl implements AIReviewService {
                     "repositorySlug", repositorySlug));
 
             Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
+            WorkerDegradationService.Result degradationResult = workerDegradationService.apply(configMap);
+            configMap = degradationResult.getConfiguration();
             ApplicationUser reviewerUser = resolveReviewerUser(configMap);
             ReviewConfig reviewConfig = configFactory.from(configMap);
             metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());
             metrics.setGauge("config.maxChunks", reviewConfig.getMaxChunks());
+            boolean degraded = degradationResult.isDegraded();
+            metrics.setGauge("config.workerDegradationActive", degraded ? 1 : 0);
+            if (degraded) {
+                recordProgress("config.workerDegradation", 10, progressDetails(
+                        "parallelThreadsBefore", degradationResult.getOriginalParallelThreads(),
+                        "parallelThreadsAfter", degradationResult.getAdjustedParallelThreads(),
+                        "workerUtilization", degradationResult.getWorkerUtilization(),
+                        "workerQueuedTasks", degradationResult.getQueuedTasks(),
+                        "workerDegradationLevel", degradationResult.getLevel().name().toLowerCase(Locale.ROOT)));
+                String utilizationText = String.format(Locale.ROOT, "%.2f", degradationResult.getWorkerUtilization());
+                log.info("Worker degradation applied for PR #{}: parallelThreads {} -> {} (utilization {}, queued {})",
+                        pullRequestId,
+                        degradationResult.getOriginalParallelThreads(),
+                        degradationResult.getAdjustedParallelThreads(),
+                        utilizationText,
+                        degradationResult.getQueuedTasks());
+            }
             recordProgress("config.resolved", 10, progressDetails(
                     "primaryModel", reviewConfig.getPrimaryModel(),
                     "parallelThreads", reviewConfig.getParallelThreads(),

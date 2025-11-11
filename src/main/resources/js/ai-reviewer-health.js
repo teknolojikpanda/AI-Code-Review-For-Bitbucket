@@ -165,6 +165,50 @@
         var cutoff = retention.cutoffEpochMs ? formatTimestamp(retention.cutoffEpochMs) : '—';
         $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
         renderCleanup(retention.schedule || {}, retention.recentRuns || [], null);
+        renderWorkerNodes(data.workerPoolNodes || []);
+    }
+
+    function renderWorkerNodes(nodes) {
+        nodes = nodes || [];
+        var table = $('#worker-nodes-table');
+        var tbody = table.find('tbody');
+        var empty = $('#worker-nodes-empty');
+        if (!nodes.length) {
+            table.hide();
+            empty.show();
+            $('#worker-nodes-updated').text('—');
+            return;
+        }
+        tbody.empty();
+        nodes.sort(function(a, b) {
+            return (b.capturedAt || 0) - (a.capturedAt || 0);
+        }).forEach(function(node) {
+            var label = (node.nodeName || node.nodeId || '—');
+            var suffix = '';
+            if (node.nodeId && node.nodeName && node.nodeName !== node.nodeId) {
+                suffix = ' (' + node.nodeId + ')';
+            } else if (!node.nodeName && node.nodeId) {
+                label = node.nodeId;
+            }
+            var staleBadge = node.stale ? '<span class="aui-lozenge aui-lozenge-subtle">STALE</span>' : '';
+            var utilization = node.utilization != null
+                ? Math.round(Math.max(0, Math.min(1, node.utilization)) * 100) + '%'
+                : '—';
+            var updated = node.capturedAt ? formatTimestamp(node.capturedAt) : '—';
+            var row = '<tr>' +
+                '<td>' + escapeHtml(label) + escapeHtml(suffix) + ' ' + staleBadge + '</td>' +
+                '<td>' + valueOrDash(node.configuredSize) + '</td>' +
+                '<td>' + valueOrDash(node.activeThreads) + '</td>' +
+                '<td>' + valueOrDash(node.queuedTasks) + '</td>' +
+                '<td>' + utilization + '</td>' +
+                '<td>' + updated + '</td>' +
+                '</tr>';
+            tbody.append(row);
+        });
+        var latest = nodes[0] && nodes[0].capturedAt ? formatTimestamp(nodes[0].capturedAt) : '—';
+        $('#worker-nodes-updated').text(latest);
+        empty.hide();
+        table.show();
     }
 
     function renderQueue(data) {

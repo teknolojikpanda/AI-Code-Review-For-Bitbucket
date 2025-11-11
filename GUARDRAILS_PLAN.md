@@ -23,9 +23,9 @@
 ### 3. Bounded Worker Pools & Async Execution
 [X] 1. Implement `ReviewWorkerPool` and route `executeWithRun` through it. _(All heavy review work now runs inside the dedicated worker pool.)_
 [X] 2. Ensure comment/diff/merge-check work impersonates the acting user while on worker threads. _(SecurityService impersonation wraps worker tasks.)_
-[ ] 3. Track pool utilization/queue depth metrics and expose them via `/metrics` + progress history so saturation is visible.
-[ ] 4. Add graceful degradation rules (e.g., temporarily cap `maxParallelChunks` when worker utilization > 90%) with operator overrides.
-[ ] 5. Provide an admin dashboard card that lists current worker pool stats per node for quick diagnosis.
+[X] 3. Track pool utilization/queue depth metrics and expose them via `/metrics` + progress history so saturation is visible. _(Worker snapshots are already surfaced through History REST + `/metrics` gauges like `ai.worker.activeThreads`/`ai.worker.queuedTasks`.)_
+[X] 4. Add graceful degradation rules (e.g., temporarily cap `maxParallelChunks` when worker utilization > 90%) with operator overrides. _(Worker degradation toggle now backs off `parallelThreads` based on live utilization/queue depth + emits telemetry/events.)_
+[X] 5. Provide an admin dashboard card that lists current worker pool stats per node for quick diagnosis. _(Worker heartbeat + Health UI table now surface node-level worker metrics + staleness indicators.)_
 [ ] 6. Implement adaptive scaling hints (recommend adding nodes / enabling auto-scale) when sustained utilization stays high.
 [ ] 7. Capture per-task execution timelines so we can identify slow operations (diff fetch, AI call, comment publish) within worker threads.
 
