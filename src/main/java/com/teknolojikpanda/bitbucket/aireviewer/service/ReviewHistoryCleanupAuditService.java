@@ -3,7 +3,6 @@ package com.teknolojikpanda.bitbucket.aireviewer.service;
 import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupAudit;
-import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupStatus;
 import net.java.ao.Query;
 
 import javax.inject.Inject;
