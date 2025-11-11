@@ -1,0 +1,349 @@
+package com.teknolojikpanda.bitbucket.aireviewer.service;
+
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController.QueueStats;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController.QueueStats.ScopeQueueStats;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot;
+import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot.BucketState;
+
+import javax.inject.Inject;
+import javax.inject.Named;
+import javax.inject.Singleton;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+/**
+ * Aggregates runtime telemetry for queue, worker, rate limiter, and retention guardrails.
+ */
+@Named
+@Singleton
+public class GuardrailsTelemetryService {
+
+    private static final int DURATION_SAMPLE_LIMIT = 200;
+
+    private final ReviewConcurrencyController concurrencyController;
+    private final ReviewWorkerPool workerPool;
+    private final ReviewRateLimiter rateLimiter;
+    private final ReviewHistoryService historyService;
+    private final ReviewHistoryCleanupStatusService cleanupStatusService;
+    private final ReviewSchedulerStateService schedulerStateService;
+
+    @Inject
+    public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
+                                      ReviewWorkerPool workerPool,
+                                      ReviewRateLimiter rateLimiter,
+                                      ReviewHistoryService historyService,
+                                      ReviewHistoryCleanupStatusService cleanupStatusService,
+                                      ReviewSchedulerStateService schedulerStateService) {
+        this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
+        this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
+        this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
+        this.historyService = Objects.requireNonNull(historyService, "historyService");
+        this.cleanupStatusService = Objects.requireNonNull(cleanupStatusService, "cleanupStatusService");
+        this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
+    }
+
+    /**
+     * Builds a snapshot that mirrors what the Health UI needs for quick diagnosis.
+     */
+    public Map<String, Object> collectRuntimeSnapshot() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        QueueStats queueStats = concurrencyController.snapshot();
+        payload.put("queue", queueSnapshotToMap(queueStats));
+        ReviewSchedulerStateService.SchedulerState schedulerState =
+                queueStats != null ? queueStats.getSchedulerState() : schedulerStateService.getState();
+        payload.put("schedulerState", schedulerStateToMap(schedulerState));
+        payload.put("workerPool", workerPoolStatsToMap(workerPool.snapshot()));
+        payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
+        payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
+        payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
+        payload.put("generatedAt", System.currentTimeMillis());
+        return payload;
+    }
+
+    /**
+     * Exports flattened metric points alongside the richer runtime snapshot for external monitoring.
+     */
+    public Map<String, Object> exportMetrics() {
+        Map<String, Object> runtime = collectRuntimeSnapshot();
+        Map<String, Object> export = new LinkedHashMap<>();
+        export.put("generatedAt", runtime.get("generatedAt"));
+        export.put("runtime", runtime);
+        export.put("metrics", collectMetricPoints(runtime));
+        return export;
+    }
+
+    private List<Map<String, Object>> collectMetricPoints(Map<String, Object> runtime) {
+        List<Map<String, Object>> metrics = new ArrayList<>();
+        Map<String, Object> queue = asMap(runtime.get("queue"));
+        Map<String, Object> worker = asMap(runtime.get("workerPool"));
+        Map<String, Object> limiter = asMap(runtime.get("rateLimiter"));
+        Map<String, Object> retention = asMap(runtime.get("retention"));
+        Map<String, Object> schedule = asMap(retention.get("schedule"));
+        Map<String, Object> schedulerState = asMap(runtime.get("schedulerState"));
+        Map<String, Object> durations = asMap(runtime.get("reviewDurations"));
+
+        Number maxConcurrent = toNumber(queue.get("maxConcurrent"));
+        Number active = toNumber(queue.get("active"));
+        if (maxConcurrent != null && active != null) {
+            addMetric(metrics, "ai.queue.availableSlots",
+                    Math.max(0, maxConcurrent.intValue() - active.intValue()),
+                    "count", "Available concurrent review slots");
+        }
+        addMetric(metrics, "ai.queue.active", queue.get("active"), "count", "Currently running AI reviews");
+        addMetric(metrics, "ai.queue.waiting", queue.get("waiting"), "count", "Queued AI reviews awaiting a slot");
+        addMetric(metrics, "ai.queue.maxConcurrent", queue.get("maxConcurrent"), "count", "Configured concurrent limit");
+        addMetric(metrics, "ai.queue.maxQueued", queue.get("maxQueued"), "count", "Total queued capacity");
+        addMetric(metrics, "ai.queue.repoScopeLimit", queue.get("maxQueuedPerRepo"), "count", "Max queued per repository");
+        addMetric(metrics, "ai.queue.projectScopeLimit", queue.get("maxQueuedPerProject"), "count", "Max queued per project");
+        addMetric(metrics, "ai.queue.repoPressureScopes", sizeOfList(queue.get("repoWaiters")), "count",
+                "Repositories currently hitting per-scope queue caps");
+        addMetric(metrics, "ai.queue.projectPressureScopes", sizeOfList(queue.get("projectWaiters")), "count",
+                "Projects currently hitting per-scope queue caps");
+
+        String mode = schedulerState.containsKey("mode") ? Objects.toString(schedulerState.get("mode"), "ACTIVE") : "ACTIVE";
+        addMetric(metrics, "ai.queue.scheduler.paused", "PAUSED".equalsIgnoreCase(mode) ? 1 : 0,
+                "flag", "1 indicates the scheduler is paused");
+
+        addMetric(metrics, "ai.worker.activeThreads", worker.get("activeThreads"), "count", "Active worker threads");
+        addMetric(metrics, "ai.worker.configuredSize", worker.get("configuredSize"), "count", "Configured worker pool size");
+        addMetric(metrics, "ai.worker.queuedTasks", worker.get("queuedTasks"), "count", "Pending worker tasks");
+
+        addMetric(metrics, "ai.rateLimiter.repoLimitPerHour", limiter.get("repoLimitPerHour"), "reviews/hour",
+                "Per-repository review budget");
+        addMetric(metrics, "ai.rateLimiter.projectLimitPerHour", limiter.get("projectLimitPerHour"), "reviews/hour",
+                "Per-project review budget");
+        addMetric(metrics, "ai.rateLimiter.trackedRepoBuckets", limiter.get("trackedRepoBuckets"), "count",
+                "Repositories tracked by the limiter");
+        addMetric(metrics, "ai.rateLimiter.trackedProjectBuckets", limiter.get("trackedProjectBuckets"), "count",
+                "Projects tracked by the limiter");
+
+        addMetric(metrics, "ai.retention.windowDays", retention.get("retentionDays"), "days",
+                "Retention window applied to AI review history");
+        addMetric(metrics, "ai.retention.totalEntries", retention.get("totalEntries"), "items",
+                "Total AI review history rows");
+        addMetric(metrics, "ai.retention.entriesOlderThanWindow", retention.get("entriesOlderThanRetention"), "items",
+                "History rows older than the retention window");
+
+        addMetric(metrics, "ai.retention.cleanup.enabled", schedule.get("enabled"), "flag",
+                "1 indicates automatic cleanup is enabled");
+        addMetric(metrics, "ai.retention.cleanup.intervalMinutes", schedule.get("intervalMinutes"), "minutes",
+                "Scheduled cleanup cadence");
+        addMetric(metrics, "ai.retention.cleanup.batchSize", schedule.get("batchSize"), "items",
+                "Maximum rows purged per cleanup run");
+        addMetric(metrics, "ai.retention.cleanup.lastDurationMs", schedule.get("lastDurationMs"), "ms",
+                "Duration of the last cleanup run");
+        addMetric(metrics, "ai.retention.cleanup.lastDeletedHistories", schedule.get("lastDeletedHistories"), "items",
+                "History rows deleted in the last cleanup run");
+        addMetric(metrics, "ai.retention.cleanup.lastDeletedChunks", schedule.get("lastDeletedChunks"), "items",
+                "Chunk rows deleted in the last cleanup run");
+
+        Long lastRun = toLong(schedule.get("lastRun"));
+        if (lastRun != null && lastRun > 0) {
+            long ageSeconds = Math.max(0, (System.currentTimeMillis() - lastRun) / 1000);
+            addMetric(metrics, "ai.retention.cleanup.lastRunAgeSeconds", ageSeconds, "seconds",
+                    "Seconds since the last cleanup completed");
+        }
+        if (schedule.containsKey("lastError") && schedule.get("lastError") != null) {
+            addMetric(metrics, "ai.retention.cleanup.lastErrorFlag", 1, "flag",
+                    "1 indicates the last cleanup attempt failed");
+        } else {
+            addMetric(metrics, "ai.retention.cleanup.lastErrorFlag", 0, "flag",
+                    "1 indicates the last cleanup attempt failed");
+        }
+
+        addMetric(metrics, "ai.review.duration.samples", durations.get("samples"), "samples",
+                "Recent review duration samples captured for ETA calculations");
+
+        return metrics;
+    }
+
+    private Map<String, Object> queueSnapshotToMap(QueueStats stats) {
+        if (stats == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("maxConcurrent", stats.getMaxConcurrent());
+        map.put("maxQueued", stats.getMaxQueued());
+        map.put("active", stats.getActive());
+        map.put("waiting", stats.getWaiting());
+        map.put("capturedAt", stats.getCapturedAt());
+        map.put("maxQueuedPerRepo", stats.getMaxQueuedPerRepo());
+        map.put("maxQueuedPerProject", stats.getMaxQueuedPerProject());
+        map.put("repoWaiters", scopeStatsToList(stats.getTopRepoWaiters()));
+        map.put("projectWaiters", scopeStatsToList(stats.getTopProjectWaiters()));
+        return map;
+    }
+
+    private Map<String, Object> workerPoolStatsToMap(ReviewWorkerPool.WorkerPoolSnapshot snapshot) {
+        if (snapshot == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("configuredSize", snapshot.getConfiguredSize());
+        map.put("activeThreads", snapshot.getActiveThreads());
+        map.put("queuedTasks", snapshot.getQueuedTasks());
+        map.put("currentPoolSize", snapshot.getCurrentPoolSize());
+        map.put("largestPoolSize", snapshot.getLargestPoolSize());
+        map.put("totalTasks", snapshot.getTotalTasks());
+        map.put("completedTasks", snapshot.getCompletedTasks());
+        map.put("capturedAt", snapshot.getCapturedAt());
+        return map;
+    }
+
+    private Map<String, Object> rateLimitStatsToMap(RateLimitSnapshot snapshot) {
+        if (snapshot == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("repoLimitPerHour", snapshot.getRepoLimit());
+        map.put("projectLimitPerHour", snapshot.getProjectLimit());
+        map.put("trackedRepoBuckets", snapshot.getTrackedRepoBuckets());
+        map.put("trackedProjectBuckets", snapshot.getTrackedProjectBuckets());
+        map.put("capturedAt", snapshot.getCapturedAt());
+        map.put("topRepoBuckets", bucketStatesToList(snapshot.getTopRepoBuckets()));
+        map.put("topProjectBuckets", bucketStatesToList(snapshot.getTopProjectBuckets()));
+        return map;
+    }
+
+    private Map<String, Object> retentionToMap(ReviewHistoryCleanupStatusService.Status status) {
+        Map<String, Object> map = new LinkedHashMap<>(historyService.getRetentionStats(status.getRetentionDays()));
+        map.put("schedule", cleanupStatusToMap(status));
+        return map;
+    }
+
+    private Map<String, Object> durationStatsToMap(ReviewHistoryService.DurationStats stats) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("samples", stats.getSamples());
+        Map<String, Object> averages = new LinkedHashMap<>();
+        averages.put("globalMs", stats.estimate(null, null, 0));
+        map.put("averages", averages);
+        return map;
+    }
+
+    private Map<String, Object> cleanupStatusToMap(ReviewHistoryCleanupStatusService.Status status) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("enabled", status.isEnabled());
+        map.put("retentionDays", status.getRetentionDays());
+        map.put("batchSize", status.getBatchSize());
+        map.put("intervalMinutes", status.getIntervalMinutes());
+        map.put("lastRun", status.getLastRun());
+        map.put("lastDurationMs", status.getLastDurationMs());
+        map.put("lastDeletedHistories", status.getLastDeletedHistories());
+        map.put("lastDeletedChunks", status.getLastDeletedChunks());
+        map.put("lastError", status.getLastError());
+        return map;
+    }
+
+    private Map<String, Object> schedulerStateToMap(ReviewSchedulerStateService.SchedulerState state) {
+        if (state == null) {
+            return Collections.emptyMap();
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("mode", state.getMode().name());
+        map.put("reason", state.getReason());
+        map.put("updatedBy", state.getUpdatedBy());
+        map.put("updatedByDisplayName", state.getUpdatedByDisplayName());
+        map.put("updatedAt", state.getUpdatedAt());
+        return map;
+    }
+
+    private List<Map<String, Object>> scopeStatsToList(List<ScopeQueueStats> stats) {
+        if (stats == null || stats.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (ScopeQueueStats scope : stats) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", scope.getScope());
+            map.put("waiting", scope.getWaiting());
+            map.put("limit", scope.getLimit());
+            list.add(map);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> bucketStatesToList(Map<String, BucketState> states) {
+        if (states == null || states.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>();
+        states.forEach((scope, state) -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", scope);
+            map.put("consumed", state.getConsumed());
+            map.put("limit", state.getLimit());
+            map.put("remaining", state.getRemaining());
+            map.put("resetInMs", state.getResetInMs());
+            list.add(map);
+        });
+        return list;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        if (value instanceof Map) {
+            return (Map<String, Object>) value;
+        }
+        return Collections.emptyMap();
+    }
+
+    private void addMetric(List<Map<String, Object>> metrics,
+                           String name,
+                           Object rawValue,
+                           String unit,
+                           String description) {
+        Number number = toNumber(rawValue);
+        if (number == null) {
+            return;
+        }
+        Map<String, Object> metric = new LinkedHashMap<>();
+        metric.put("name", name);
+        metric.put("value", number);
+        if (unit != null) {
+            metric.put("unit", unit);
+        }
+        if (description != null) {
+            metric.put("description", description);
+        }
+        metrics.add(metric);
+    }
+
+    private Number toNumber(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return (Number) value;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value ? 1 : 0;
+        }
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private Long toLong(Object value) {
+        Number number = toNumber(value);
+        if (number == null) {
+            return null;
+        }
+        return number.longValue();
+    }
+
+    private int sizeOfList(Object value) {
+        if (value instanceof List) {
+            return ((List<?>) value).size();
+        }
+        return 0;
+    }
+}

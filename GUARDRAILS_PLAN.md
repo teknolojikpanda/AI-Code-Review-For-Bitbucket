@@ -78,6 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Export the new retention + queue telemetry through `/metrics` and document operator runbooks for the controls (Sections 6.1–6.4 & 8.5).
-> 2. Persist cleanup/audit history (last runs, actors, errors) and surface it beside the manual trigger controls (Sections 7.4–7.5 & 5.4).
-> 3. Kick off the alerting/rollout automation tracks (Sections 8.6–8.9) once the expanded metrics feed is live.
+> 1. Persist cleanup/audit history (last runs, actors, errors) and surface it beside the manual trigger controls (Sections 7.4–7.5 & 5.4).
+> 2. Kick off the alerting/rollout automation tracks (Sections 8.6–8.9) now that the `/metrics` export and operator runbook are in place.

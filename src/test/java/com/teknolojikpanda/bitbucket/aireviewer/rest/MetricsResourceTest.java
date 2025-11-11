@@ -18,11 +18,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-public class MonitoringResourceTest {
+public class MetricsResourceTest {
 
     private UserManager userManager;
     private GuardrailsTelemetryService telemetryService;
-    private MonitoringResource resource;
+    private MetricsResource resource;
     private HttpServletRequest request;
     private UserProfile profile;
 
@@ -30,48 +30,49 @@ public class MonitoringResourceTest {
     public void setUp() {
         userManager = mock(UserManager.class);
         telemetryService = mock(GuardrailsTelemetryService.class);
+        resource = new MetricsResource(userManager, telemetryService);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
-        resource = new MonitoringResource(userManager, telemetryService);
     }
 
     @Test
-    public void getRuntimeRequiresAuthentication() {
+    public void exportRequiresAuthentication() {
         when(userManager.getRemoteUser(request)).thenReturn(null);
 
-        Response response = resource.getRuntime(request);
+        Response response = resource.exportMetrics(request);
 
         assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
         verifyNoInteractions(telemetryService);
     }
 
     @Test
-    public void getRuntimeRequiresAdmin() {
+    public void exportRequiresAdmin() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
-        UserKey key = new UserKey("admin");
+        UserKey key = new UserKey("user");
         when(profile.getUserKey()).thenReturn(key);
         when(userManager.isSystemAdmin(key)).thenReturn(false);
 
-        Response response = resource.getRuntime(request);
+        Response response = resource.exportMetrics(request);
 
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
         verifyNoInteractions(telemetryService);
     }
 
     @Test
-    public void getRuntimeReturnsTelemetry() {
+    public void exportReturnsMetrics() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         UserKey key = new UserKey("admin");
         when(profile.getUserKey()).thenReturn(key);
         when(userManager.isSystemAdmin(key)).thenReturn(true);
-        Map<String, Object> snapshot = Collections.singletonMap("queue", Collections.singletonMap("active", 1));
-        when(telemetryService.collectRuntimeSnapshot()).thenReturn(snapshot);
+        Map<String, Object> export = Collections.singletonMap("metrics", Collections.emptyList());
+        when(telemetryService.exportMetrics()).thenReturn(export);
 
-        Response response = resource.getRuntime(request);
+        Response response = resource.exportMetrics(request);
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
-        assertSame(snapshot, payload);
+        assertEquals("admin", payload.get("requestedBy"));
+        assertSame(export.get("metrics"), payload.get("metrics"));
     }
 }

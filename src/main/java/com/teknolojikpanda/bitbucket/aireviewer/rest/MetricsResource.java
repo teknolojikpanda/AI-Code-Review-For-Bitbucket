@@ -20,29 +20,29 @@ import java.util.Objects;
 import static javax.ws.rs.core.Response.Status.FORBIDDEN;
 import static javax.ws.rs.core.Response.Status.UNAUTHORIZED;
 
-@Path("/monitoring")
+@Path("/metrics")
 @Produces(MediaType.APPLICATION_JSON)
 @Named
-public class MonitoringResource {
+public class MetricsResource {
 
     private final UserManager userManager;
     private final GuardrailsTelemetryService telemetryService;
 
     @Inject
-    public MonitoringResource(@ComponentImport UserManager userManager,
-                              GuardrailsTelemetryService telemetryService) {
+    public MetricsResource(@ComponentImport UserManager userManager,
+                           GuardrailsTelemetryService telemetryService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.telemetryService = Objects.requireNonNull(telemetryService, "telemetryService");
     }
 
     @GET
-    @Path("/runtime")
-    public Response getRuntime(@Context HttpServletRequest request) {
+    public Response exportMetrics(@Context HttpServletRequest request) {
         Access access = requireSystemAdmin(request);
         if (!access.allowed) {
             return access.response;
         }
-        Map<String, Object> payload = telemetryService.collectRuntimeSnapshot();
+        Map<String, Object> payload = new java.util.LinkedHashMap<>(telemetryService.exportMetrics());
+        payload.put("requestedBy", access.profile.getUserKey().getStringValue());
         return Response.ok(payload).build();
     }
 
