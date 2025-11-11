@@ -24,6 +24,7 @@ public class GuardrailsTelemetryServiceTest {
     private ReviewHistoryCleanupStatusService cleanupStatusService;
     private ReviewHistoryCleanupAuditService cleanupAuditService;
     private ReviewSchedulerStateService schedulerStateService;
+    private GuardrailsAlertDeliveryService deliveryService;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -35,6 +36,7 @@ public class GuardrailsTelemetryServiceTest {
         cleanupStatusService = mock(ReviewHistoryCleanupStatusService.class);
         cleanupAuditService = mock(ReviewHistoryCleanupAuditService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
+        deliveryService = mock(GuardrailsAlertDeliveryService.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -69,6 +71,9 @@ public class GuardrailsTelemetryServiceTest {
                 Map.of("runTimestamp", System.currentTimeMillis(), "success", true)));
         when(schedulerStateService.getState()).thenReturn(schedulerState);
 
+        when(deliveryService.aggregateRecentDeliveries(anyInt())).thenReturn(
+                new GuardrailsAlertDeliveryService.Aggregates(10, 9, 1, 2, 0.1));
+
         telemetryService = new GuardrailsTelemetryService(
                 concurrencyController,
                 workerPool,
@@ -76,7 +81,8 @@ public class GuardrailsTelemetryServiceTest {
                 historyService,
                 cleanupStatusService,
                 cleanupAuditService,
-                schedulerStateService);
+                schedulerStateService,
+                deliveryService);
     }
 
     @Test

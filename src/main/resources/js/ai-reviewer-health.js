@@ -127,6 +127,7 @@
             dataType: 'json'
         }).done(function(resp) {
             renderDeliveries(resp || {});
+            renderDeliveryMetrics(resp && resp.aggregates);
             setDeliveriesMessage();
         }).fail(function(xhr) {
             setDeliveriesMessage('error', describeError(xhr, 'Failed to load alert deliveries'));
@@ -601,6 +602,20 @@
         $table.find('tbody').html(rows);
         $empty.hide();
         $table.show();
+    }
+
+    function renderDeliveryMetrics(aggregates) {
+        aggregates = aggregates || {};
+        $('#delivery-metrics-updated').text(new Date().toLocaleString());
+        $('#delivery-metrics-samples').text(valueOrDash(aggregates.samples));
+        $('#delivery-metrics-failures').text(valueOrDash(aggregates.failures));
+        if (aggregates.failureRate != null) {
+            var percent = Math.round(aggregates.failureRate * 1000) / 10;
+            $('#delivery-metrics-rate').text(percent + '%');
+        } else {
+            $('#delivery-metrics-rate').text('—');
+        }
+        $('#delivery-metrics-tests').text(valueOrDash(aggregates.tests));
     }
 
     function changeRolloutState(mode) {

@@ -31,6 +31,7 @@ public class GuardrailsTelemetryService {
     private final ReviewHistoryCleanupStatusService cleanupStatusService;
     private final ReviewSchedulerStateService schedulerStateService;
     private final ReviewHistoryCleanupAuditService cleanupAuditService;
+    private final GuardrailsAlertDeliveryService deliveryService;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -39,7 +40,8 @@ public class GuardrailsTelemetryService {
                                       ReviewHistoryService historyService,
                                       ReviewHistoryCleanupStatusService cleanupStatusService,
                                       ReviewHistoryCleanupAuditService cleanupAuditService,
-                                      ReviewSchedulerStateService schedulerStateService) {
+                                      ReviewSchedulerStateService schedulerStateService,
+                                      GuardrailsAlertDeliveryService deliveryService) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -47,6 +49,7 @@ public class GuardrailsTelemetryService {
         this.cleanupStatusService = Objects.requireNonNull(cleanupStatusService, "cleanupStatusService");
         this.cleanupAuditService = Objects.requireNonNull(cleanupAuditService, "cleanupAuditService");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
+        this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
     }
 
     /**
@@ -88,6 +91,7 @@ public class GuardrailsTelemetryService {
         Map<String, Object> schedule = asMap(retention.get("schedule"));
         Map<String, Object> schedulerState = asMap(runtime.get("schedulerState"));
         Map<String, Object> durations = asMap(runtime.get("reviewDurations"));
+        GuardrailsAlertDeliveryService.Aggregates deliveryAgg = deliveryService.aggregateRecentDeliveries(200);
 
         Number maxConcurrent = toNumber(queue.get("maxConcurrent"));
         Number active = toNumber(queue.get("active"));
@@ -160,6 +164,12 @@ public class GuardrailsTelemetryService {
 
         addMetric(metrics, "ai.review.duration.samples", durations.get("samples"), "samples",
                 "Recent review duration samples captured for ETA calculations");
+        addMetric(metrics, "ai.alerts.deliveries.samples", deliveryAgg.getSamples(), "deliveries",
+                "Deliveries sampled for guardrails webhook monitoring");
+        addMetric(metrics, "ai.alerts.deliveries.failures", deliveryAgg.getFailures(), "deliveries",
+                "Failed deliveries in recent sample");
+        addMetric(metrics, "ai.alerts.deliveries.failureRate", deliveryAgg.getFailureRate(), "ratio",
+                "Fraction of failed deliveries in recent sample");
 
         return metrics;
     }

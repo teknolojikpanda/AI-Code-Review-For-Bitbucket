@@ -107,7 +107,7 @@ public class AutomationResource {
     @Path("/channels")
     public Response listChannels(@Context HttpServletRequest request,
                                  @QueryParam("limit") Integer limitParam,
-                                 @QueryParam("offset") Integer offsetParam) {
+                                  @QueryParam("offset") Integer offsetParam) {
         Access access = requireSystemAdmin(request);
         if (!access.allowed) {
             return access.response;
@@ -120,6 +120,7 @@ public class AutomationResource {
         payload.put("total", page.getTotal());
         payload.put("limit", page.getLimit());
         payload.put("offset", page.getOffset());
+        payload.put("aggregates", deliveryService.aggregateRecentDeliveries(200));
         return Response.ok(payload).build();
     }
 

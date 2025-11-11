@@ -68,6 +68,35 @@ public class GuardrailsAlertDeliveryService {
         });
     }
 
+    public Aggregates aggregateRecentDeliveries(int limit) {
+        final int safeLimit = Math.min(Math.max(limit, 1), 500);
+        return ao.executeInTransaction(() -> {
+            GuardrailsAlertDelivery[] rows = ao.find(GuardrailsAlertDelivery.class,
+                    net.java.ao.Query.select()
+                            .order("DELIVERED_AT DESC, ID DESC")
+                            .limit(safeLimit));
+            if (rows.length == 0) {
+                return Aggregates.empty();
+            }
+            int total = rows.length;
+            int success = 0;
+            int failures = 0;
+            int tests = 0;
+            for (GuardrailsAlertDelivery row : rows) {
+                if (row.isTest()) {
+                    tests++;
+                }
+                if (row.isSuccess()) {
+                    success++;
+                } else {
+                    failures++;
+                }
+            }
+            double failureRate = total == 0 ? 0d : (double) failures / (double) total;
+            return new Aggregates(total, success, failures, tests, failureRate);
+        });
+    }
+
     public Delivery acknowledge(int id, String userKey, String displayName, @Nullable String note) {
         return ao.executeInTransaction(() -> {
             GuardrailsAlertDelivery entity = ao.get(GuardrailsAlertDelivery.class, id);
@@ -260,6 +289,50 @@ public class GuardrailsAlertDeliveryService {
 
         public String getAckNote() {
             return ackNote;
+        }
+    }
+
+    public static final class Aggregates {
+        private final int samples;
+        private final int successes;
+        private final int failures;
+        private final int tests;
+        private final double failureRate;
+
+        Aggregates(int samples,
+                   int successes,
+                   int failures,
+                   int tests,
+                   double failureRate) {
+            this.samples = samples;
+            this.successes = successes;
+            this.failures = failures;
+            this.tests = tests;
+            this.failureRate = failureRate;
+        }
+
+        public int getSamples() {
+            return samples;
+        }
+
+        public int getSuccesses() {
+            return successes;
+        }
+
+        public int getFailures() {
+            return failures;
+        }
+
+        public int getTests() {
+            return tests;
+        }
+
+        public double getFailureRate() {
+            return failureRate;
+        }
+
+        public static Aggregates empty() {
+            return new Aggregates(0, 0, 0, 0, 0d);
         }
     }
 }

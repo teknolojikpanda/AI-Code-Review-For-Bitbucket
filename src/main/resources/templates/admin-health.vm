@@ -61,6 +61,33 @@
                     </div>
                 </section>
 
+                <section class="automation-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Webhook Metrics</h2>
+                        <span id="delivery-metrics-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="delivery-metrics">
+                        <div class="health-grid">
+                            <div class="health-card">
+                                <span class="health-label">Sample Size</span>
+                                <span class="health-value" id="delivery-metrics-samples">—</span>
+                            </div>
+                            <div class="health-card">
+                                <span class="health-label">Failures</span>
+                                <span class="health-value" id="delivery-metrics-failures">—</span>
+                            </div>
+                            <div class="health-card">
+                                <span class="health-label">Failure Rate</span>
+                                <span class="health-value" id="delivery-metrics-rate">—</span>
+                            </div>
+                            <div class="health-card">
+                                <span class="health-label">Test Deliveries</span>
+                                <span class="health-value" id="delivery-metrics-tests">—</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <section class="queue-section" style="margin-top: 24px;">
                     <header class="queue-header">
                         <h2>Review Queue</h2>
