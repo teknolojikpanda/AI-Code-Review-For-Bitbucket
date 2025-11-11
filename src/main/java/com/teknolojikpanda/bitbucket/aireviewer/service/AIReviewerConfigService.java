@@ -4,6 +4,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -196,6 +197,14 @@ public interface AIReviewerConfigService {
      * @return override limit applied to repo-level priority auto-snoozes.
      */
     int getPriorityRepoRateLimitPerHour();
+
+    int getRepoRateLimitAlertPercent();
+
+    int getProjectRateLimitAlertPercent();
+
+    int resolveRepoRateLimitAlertPercent(@Nullable String repositorySlug);
+
+    int resolveProjectRateLimitAlertPercent(@Nullable String projectKey);
 
     /**
      * Immutable value object representing a page of repository catalogue entries.

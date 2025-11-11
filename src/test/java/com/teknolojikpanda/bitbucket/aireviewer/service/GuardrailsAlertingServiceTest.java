@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -17,13 +18,15 @@ public class GuardrailsAlertingServiceTest {
 
     private GuardrailsTelemetryService telemetryService;
     private GuardrailsAlertChannelService channelService;
+    private AIReviewerConfigService configService;
     private GuardrailsAlertingService alertingService;
 
     @Before
     public void setUp() {
         telemetryService = mock(GuardrailsTelemetryService.class);
         channelService = mock(GuardrailsAlertChannelService.class);
-        alertingService = new GuardrailsAlertingService(telemetryService, channelService);
+        configService = mock(AIReviewerConfigService.class);
+        alertingService = new GuardrailsAlertingService(telemetryService, channelService, configService);
     }
 
     @Test
@@ -40,7 +43,8 @@ public class GuardrailsAlertingServiceTest {
                                 "lastRun", System.currentTimeMillis()
                         ),
                         "recentRuns", Collections.emptyList()
-                )
+                ),
+                "rateLimiter", Collections.emptyMap()
         );
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
@@ -61,7 +65,8 @@ public class GuardrailsAlertingServiceTest {
                                 "lastRun", System.currentTimeMillis() - (48 * 60 * 60 * 1000L)
                         ),
                         "recentRuns", Collections.emptyList()
-                )
+                ),
+                "rateLimiter", Collections.emptyMap()
         );
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
@@ -87,6 +92,7 @@ public class GuardrailsAlertingServiceTest {
                 "waiting", 0
         ));
         runtime.put("retention", retention);
+        runtime.put("rateLimiter", Collections.emptyMap());
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
         GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAlerts();
@@ -99,7 +105,8 @@ public class GuardrailsAlertingServiceTest {
         Map<String, Object> runtime = Map.of(
                 "queue", Map.of("maxConcurrent", 1, "active", 1, "waiting", 1),
                 "retention", Map.of("schedule", Map.of("enabled", true, "lastRun", System.currentTimeMillis()),
-                        "recentRuns", Collections.emptyList())
+                        "recentRuns", Collections.emptyList()),
+                "rateLimiter", Collections.emptyMap()
         );
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
@@ -107,5 +114,30 @@ public class GuardrailsAlertingServiceTest {
 
         assertFalse(snapshot.getAlerts().isEmpty());
         verify(channelService).notifyChannels(snapshot);
+    }
+
+    @Test
+    public void repoRateLimiterAlertTriggeredWhenThresholdExceeded() {
+        Map<String, Object> rateLimiter = Map.of(
+                "topRepoBuckets", List.of(
+                        Map.of(
+                                "scope", "repo-one",
+                                "consumed", 9,
+                                "limit", 10,
+                                "remaining", 1,
+                                "resetInMs", 600000L
+                        )
+                ),
+                "topProjectBuckets", Collections.emptyList()
+        );
+        when(configService.resolveRepoRateLimitAlertPercent(eq("repo-one"))).thenReturn(80);
+
+        List<Map<String, Object>> alerts = new java.util.ArrayList<>();
+        alertingService.evaluateRateLimiterAlerts(rateLimiter, alerts);
+
+        org.mockito.Mockito.verify(configService).resolveRepoRateLimitAlertPercent("repo-one");
+
+        assertTrue(alerts.stream()
+                .anyMatch(alert -> alert.get("summary").toString().contains("Repository rate limit")));
     }
 }

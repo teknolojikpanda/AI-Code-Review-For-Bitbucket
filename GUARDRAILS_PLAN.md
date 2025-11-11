@@ -17,7 +17,7 @@
 [X] 4. Provide global + per-repo admin controls to temporarily raise/lower limits and display recent throttle incidents directly on the configuration screen. _(Overrides + incidents surfaced via `/rest/ai-reviewer/1.0/config/limiter` and Config UI payload.)_
 [X] 5. Emit per-repo limiter metrics (recent throttle rate, refill ETA, tokens remaining) into progress snapshots and `/metrics` so teams can self-diagnose. _(Bucket states now include remaining tokens/reset ETA + metrics emit per-scope samples.)_
 [X] 6. Add auto-snooze/resume logic that can temporarily relax limits for high-priority repos (merge-critical) while logging the override for auditability. _(Priority scope lists now drive AO-backed auto-snooze overrides + audit trails.)_
-[ ] 7. Introduce alert thresholds per repo/project so stakeholders get notified before throttling becomes blocking.
+[X] 7. Introduce alert thresholds per repo/project so stakeholders get notified before throttling becomes blocking. _(Configurable percent floors + per-scope overrides now raise rate-limiter alerts before 100% consumption.)_
 [ ] 8. Allow “burst credits” that can be granted programmatically (e.g., via REST) for CI spikes, with automatic expiration and audit entries.
 
 ### 3. Bounded Worker Pools & Async Execution
@@ -78,6 +78,6 @@
 [ ] 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Land Section 2.6 auto-snooze/resume overrides (with audit trails) so high-priority repos can burst safely without manual config edits.
-> 2. Implement per-repo limiter alert thresholds + outbound notifications (Sections 2.7 & 6.5) to warn operators before throttling blocks merges.
-> 3. Add burst-credit REST/CLI workflows (Section 2.8) and update the operator runbook with the new limiter override procedures.
+> 1. Ship Section 2.8 burst-credit REST/CLI workflows so CI spikes can borrow tokens on demand (plus audit + expiry).
+> 2. Wire the new limiter warnings into outbound alert channels/CLI helpers (Sections 6.5/8.5) so ops teams can subscribe/automate responses.
+> 3. Extend the runbook + config UI with guidance on alert tuning and burst-credit playbooks.

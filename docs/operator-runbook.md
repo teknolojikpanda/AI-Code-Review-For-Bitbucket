@@ -92,6 +92,7 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 * **Revoking overrides:** `DELETE /rest/ai-reviewer/1.0/config/limiter/overrides/{id}` removes the entry (use the `overrides` list to discover IDs). 404 is returned if the override already expired/was deleted.
 * **Investigating throttles:** The `incidents` list (also exposed via the Config payload) shows the last 40 throttle events. Pair these with `/metrics` (`ai.rateLimiter.repo|project.*`) to decide whether to grant burst credits or adjust defaults.
 * **Auto-snooze:** Populate `priorityProjects` (comma-separated project keys) and/or `priorityRepositories` (`PROJECT/repo`) via `/rest/ai-reviewer/1.0/config`. Listed scopes automatically receive temporary overrides using `priorityRateLimitSnoozeMinutes`, `priorityRepoRateLimitPerHour`, and `priorityProjectRateLimitPerHour`. Each burst is persisted as an override (actor `Guardrails Auto-Snooze`) so operators can audit when high-priority repos were given extra throughput.
+* **Alert thresholds:** `repoRateLimitAlertPercent` and `projectRateLimitAlertPercent` define the global percentage (of hourly budget consumed) that triggers a warning before hard throttling kicks in. Use `repoRateLimitAlertOverrides` or `projectRateLimitAlertOverrides` to specify custom percentages (e.g., `core-service=70,shared-lib=60`). Alerts list the scope, usage, and reset ETA so responders can preemptively grant burst credits or raise limits.
 
 ## 5. Alert Integration Checklist
 

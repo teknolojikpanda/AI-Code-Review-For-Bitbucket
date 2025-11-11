@@ -7,8 +7,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Evaluates guardrail telemetry and emits human-readable alerts that can be surfaced via REST/UI or external monitoring.
@@ -20,12 +22,15 @@ public class GuardrailsAlertingService {
     private static final long CLEANUP_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000L; // 24 hours
     private final GuardrailsTelemetryService telemetryService;
     private final GuardrailsAlertChannelService channelService;
+    private final AIReviewerConfigService configService;
 
     @Inject
     public GuardrailsAlertingService(GuardrailsTelemetryService telemetryService,
-                                     GuardrailsAlertChannelService channelService) {
+                                     GuardrailsAlertChannelService channelService,
+                                     AIReviewerConfigService configService) {
         this.telemetryService = Objects.requireNonNull(telemetryService, "telemetryService");
         this.channelService = Objects.requireNonNull(channelService, "channelService");
+        this.configService = Objects.requireNonNull(configService, "configService");
     }
 
     public AlertSnapshot evaluateAlerts() {
@@ -42,6 +47,8 @@ public class GuardrailsAlertingService {
 
         evaluateQueueAlerts(queue, alerts);
         evaluateRetentionAlerts(schedule, recentRuns, alerts);
+        Map<String, Object> rateLimiter = asMap(runtime.get("rateLimiter"));
+        evaluateRateLimiterAlerts(rateLimiter, alerts);
 
         return new AlertSnapshot(System.currentTimeMillis(), runtime, alerts);
     }
@@ -134,6 +141,95 @@ public class GuardrailsAlertingService {
         }
     }
 
+    void evaluateRateLimiterAlerts(Map<String, Object> rateLimiter,
+                                   List<Map<String, Object>> alerts) {
+        if (rateLimiter.isEmpty()) {
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> repoBuckets = asList(rateLimiter.get("topRepoBuckets"));
+        evaluateRateLimiterBuckets(repoBuckets, true, alerts);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> projectBuckets = asList(rateLimiter.get("topProjectBuckets"));
+        evaluateRateLimiterBuckets(projectBuckets, false, alerts);
+    }
+
+    void evaluateRateLimiterBuckets(List<Map<String, Object>> buckets,
+                                    boolean repository,
+                                    List<Map<String, Object>> alerts) {
+        if (buckets == null || buckets.isEmpty()) {
+            return;
+        }
+        int inspected = 0;
+        for (Map<String, Object> bucket : buckets) {
+            if (inspected++ >= 5) {
+                break;
+            }
+            String scope = Objects.toString(bucket.get("scope"), null);
+            Number limit = toNumber(bucket.get("limit"));
+            Number consumed = toNumber(bucket.get("consumed"));
+            if (scope == null || limit == null || limit.doubleValue() <= 0 || consumed == null) {
+                continue;
+            }
+            int threshold = repository
+                    ? configService.resolveRepoRateLimitAlertPercent(scope)
+                    : configService.resolveProjectRateLimitAlertPercent(scope);
+            if (threshold <= 0) {
+                continue;
+            }
+            double usagePercent = (consumed.doubleValue() / limit.doubleValue()) * 100d;
+            if (usagePercent < threshold) {
+                continue;
+            }
+            Number remaining = toNumber(bucket.get("remaining"));
+            Number resetInMs = toNumber(bucket.get("resetInMs"));
+            String summary = repository
+                    ? "Repository rate limit nearing capacity"
+                    : "Project rate limit nearing capacity";
+            StringBuilder detail = new StringBuilder();
+            detail.append(scopeLabel(scope, repository))
+                    .append(" has consumed ")
+                    .append(Math.round(usagePercent))
+                    .append("% (")
+                    .append(consumed.intValue())
+                    .append("/")
+                    .append(limit.intValue())
+                    .append(") of its hourly budget");
+            if (remaining != null) {
+                detail.append(", ").append(Math.max(0, remaining.intValue())).append(" tokens remaining");
+            }
+            detail.append(".");
+            if (resetInMs != null) {
+                detail.append(" Resets in ").append(formatDuration(resetInMs.longValue())).append(".");
+            }
+            String recommendation = repository
+                    ? "Grant burst credits or raise the repository rate limit if this is expected."
+                    : "Consider increasing the project rate limit or staggering AI requests.";
+            alerts.add(alert("warning", summary, detail.toString(), recommendation));
+        }
+    }
+
+    private String scopeLabel(String scope, boolean repository) {
+        if (scope == null || scope.isEmpty()) {
+            return repository ? "Repository" : "Project";
+        }
+        return repository
+                ? "Repository '" + scope + "'"
+                : "Project '" + scope.toUpperCase(Locale.ROOT) + "'";
+    }
+
+    private String formatDuration(long millis) {
+        if (millis <= 0) {
+            return "seconds";
+        }
+        long minutes = TimeUnit.MILLISECONDS.toMinutes(millis);
+        if (minutes >= 1) {
+            return minutes + "m";
+        }
+        long seconds = Math.max(1, TimeUnit.MILLISECONDS.toSeconds(millis));
+        return seconds + "s";
+    }
+
     private boolean isOlderThanThreshold(long lastRun) {
         return System.currentTimeMillis() - lastRun > CLEANUP_STALE_THRESHOLD_MS;
     }
@@ -170,6 +266,14 @@ public class GuardrailsAlertingService {
             return map;
         }
         return Collections.emptyMap();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asList(Object value) {
+        if (value instanceof List) {
+            return (List<Map<String, Object>>) value;
+        }
+        return Collections.emptyList();
     }
 
     private Number toNumber(Object value) {

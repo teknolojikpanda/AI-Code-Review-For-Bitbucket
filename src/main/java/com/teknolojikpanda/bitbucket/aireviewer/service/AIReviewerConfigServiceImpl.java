@@ -85,6 +85,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "priorityRateLimitSnoozeMinutes",
             "priorityRepoRateLimitPerHour",
             "priorityProjectRateLimitPerHour",
+            "repoRateLimitAlertPercent",
+            "projectRateLimitAlertPercent",
             "connectTimeout",
             "readTimeout",
             "ollamaTimeout",
@@ -149,8 +151,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final boolean DEFAULT_AUTO_APPROVE = false;
     private static final String DEFAULT_PRIORITY_PROJECTS = "";
     private static final String DEFAULT_PRIORITY_REPOSITORIES = "";
+    private static final int DEFAULT_REPO_ALERT_PERCENT = 80;
+    private static final int DEFAULT_PROJECT_ALERT_PERCENT = 80;
+    private static final String DEFAULT_REPO_ALERT_OVERRIDES = "";
+    private static final String DEFAULT_PROJECT_ALERT_OVERRIDES = "";
     private static final Pattern PRIORITY_PROJECT_PATTERN = Pattern.compile("^[A-Za-z0-9_\\-]+$");
     private static final Pattern PRIORITY_REPO_PATTERN = Pattern.compile("^[A-Za-z0-9_\\-]+/[A-Za-z0-9._\\-]+$");
+    private static final Pattern REPO_SLUG_PATTERN = Pattern.compile("^[A-Za-z0-9._\\-]+$");
 
     static {
         LinkedHashSet<String> keys = new LinkedHashSet<>(Arrays.asList(
@@ -173,6 +180,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "priorityRateLimitSnoozeMinutes",
                 "priorityRepoRateLimitPerHour",
                 "priorityProjectRateLimitPerHour",
+                "repoRateLimitAlertPercent",
+                "projectRateLimitAlertPercent",
+                "repoRateLimitAlertOverrides",
+                "projectRateLimitAlertOverrides",
                 "connectTimeout",
                 "readTimeout",
                 "ollamaTimeout",
@@ -328,6 +339,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "priorityRateLimitSnoozeMinutes", 1, 1440, errors);
         validateIntegerRange(configMap, "priorityRepoRateLimitPerHour", 0, 2000, errors);
         validateIntegerRange(configMap, "priorityProjectRateLimitPerHour", 0, 4000, errors);
+        validateIntegerRange(configMap, "repoRateLimitAlertPercent", 1, 100, errors);
+        validateIntegerRange(configMap, "projectRateLimitAlertPercent", 1, 100, errors);
+        validateAlertOverrides(configMap, "repoRateLimitAlertOverrides", false, errors);
+        validateAlertOverrides(configMap, "projectRateLimitAlertOverrides", true, errors);
 
         String minSeverity = trimToNull(configMap.get("minSeverity"));
         if (minSeverity != null && !isValidSeverity(minSeverity)) {
@@ -494,6 +509,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("priorityRateLimitSnoozeMinutes", DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES);
         defaults.put("priorityRepoRateLimitPerHour", DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR);
         defaults.put("priorityProjectRateLimitPerHour", DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR);
+        defaults.put("repoRateLimitAlertPercent", DEFAULT_REPO_ALERT_PERCENT);
+        defaults.put("projectRateLimitAlertPercent", DEFAULT_PROJECT_ALERT_PERCENT);
+        defaults.put("repoRateLimitAlertOverrides", DEFAULT_REPO_ALERT_OVERRIDES);
+        defaults.put("projectRateLimitAlertOverrides", DEFAULT_PROJECT_ALERT_OVERRIDES);
         return Collections.unmodifiableMap(defaults);
     }
 
@@ -727,6 +746,50 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         int base = Math.max(config.getRepoRateLimitPerHour(), DEFAULT_REPO_RATE_LIMIT_PER_HOUR);
         return Math.max(DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR, base);
+    }
+
+    @Override
+    public int getRepoRateLimitAlertPercent() {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        int percent = config.getRepoAlertPercent();
+        return percent > 0 ? percent : DEFAULT_REPO_ALERT_PERCENT;
+    }
+
+    @Override
+    public int getProjectRateLimitAlertPercent() {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        int percent = config.getProjectAlertPercent();
+        return percent > 0 ? percent : DEFAULT_PROJECT_ALERT_PERCENT;
+    }
+
+    @Override
+    public int resolveRepoRateLimitAlertPercent(@Nullable String repositorySlug) {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        Map<String, Integer> overrides = parseRepoAlertOverrides(config.getRepoAlertOverrides());
+        String slug = canonicalRepoSlug(repositorySlug);
+        if (slug != null) {
+            Integer override = overrides.get(slug);
+            if (override != null && override > 0) {
+                return override;
+            }
+        }
+        int percent = config.getRepoAlertPercent();
+        return percent > 0 ? percent : DEFAULT_REPO_ALERT_PERCENT;
+    }
+
+    @Override
+    public int resolveProjectRateLimitAlertPercent(@Nullable String projectKey) {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        Map<String, Integer> overrides = parseProjectAlertOverrides(config.getProjectAlertOverrides());
+        String normalized = canonicalProjectKey(projectKey);
+        if (normalized != null) {
+            Integer override = overrides.get(normalized);
+            if (override != null && override > 0) {
+                return override;
+            }
+        }
+        int percent = config.getProjectAlertPercent();
+        return percent > 0 ? percent : DEFAULT_PROJECT_ALERT_PERCENT;
     }
 
     @Override
@@ -1090,6 +1153,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setPrioritySnoozeMinutes(DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES);
         config.setPriorityRepoRateLimit(DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR);
         config.setPriorityProjectRateLimit(DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR);
+        config.setRepoAlertPercent(DEFAULT_REPO_ALERT_PERCENT);
+        config.setProjectAlertPercent(DEFAULT_PROJECT_ALERT_PERCENT);
+        config.setRepoAlertOverrides(DEFAULT_REPO_ALERT_OVERRIDES);
+        config.setProjectAlertOverrides(DEFAULT_PROJECT_ALERT_OVERRIDES);
         config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
         config.setReadTimeout(DEFAULT_READ_TIMEOUT);
         config.setOllamaTimeout(DEFAULT_OLLAMA_TIMEOUT);
@@ -1176,6 +1243,18 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("priorityProjectRateLimitPerHour")) {
             config.setPriorityProjectRateLimit(getIntValue(configMap, "priorityProjectRateLimitPerHour"));
+        }
+        if (configMap.containsKey("repoRateLimitAlertPercent")) {
+            config.setRepoAlertPercent(getIntValue(configMap, "repoRateLimitAlertPercent"));
+        }
+        if (configMap.containsKey("projectRateLimitAlertPercent")) {
+            config.setProjectAlertPercent(getIntValue(configMap, "projectRateLimitAlertPercent"));
+        }
+        if (configMap.containsKey("repoRateLimitAlertOverrides")) {
+            config.setRepoAlertOverrides(normalizeOverridesValue(configMap.get("repoRateLimitAlertOverrides")));
+        }
+        if (configMap.containsKey("projectRateLimitAlertOverrides")) {
+            config.setProjectAlertOverrides(normalizeOverridesValue(configMap.get("projectRateLimitAlertOverrides")));
         }
         if (configMap.containsKey("connectTimeout")) {
             config.setConnectTimeout(getIntValue(configMap, "connectTimeout"));
@@ -1345,6 +1424,22 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             config.setPriorityProjectRateLimit(DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR);
             updated = true;
         }
+        if (config.getRepoAlertPercent() <= 0) {
+            config.setRepoAlertPercent(DEFAULT_REPO_ALERT_PERCENT);
+            updated = true;
+        }
+        if (config.getProjectAlertPercent() <= 0) {
+            config.setProjectAlertPercent(DEFAULT_PROJECT_ALERT_PERCENT);
+            updated = true;
+        }
+        if (isBlank(config.getRepoAlertOverrides())) {
+            config.setRepoAlertOverrides(DEFAULT_REPO_ALERT_OVERRIDES);
+            updated = true;
+        }
+        if (isBlank(config.getProjectAlertOverrides())) {
+            config.setProjectAlertOverrides(DEFAULT_PROJECT_ALERT_OVERRIDES);
+            updated = true;
+        }
 
         if (config.getConnectTimeout() <= 0) {
             config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
@@ -1461,6 +1556,29 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return raw.toString();
     }
 
+    private String normalizeOverridesValue(@Nullable Object raw) {
+        if (raw == null) {
+            return "";
+        }
+        if (raw instanceof Map) {
+            Map<?, ?> map = (Map<?, ?>) raw;
+            return map.entrySet().stream()
+                    .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                    .map(entry -> entry.getKey().toString().trim() + "=" + entry.getValue().toString().trim())
+                    .collect(Collectors.joining(","));
+        }
+        if (raw instanceof Collection) {
+            Collection<?> collection = (Collection<?>) raw;
+            return collection.stream()
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .collect(Collectors.joining(","));
+        }
+        return raw.toString();
+    }
+
     private Set<String> parsePriorityProjects(@Nullable String raw) {
         if (isBlank(raw)) {
             return Collections.emptySet();
@@ -1506,6 +1624,24 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return trimmed.toUpperCase(Locale.ROOT);
     }
 
+    private String canonicalRepoSlug(@Nullable String repositorySlug) {
+        if (repositorySlug == null) {
+            return null;
+        }
+        String trimmed = repositorySlug.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        int slash = trimmed.indexOf('/');
+        if (slash >= 0 && slash < trimmed.length() - 1) {
+            trimmed = trimmed.substring(slash + 1);
+        }
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
     private String canonicalRepoKey(@Nullable String projectKey, @Nullable String repositorySlug) {
         String project = canonicalProjectKey(projectKey);
         if (project == null || repositorySlug == null) {
@@ -1543,6 +1679,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 defaultIntAllowZero(config.getPriorityRepoRateLimit(), DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR));
         map.put("priorityProjectRateLimitPerHour",
                 defaultIntAllowZero(config.getPriorityProjectRateLimit(), DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR));
+        map.put("repoRateLimitAlertPercent",
+                defaultInt(config.getRepoAlertPercent(), DEFAULT_REPO_ALERT_PERCENT));
+        map.put("projectRateLimitAlertPercent",
+                defaultInt(config.getProjectAlertPercent(), DEFAULT_PROJECT_ALERT_PERCENT));
+        map.put("repoRateLimitAlertOverrides",
+                defaultString(config.getRepoAlertOverrides(), DEFAULT_REPO_ALERT_OVERRIDES));
+        map.put("projectRateLimitAlertOverrides",
+                defaultString(config.getProjectAlertOverrides(), DEFAULT_PROJECT_ALERT_OVERRIDES));
         map.put("connectTimeout", defaultInt(config.getConnectTimeout(), DEFAULT_CONNECT_TIMEOUT));
         map.put("readTimeout", defaultInt(config.getReadTimeout(), DEFAULT_READ_TIMEOUT));
         map.put("ollamaTimeout", defaultInt(config.getOllamaTimeout(), DEFAULT_OLLAMA_TIMEOUT));
@@ -1567,6 +1711,50 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
         return map;
+    }
+
+    private Map<String, Integer> parseRepoAlertOverrides(@Nullable String raw) {
+        return parseAlertOverrides(raw, false);
+    }
+
+    private Map<String, Integer> parseProjectAlertOverrides(@Nullable String raw) {
+        return parseAlertOverrides(raw, true);
+    }
+
+    private Map<String, Integer> parseAlertOverrides(@Nullable String raw, boolean project) {
+        if (isBlank(raw)) {
+            return Collections.emptyMap();
+        }
+        Map<String, Integer> overrides = new LinkedHashMap<>();
+        for (String entry : splitList(raw)) {
+            int idx = entry.indexOf('=');
+            if (idx <= 0 || idx >= entry.length() - 1) {
+                continue;
+            }
+            String scope = entry.substring(0, idx).trim();
+            String percentRaw = entry.substring(idx + 1).trim();
+            Integer percent = parseInteger(percentRaw);
+            if (percent == null) {
+                continue;
+            }
+            int clamped = clampPercent(percent);
+            if (project) {
+                String key = canonicalProjectKey(scope);
+                if (key != null) {
+                    overrides.put(key, clamped);
+                }
+            } else {
+                String key = canonicalRepoSlug(scope);
+                if (key != null) {
+                    overrides.put(key, clamped);
+                }
+            }
+        }
+        return overrides;
+    }
+
+    private int clampPercent(int percent) {
+        return Math.max(1, Math.min(100, percent));
     }
 
     private void normalizeParallelChunkKeys(Map<String, Object> configMap) {
@@ -1631,6 +1819,47 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             }
         }
         return null;
+    }
+
+    private void validateAlertOverrides(Map<String, Object> configMap,
+                                        String key,
+                                        boolean project,
+                                        Map<String, String> errors) {
+        if (!configMap.containsKey(key)) {
+            return;
+        }
+        String normalized = normalizeOverridesValue(configMap.get(key));
+        if (normalized.isEmpty()) {
+            configMap.put(key, "");
+            return;
+        }
+        for (String entry : splitList(normalized)) {
+            int idx = entry.indexOf('=');
+            if (idx <= 0 || idx >= entry.length() - 1) {
+                errors.put(key, "Invalid entry '" + entry + "'. Expected scope=percent.");
+                return;
+            }
+            String scope = entry.substring(0, idx).trim();
+            String percentRaw = entry.substring(idx + 1).trim();
+            Integer percent = parseInteger(percentRaw);
+            if (percent == null || percent < 1 || percent > 100) {
+                errors.put(key, "Percent out of range for '" + scope + "'");
+                return;
+            }
+            if (project) {
+                if (canonicalProjectKey(scope) == null) {
+                    errors.put(key, "Invalid project key '" + scope + "'");
+                    return;
+                }
+            } else {
+                String slug = canonicalRepoSlug(scope);
+                if (slug == null || !REPO_SLUG_PATTERN.matcher(slug).matches()) {
+                    errors.put(key, "Invalid repository slug '" + scope + "'");
+                    return;
+                }
+            }
+        }
+        configMap.put(key, normalized);
     }
 
     private void validatePriorityScopeList(String key,

@@ -106,6 +106,20 @@ public interface AIReviewConfiguration extends Entity {
     int getPriorityProjectRateLimit();
     void setPriorityProjectRateLimit(int limit);
 
+    int getRepoAlertPercent();
+    void setRepoAlertPercent(int percent);
+
+    int getProjectAlertPercent();
+    void setProjectAlertPercent(int percent);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getRepoAlertOverrides();
+    void setRepoAlertOverrides(String overrides);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getProjectAlertOverrides();
+    void setProjectAlertOverrides(String overrides);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();
