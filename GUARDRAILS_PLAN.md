@@ -21,8 +21,8 @@
 [X] 8. Allow “burst credits” that can be granted programmatically (e.g., via REST) for CI spikes, with automatic expiration and audit entries. _(New automation REST endpoints grant/revoke credits, backed by AO audit + runtime consumption support.)_
 
 ### 3. Bounded Worker Pools & Async Execution
-[ ] 1. Implement `ReviewWorkerPool` and route `executeWithRun` through it (done).
-[ ] 2. Ensure comment/diff/merge-check work impersonates the acting user while on worker threads (done).
+[X] 1. Implement `ReviewWorkerPool` and route `executeWithRun` through it. _(All heavy review work now runs inside the dedicated worker pool.)_
+[X] 2. Ensure comment/diff/merge-check work impersonates the acting user while on worker threads. _(SecurityService impersonation wraps worker tasks.)_
 [ ] 3. Track pool utilization/queue depth metrics and expose them via `/metrics` + progress history so saturation is visible.
 [ ] 4. Add graceful degradation rules (e.g., temporarily cap `maxParallelChunks` when worker utilization > 90%) with operator overrides.
 [ ] 5. Provide an admin dashboard card that lists current worker pool stats per node for quick diagnosis.
