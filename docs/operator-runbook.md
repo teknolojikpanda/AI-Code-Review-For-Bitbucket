@@ -8,6 +8,9 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | --- | --- |
 | `GET /rest/ai-reviewer/1.0/monitoring/runtime` | Same payload that powers the Health Dashboard. Use for ad‑hoc inspection. |
 | `GET /rest/ai-reviewer/1.0/metrics` | Machine-readable export that flattens queue, limiter, worker, and retention metrics. The response contains a `runtime` object (detailed snapshot) and a `metrics` array (scalar metric points). |
+| `GET /rest/ai-reviewer/1.0/alerts` | Evaluates the current telemetry and returns synthesized guardrail alerts (severity, summary, recommendation). Use this to wire chat/email alerts without scraping the UI. |
+| `GET /rest/ai-reviewer/1.0/history/cleanup/export` | Exports retention candidates (PR metadata, chunk counts, etc.) before deletion. Pass `retentionDays` and `limit` query params to control scope. |
+| `GET /rest/ai-reviewer/1.0/history/cleanup/integrity` | Runs integrity checks (chunk mismatch detection) against the oldest review records. Useful before triggering forced cleanup. |
 
 Core metric names emitted via `/metrics`:
 
@@ -32,10 +35,13 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 
 1. **Watch retention backlog:** `ai.retention.entriesOlderThanWindow` shows how many history rows exceed the retention window.
 2. **Validate scheduler health:** `ai.retention.cleanup.enabled` (should be 1) and `ai.retention.cleanup.lastErrorFlag` (should be 0). A high `ai.retention.cleanup.lastRunAgeSeconds` means the job has not run recently. Use the “Recent Cleanup Runs” table on the Health dashboard to inspect the last few executions (duration, actor, manual/system, error text).
-3. **Actions:**
+3. **Pre-cleanup export/integrity:**
+   - `GET /history/cleanup/export` to archive candidate rows before deletion (save JSON artefact in your ticket).
+   - `GET /history/cleanup/integrity` to ensure chunk counts match what will be deleted. If the report flags mismatches, pause cleanup and investigate AO consistency first.
+4. **Actions:**
    - Trigger a manual cleanup from the Health Dashboard (Run Once) if backlog keeps growing.
    - Adjust `ai.retention.cleanup.intervalMinutes` and `batchSize` to keep up with growth.
-4. **Verification:** After a run, `/metrics` should show fresh `lastRunAgeSeconds` near zero and `lastDeletedHistories`/`lastDeletedChunks` matching the deleted batch counts. Capture the run result in ops notes.
+5. **Verification:** After a run, `/metrics` should show fresh `lastRunAgeSeconds` near zero and `lastDeletedHistories`/`lastDeletedChunks` matching the deleted batch counts. Capture the run + export artefact in ops notes.
 
 ## 4. Rate Limiter / Worker Trouble
 
@@ -44,7 +50,7 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 
 ## 5. Alert Integration Checklist
 
-1. Point your monitoring system at `/rest/ai-reviewer/1.0/metrics`.
+1. Point your monitoring system at `/rest/ai-reviewer/1.0/metrics` (for raw metrics) or `/rest/ai-reviewer/1.0/alerts` (for synthesized alerts).
 2. Add alert rules for:
    - `ai.queue.availableSlots == 0` for sustained periods.
    - `ai.retention.cleanup.lastErrorFlag == 1`.

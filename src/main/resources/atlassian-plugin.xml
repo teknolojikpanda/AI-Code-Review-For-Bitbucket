@@ -172,6 +172,11 @@
         <description>Aggregates queue, worker, limiter, and retention telemetry for guardrails</description>
     </component>
 
+    <component key="guardrailsAlertingService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertingService">
+        <description>Evaluates guardrail alerts based on telemetry snapshots</description>
+    </component>
+
     <component key="progressRegistry"
                class="com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry">
         <description>Tracks live AI review progress state for polling endpoints</description>

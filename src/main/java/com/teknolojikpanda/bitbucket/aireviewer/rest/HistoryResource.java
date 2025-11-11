@@ -295,6 +295,46 @@ public class HistoryResource {
         return Response.ok(payload).build();
     }
 
+    @GET
+    @Path("/cleanup/export")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response exportCleanupCandidates(@Context HttpServletRequest request,
+                                            @QueryParam("retentionDays") Integer retentionDays,
+                                            @QueryParam("limit") Integer limitParam) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required.")).build();
+        }
+        int days = retentionDays == null ? cleanupStatusService.getStatus().getRetentionDays() : Math.max(1, retentionDays);
+        int limit = limitParam == null ? 100 : Math.max(1, limitParam);
+        List<Map<String, Object>> entries = historyService.exportRetentionCandidates(days, limit);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("retentionDays", days);
+        payload.put("limit", limit);
+        payload.put("count", entries.size());
+        payload.put("generatedAt", System.currentTimeMillis());
+        payload.put("entries", entries);
+        return Response.ok(payload).build();
+    }
+
+    @GET
+    @Path("/cleanup/integrity")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response retentionIntegrity(@Context HttpServletRequest request,
+                                       @QueryParam("retentionDays") Integer retentionDays,
+                                       @QueryParam("sample") Integer sampleLimit) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required.")).build();
+        }
+        int days = retentionDays == null ? cleanupStatusService.getStatus().getRetentionDays() : Math.max(1, retentionDays);
+        int sample = sampleLimit == null ? 100 : Math.max(1, sampleLimit);
+        Map<String, Object> report = historyService.checkRetentionIntegrity(days, sample);
+        return Response.ok(report).build();
+    }
+
     private boolean isSystemAdmin(UserProfile profile) {
         return profile != null && userManager.isSystemAdmin(profile.getUserKey());
     }

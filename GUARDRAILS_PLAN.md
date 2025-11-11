@@ -54,7 +54,7 @@
 2. Expose a `/metrics` snapshot for external monitoring and document recommended alert thresholds.
 3. Include aggregated circuit-breaker + rate-limiter stats (open duration, blocked call deltas, retry counts) in the `/metrics` response so platform monitoring can alert on sustained degradation.
 4. Add lightweight REST/ADF panels inside Bitbucket admin that summarize these metrics for quick diagnosis without leaving the product.
-5. Provide outbound alert hooks (webhook/email/Atlassian Alerts) that trigger when breaker openness, queue depth, or throttle rate crosses operator-defined thresholds.
+5. Provide outbound alert hooks (webhook/email/Atlassian Alerts) that trigger when breaker openness, queue depth, or throttle rate crosses operator-defined thresholds. _(Initial REST-based alert feed now available via `/rest/ai-reviewer/1.0/alerts`; next step is wiring this into external channels.)_
 6. Build a “Guardrails Health” dashboard that correlates queue, limiter, breaker, and worker pool metrics over time.
 7. Store alert history + operator acknowledgements so we can audit response times and improve playbooks.
 
@@ -78,5 +78,5 @@
 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Kick off the alerting/rollout automation tracks (Sections 8.6–8.9) now that the `/metrics` export and operator runbook are in place.
-> 2. Provide pre-cleanup export tooling plus automated integrity checks so admins can archive data before retention jobs run (Sections 7.5–7.6).
+> 1. Provide pre-cleanup export tooling plus automated integrity checks so admins can archive data before retention jobs run (Sections 7.5–7.6).
+> 2. Automate guardrails rollout/rollback flows and wire the new alert feed into outbound channels (Sections 8.7–8.9).

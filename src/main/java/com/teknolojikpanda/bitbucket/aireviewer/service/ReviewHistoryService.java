@@ -971,6 +971,82 @@ public class ReviewHistoryService {
         });
     }
 
+    public List<Map<String, Object>> exportRetentionCandidates(int retentionDays, int limit) {
+        final int days = Math.max(1, retentionDays);
+        final int rowLimit = limit <= 0 ? 100 : limit;
+        final long cutoff = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(days);
+        return ao.executeInTransaction(() -> {
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
+                    Query.select()
+                            .where("REVIEW_START_TIME < ?", cutoff)
+                            .order("REVIEW_START_TIME ASC")
+                            .limit(rowLimit));
+            if (histories.length == 0) {
+                return java.util.Collections.emptyList();
+            }
+            List<Map<String, Object>> exports = new java.util.ArrayList<>(histories.length);
+            for (AIReviewHistory history : histories) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("historyId", history.getID());
+                map.put("projectKey", history.getProjectKey());
+                map.put("repositorySlug", history.getRepositorySlug());
+                map.put("pullRequestId", history.getPullRequestId());
+                map.put("reviewStartTime", history.getReviewStartTime());
+                map.put("reviewEndTime", history.getReviewEndTime());
+                map.put("totalChunksRecorded", history.getTotalChunks());
+                AIReviewChunk[] chunks = history.getChunks();
+                map.put("actualChunks", chunks.length);
+                map.put("reviewStatus", history.getReviewStatus());
+                map.put("reviewOutcome", history.getReviewOutcome());
+                map.put("modelUsed", history.getModelUsed());
+                map.put("summaryCommentId", history.getSummaryCommentId());
+                map.put("autoApproveEnabled", history.isAutoApproveEnabled());
+                exports.add(map);
+            }
+            return exports;
+        });
+    }
+
+    public Map<String, Object> checkRetentionIntegrity(int retentionDays, int sampleLimit) {
+        final int days = Math.max(1, retentionDays);
+        final int limit = sampleLimit <= 0 ? 100 : sampleLimit;
+        final long now = System.currentTimeMillis();
+        final long cutoff = now - TimeUnit.DAYS.toMillis(days);
+        return ao.executeInTransaction(() -> {
+            Map<String, Object> report = new LinkedHashMap<>();
+            report.put("retentionDays", days);
+            report.put("generatedAt", now);
+            int totalCandidates = ao.count(AIReviewHistory.class,
+                    Query.select().where("REVIEW_START_TIME < ?", cutoff));
+            report.put("totalCandidates", totalCandidates);
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
+                    Query.select()
+                            .where("REVIEW_START_TIME < ?", cutoff)
+                            .order("REVIEW_START_TIME ASC")
+                            .limit(limit));
+            report.put("sampledEntries", histories.length);
+            List<Map<String, Object>> mismatches = new java.util.ArrayList<>();
+            for (AIReviewHistory history : histories) {
+                int expected = Math.max(0, history.getTotalChunks());
+                int actual = history.getChunks().length;
+                if (expected != actual) {
+                    Map<String, Object> mismatch = new LinkedHashMap<>();
+                    mismatch.put("historyId", history.getID());
+                    mismatch.put("projectKey", history.getProjectKey());
+                    mismatch.put("repositorySlug", history.getRepositorySlug());
+                    mismatch.put("pullRequestId", history.getPullRequestId());
+                    mismatch.put("expectedChunks", expected);
+                    mismatch.put("actualChunks", actual);
+                    mismatch.put("reviewStartTime", history.getReviewStartTime());
+                    mismatches.add(mismatch);
+                }
+            }
+            report.put("chunkMismatches", mismatches.size());
+            report.put("mismatchEntries", mismatches);
+            return report;
+        });
+    }
+
     private Map<String, Double> toAverageMap(Map<String, RunningStats> stats) {
         if (stats.isEmpty()) {
             return Collections.emptyMap();

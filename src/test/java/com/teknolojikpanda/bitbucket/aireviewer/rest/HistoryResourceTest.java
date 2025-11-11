@@ -7,7 +7,6 @@ import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupScheduler;
-import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupAuditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryCleanupStatusService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
@@ -21,6 +20,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Response;
 import java.lang.reflect.Constructor;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
@@ -55,6 +55,11 @@ public class HistoryResourceTest {
         userManager = mock(UserManager.class);
         historyService = mock(ReviewHistoryService.class);
         when(historyService.getRetentionStats(anyInt())).thenReturn(new java.util.LinkedHashMap<>());
+        when(historyService.exportRetentionCandidates(anyInt(), anyInt())).thenReturn(Collections.emptyList());
+        Map<String, Object> integrityReport = new java.util.LinkedHashMap<>();
+        integrityReport.put("retentionDays", 90);
+        integrityReport.put("chunkMismatches", 0);
+        when(historyService.checkRetentionIntegrity(anyInt(), anyInt())).thenReturn(integrityReport);
         progressRegistry = mock(ProgressRegistry.class);
         concurrencyController = mock(ReviewConcurrencyController.class);
         rateLimiter = mock(ReviewRateLimiter.class);
@@ -303,5 +308,56 @@ public class HistoryResourceTest {
         assertTrue(payload.containsKey("status"));
         assertTrue(!payload.containsKey("result"));
         assertTrue(payload.containsKey("recentRuns"));
+    }
+
+    @Test
+    public void cleanupExportRequiresAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.exportCleanupCandidates(request, null, null);
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void cleanupExportReturnsEntries() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        List<Map<String, Object>> entries = List.of(Collections.singletonMap("historyId", 99L));
+        when(historyService.exportRetentionCandidates(eq(60), eq(25))).thenReturn(entries);
+
+        Response response = resource.exportCleanupCandidates(request, 60, 25);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertSame(entries, payload.get("entries"));
+        assertEquals(60, payload.get("retentionDays"));
+        assertEquals(25, payload.get("limit"));
+    }
+
+    @Test
+    public void cleanupIntegrityRequiresAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.retentionIntegrity(request, null, null);
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void cleanupIntegrityReturnsReport() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("retentionDays", 45);
+        when(historyService.checkRetentionIntegrity(eq(45), eq(20))).thenReturn(report);
+
+        Response response = resource.retentionIntegrity(request, 45, 20);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        assertSame(report, response.getEntity());
     }
 }
