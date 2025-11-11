@@ -26,6 +26,7 @@ public class GuardrailsTelemetryServiceTest {
     private ReviewSchedulerStateService schedulerStateService;
     private GuardrailsAlertDeliveryService deliveryService;
     private GuardrailsWorkerNodeService workerNodeService;
+    private GuardrailsScalingAdvisor scalingAdvisor;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -39,6 +40,7 @@ public class GuardrailsTelemetryServiceTest {
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         deliveryService = mock(GuardrailsAlertDeliveryService.class);
         workerNodeService = mock(GuardrailsWorkerNodeService.class);
+        scalingAdvisor = mock(GuardrailsScalingAdvisor.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -91,6 +93,13 @@ public class GuardrailsTelemetryServiceTest {
                         false)
         ));
 
+        when(scalingAdvisor.evaluate(org.mockito.Mockito.eq(stats), org.mockito.Mockito.anyList()))
+                .thenReturn(Collections.singletonList(
+                        GuardrailsScalingAdvisor.ScalingHint.warning(
+                                "Workers hot",
+                                "Utilization > 90%",
+                                "Add nodes")));
+
         telemetryService = new GuardrailsTelemetryService(
                 concurrencyController,
                 workerPool,
@@ -100,7 +109,8 @@ public class GuardrailsTelemetryServiceTest {
                 cleanupAuditService,
                 schedulerStateService,
                 deliveryService,
-                workerNodeService);
+                workerNodeService,
+                scalingAdvisor);
     }
 
     @Test
@@ -112,6 +122,7 @@ public class GuardrailsTelemetryServiceTest {
         assertTrue(snapshot.containsKey("workerPoolNodes"));
         assertEquals(1, ((List<?>) snapshot.get("workerPoolNodes")).size());
         assertTrue(snapshot.containsKey("rateLimiter"));
+        assertTrue(snapshot.containsKey("scalingHints"));
         assertTrue(snapshot.containsKey("retention"));
         assertTrue(snapshot.containsKey("schedulerState"));
         @SuppressWarnings("unchecked")

@@ -34,6 +34,7 @@ public class GuardrailsTelemetryService {
     private final ReviewHistoryCleanupAuditService cleanupAuditService;
     private final GuardrailsAlertDeliveryService deliveryService;
     private final GuardrailsWorkerNodeService workerNodeService;
+    private final GuardrailsScalingAdvisor scalingAdvisor;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -44,7 +45,8 @@ public class GuardrailsTelemetryService {
                                       ReviewHistoryCleanupAuditService cleanupAuditService,
                                       ReviewSchedulerStateService schedulerStateService,
                                       GuardrailsAlertDeliveryService deliveryService,
-                                      GuardrailsWorkerNodeService workerNodeService) {
+                                      GuardrailsWorkerNodeService workerNodeService,
+                                      GuardrailsScalingAdvisor scalingAdvisor) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -54,6 +56,7 @@ public class GuardrailsTelemetryService {
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
         this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
         this.workerNodeService = Objects.requireNonNull(workerNodeService, "workerNodeService");
+        this.scalingAdvisor = Objects.requireNonNull(scalingAdvisor, "scalingAdvisor");
     }
 
     /**
@@ -68,9 +71,11 @@ public class GuardrailsTelemetryService {
         payload.put("schedulerState", schedulerStateToMap(schedulerState));
         ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = workerPool.snapshot();
         workerNodeService.recordLocalSnapshot(workerSnapshot);
+        List<GuardrailsWorkerNodeService.WorkerNodeRecord> workerNodes = workerNodeService.listSnapshots();
         payload.put("workerPool", workerPoolStatsToMap(workerSnapshot));
-        payload.put("workerPoolNodes", workerNodeSnapshotsToList(workerNodeService.listSnapshots()));
+        payload.put("workerPoolNodes", workerNodeSnapshotsToList(workerNodes));
         payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
+        payload.put("scalingHints", scalingHintsToList(scalingAdvisor.evaluate(queueStats, workerNodes)));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
         payload.put("generatedAt", System.currentTimeMillis());
@@ -236,6 +241,17 @@ public class GuardrailsTelemetryService {
             map.put("utilization", record.getUtilization());
             map.put("stale", record.isStale());
             list.add(map);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> scalingHintsToList(List<GuardrailsScalingAdvisor.ScalingHint> hints) {
+        if (hints == null || hints.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(hints.size());
+        for (GuardrailsScalingAdvisor.ScalingHint hint : hints) {
+            list.add(hint.toMap());
         }
         return list;
     }

@@ -65,8 +65,10 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import net.java.ao.DBParam;
@@ -96,6 +98,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private static final int MAX_CHUNK_PREVIEW_ENTRIES = 12;
     private static final String CIRCUIT_SNAPSHOT_GAUGE = "ai.model.circuit.snapshot";
     private static final long MANUAL_RATE_LIMIT_SNOOZE_MS = TimeUnit.MINUTES.toMillis(10);
+    private static final int TIMELINE_PROGRESS_EVENT_LIMIT = 200;
 
     private final PullRequestService pullRequestService;
     private final CommentService commentService;
@@ -345,6 +348,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                 "manual", run.manual,
                 "update", run.update,
                 "forced", run.force));
+        TimelineRecorder timeline = new TimelineRecorder(run, tracker, metrics);
 
         try {
             logPullRequestInfo(pullRequest);
@@ -410,7 +414,18 @@ public class AIReviewServiceImpl implements AIReviewService {
                 log.warn("Failed to ensure merge check for {}/{}: {}", projectKey, repositorySlug, ex.getMessage());
             }
 
-            ReviewContext context = runWithUser(actingUser, () -> diffProvider.collect(pullRequest, reviewConfig, recorder));
+            TimelineRecorder.TimelineScope diffTimeline = timeline.begin(
+                    "timeline.diff.collect",
+                    18,
+                    "Collect pull request diff",
+                    progressDetails("projectKey", projectKey, "repositorySlug", repositorySlug));
+            ReviewContext context;
+            try {
+                context = runWithUser(actingUser, () -> diffProvider.collect(pullRequest, reviewConfig, recorder));
+            } catch (Exception ex) {
+                diffTimeline.failure(ex.getMessage());
+                throw ex;
+            }
             String rawDiff = context.getRawDiff();
             long diffBytes = 0;
             long diffLines = 0;
@@ -420,6 +435,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                 metrics.setGauge("diff.sizeBytes", diffBytes);
                 metrics.setGauge("diff.lineCount", diffLines);
             }
+            diffTimeline.success(progressDetails(
+                    "hasDiff", rawDiff != null && !rawDiff.trim().isEmpty(),
+                    "diffBytes", diffBytes,
+                    "diffLines", diffLines));
             recordProgress("diff.collected", 20, progressDetails(
                     "hasDiff", rawDiff != null && !rawDiff.trim().isEmpty(),
                     "diffBytes", diffBytes,
@@ -436,7 +455,21 @@ public class AIReviewServiceImpl implements AIReviewService {
                 return skipped;
             }
 
-            ReviewPreparation preparation = chunkPlanner.prepare(context, recorder);
+            TimelineRecorder.TimelineScope chunkPlanTimeline = timeline.begin(
+                    "timeline.chunks.prepare",
+                    35,
+                    "Build review chunks",
+                    progressDetails("parallelThreads", reviewConfig.getParallelThreads()));
+            ReviewPreparation preparation;
+            try {
+                preparation = chunkPlanner.prepare(context, recorder);
+            } catch (Exception ex) {
+                chunkPlanTimeline.failure(ex.getMessage());
+                throw ex;
+            }
+            chunkPlanTimeline.success(progressDetails(
+                    "chunkCount", preparation.getChunks().size(),
+                    "truncated", preparation.isTruncated()));
             Map<String, FileChange> fileChanges = buildFileChanges(context, preparation);
             log.info("AI Review: collected {} file(s) with diff content, {} file(s) selected for review", fileChanges.size(), preparation.getOverview().getTotalFiles());
             recordProgress("chunks.prepared", 40, progressDetails(
@@ -476,8 +509,21 @@ public class AIReviewServiceImpl implements AIReviewService {
             appendCircuitDetails(analysisStartedDetails, metrics);
             recordProgress("analysis.started", 55, analysisStartedDetails);
 
-            ChunkProgressListener chunkListener = buildChunkProgressListener(preparation, run, tracker);
-            ReviewSummary summary = reviewOrchestrator.runReview(preparation, recorder, chunkListener);
+            ChunkProgressListener chunkListener = buildChunkProgressListener(preparation, run, tracker, timeline);
+            TimelineRecorder.TimelineScope analysisTimeline = timeline.begin(
+                    "timeline.analysis.run",
+                    60,
+                    "Execute AI analysis",
+                    progressDetails(
+                            "chunkCount", preparation.getChunks().size(),
+                            "parallelThreads", reviewConfig.getParallelThreads()));
+            ReviewSummary summary;
+            try {
+                summary = reviewOrchestrator.runReview(preparation, recorder, chunkListener);
+            } catch (Exception ex) {
+                analysisTimeline.failure(ex.getMessage());
+                throw ex;
+            }
             List<ReviewIssue> issues = convertFindings(summary.getFindings());
             metrics.setGauge("issues.truncated", summary.isTruncated());
             if (summary.totalCount() == 0) {
@@ -497,6 +543,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                     "chunksFailed", metrics.getCounter("chunks.failed"));
             appendCircuitDetails(analysisCompletedDetails, metrics);
             recordProgress("analysis.completed", 70, analysisCompletedDetails);
+            analysisTimeline.success(analysisCompletedDetails);
 
             List<ReviewIssue> validated = new ArrayList<>();
             int invalidIssues = 0;
@@ -513,7 +560,7 @@ public class AIReviewServiceImpl implements AIReviewService {
 
             ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
             int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
-                    overallStart, comparison, metrics, configMap, reviewerUser, actingUser);
+                    overallStart, comparison, metrics, timeline, configMap, reviewerUser, actingUser);
             recordProgress("comments.completed", 85, progressDetails(
                     "commentsPosted", commentsPosted,
                     "issuesCommented", validated.isEmpty() ? 0 : validated.size()));
@@ -648,12 +695,21 @@ public class AIReviewServiceImpl implements AIReviewService {
                                      @Nonnull Instant overallStart,
                                      @Nonnull ReviewComparison comparison,
                                      @Nonnull MetricsCollector metrics,
+                                     @Nullable TimelineRecorder timeline,
                                      @Nonnull Map<String, Object> configMap,
                                      @Nullable ApplicationUser reviewerUser,
                                      @Nullable ApplicationUser actingUser) {
+        TimelineRecorder.TimelineScope commentsTimeline = timeline != null
+                ? timeline.begin(
+                "timeline.comments.publish",
+                85,
+                "Publish review comments",
+                progressDetails("issueCount", issues.size()))
+                : null;
         Instant commentStart = metrics.recordStart("postComments");
         int commentsPosted = 0;
 
+        boolean timelineCompleted = false;
         if (!issues.isEmpty()) {
             ApplicationUser commenter = actingUser != null ? actingUser : reviewerUser;
             try {
@@ -682,13 +738,19 @@ public class AIReviewServiceImpl implements AIReviewService {
                 });
             } catch (Exception e) {
                 log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+                if (commentsTimeline != null) {
+                    commentsTimeline.failure(e.getMessage());
+                    timelineCompleted = true;
+                }
             }
         } else {
             log.info("No issues found - skipping comment posting");
         }
-        
         metrics.recordEnd("postComments", commentStart);
         metrics.setGauge("comments.posted", commentsPosted);
+        if (commentsTimeline != null && !timelineCompleted) {
+            commentsTimeline.success(progressDetails("commentsPosted", commentsPosted, "issueCount", issues.size()));
+        }
         return commentsPosted;
     }
     
@@ -2280,7 +2342,8 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Nullable
     private ChunkProgressListener buildChunkProgressListener(@Nonnull ReviewPreparation preparation,
                                                              @Nullable ReviewRun run,
-                                                             @Nullable ProgressTracker tracker) {
+                                                             @Nullable ProgressTracker tracker,
+                                                             @Nullable TimelineRecorder timeline) {
         Objects.requireNonNull(preparation, "preparation");
         if (run == null || tracker == null) {
             return null;
@@ -2295,12 +2358,25 @@ public class AIReviewServiceImpl implements AIReviewService {
             chunkLabels.put(chunk.getId(), describeChunk(chunk));
         }
         Set<String> activeChunkIds = ConcurrentHashMap.newKeySet();
+        ConcurrentMap<String, TimelineRecorder.TimelineScope> chunkTimelineScopes =
+                timeline != null ? new ConcurrentHashMap<>() : null;
         AtomicReference<String> lastSignature = new AtomicReference<>("");
         emitActiveChunkState(run, tracker, orderedChunks, chunkLabels, activeChunkIds, lastSignature);
         return new ChunkProgressListener() {
             @Override
             public void onChunkStarted(@Nonnull ReviewChunk chunk, int index, int total) {
                 activeChunkIds.add(chunk.getId());
+                if (timeline != null && chunkTimelineScopes != null) {
+                    TimelineRecorder.TimelineScope scope = timeline.begin(
+                            "timeline.analysis.chunk",
+                            65,
+                            chunkLabels.getOrDefault(chunk.getId(), chunk.getId()),
+                            progressDetails(
+                                    "chunkId", chunk.getId(),
+                                    "chunkIndex", index + 1,
+                                    "chunkTotal", total));
+                    chunkTimelineScopes.put(chunk.getId(), scope);
+                }
                 emitActiveChunkState(run, tracker, orderedChunks, chunkLabels, activeChunkIds, lastSignature);
             }
 
@@ -2308,6 +2384,21 @@ public class AIReviewServiceImpl implements AIReviewService {
             public void onChunkCompleted(@Nonnull ReviewChunk chunk, int index, int total, boolean success) {
                 activeChunkIds.remove(chunk.getId());
                 emitActiveChunkState(run, tracker, orderedChunks, chunkLabels, activeChunkIds, lastSignature);
+                if (chunkTimelineScopes != null) {
+                    TimelineRecorder.TimelineScope scope = chunkTimelineScopes.remove(chunk.getId());
+                    if (scope != null) {
+                        Map<String, Object> extra = progressDetails(
+                                "chunkId", chunk.getId(),
+                                "chunkIndex", index + 1,
+                                "chunkTotal", total,
+                                "success", success);
+                        if (success) {
+                            scope.success(extra);
+                        } else {
+                            scope.failure("chunk-failed", extra);
+                        }
+                    }
+                }
             }
         };
     }
@@ -2328,6 +2419,94 @@ public class AIReviewServiceImpl implements AIReviewService {
                 "chunkCount", orderedChunks.size(),
                 "activeChunkCount", activeChunkIds.size(),
                 "currentlyAnalyzing", summary));
+    }
+
+    private final class TimelineRecorder {
+        private final ReviewRun run;
+        private final ProgressTracker tracker;
+        private final MetricsCollector metrics;
+        private final AtomicInteger recordedEvents = new AtomicInteger();
+
+        TimelineRecorder(@Nullable ReviewRun run,
+                         @Nullable ProgressTracker tracker,
+                         @Nonnull MetricsCollector metrics) {
+            this.run = run;
+            this.tracker = tracker;
+            this.metrics = metrics;
+        }
+
+        TimelineScope begin(String stage, int percentComplete, String label, Map<String, Object> baseDetails) {
+            return new TimelineScope(stage, percentComplete, label, baseDetails);
+        }
+
+        private void emit(String stage, int percentComplete, Map<String, Object> details) {
+            if (recordedEvents.incrementAndGet() <= TIMELINE_PROGRESS_EVENT_LIMIT) {
+                recordProgressInternal(run, tracker, stage, percentComplete, details);
+            }
+            Map<String, Object> entry = new LinkedHashMap<>(details);
+            entry.put("stage", stage);
+            metrics.appendListEntry("timeline.events", entry);
+        }
+
+        final class TimelineScope implements AutoCloseable {
+            private final String stage;
+            private final int percent;
+            private final String label;
+            private final Map<String, Object> baseDetails;
+            private final long startNanos;
+            private final long startedAtMs;
+            private boolean completed;
+
+            TimelineScope(String stage, int percent, String label, Map<String, Object> baseDetails) {
+                this.stage = Objects.requireNonNull(stage, "stage");
+                this.percent = percent;
+                this.label = label != null ? label : stage;
+                this.baseDetails = baseDetails != null ? new LinkedHashMap<>(baseDetails) : Collections.emptyMap();
+                this.startNanos = System.nanoTime();
+                this.startedAtMs = System.currentTimeMillis();
+            }
+
+            void success(Map<String, Object> extraDetails) {
+                complete("success", null, extraDetails);
+            }
+
+            void failure(String reason) {
+                complete("failed", reason, null);
+            }
+
+            void failure(String reason, Map<String, Object> extraDetails) {
+                complete("failed", reason, extraDetails);
+            }
+
+            private void complete(String outcome, String reason, Map<String, Object> extraDetails) {
+                if (completed) {
+                    return;
+                }
+                completed = true;
+                long durationMs = Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("label", label);
+                details.put("durationMs", durationMs);
+                details.put("startedAt", startedAtMs);
+                details.put("thread", Thread.currentThread().getName());
+                details.put("outcome", outcome);
+                if (reason != null && !reason.trim().isEmpty()) {
+                    details.put("reason", reason);
+                }
+                if (!baseDetails.isEmpty()) {
+                    details.putAll(baseDetails);
+                }
+                if (extraDetails != null && !extraDetails.isEmpty()) {
+                    details.putAll(extraDetails);
+                }
+                emit(stage, percent, details);
+            }
+
+            @Override
+            public void close() {
+                failure("aborted");
+            }
+        }
     }
 
     private String formatActiveChunkSummary(@Nonnull List<ReviewChunk> orderedChunks,

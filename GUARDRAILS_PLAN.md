@@ -26,8 +26,8 @@
 [X] 3. Track pool utilization/queue depth metrics and expose them via `/metrics` + progress history so saturation is visible. _(Worker snapshots are already surfaced through History REST + `/metrics` gauges like `ai.worker.activeThreads`/`ai.worker.queuedTasks`.)_
 [X] 4. Add graceful degradation rules (e.g., temporarily cap `maxParallelChunks` when worker utilization > 90%) with operator overrides. _(Worker degradation toggle now backs off `parallelThreads` based on live utilization/queue depth + emits telemetry/events.)_
 [X] 5. Provide an admin dashboard card that lists current worker pool stats per node for quick diagnosis. _(Worker heartbeat + Health UI table now surface node-level worker metrics + staleness indicators.)_
-[ ] 6. Implement adaptive scaling hints (recommend adding nodes / enabling auto-scale) when sustained utilization stays high.
-[ ] 7. Capture per-task execution timelines so we can identify slow operations (diff fetch, AI call, comment publish) within worker threads.
+[X] 6. Implement adaptive scaling hints (recommend adding nodes / enabling auto-scale) when sustained utilization stays high. _(Scaling advisor analyzes queue + worker telemetry and surfaces actionable hints on the Health dashboard + REST payloads.)_
+[X] 7. Capture per-task execution timelines so we can identify slow operations (diff fetch, AI call, comment publish) within worker threads. _(New timeline recorder emits duration-rich progress events + metrics for diff collection, chunk planning, every AI chunk, and comment publishing.)_
 
 ### 4. AI Backend Resilience
 [ ] 1. Wrap AI client calls with circuit breaker + retry/backoff policies; treat vendor 429/5xx separately. _(Existing `OllamaAiReviewClient` circuit breaker/rate limiter now tracked via plan)_

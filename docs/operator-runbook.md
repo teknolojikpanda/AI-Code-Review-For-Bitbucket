@@ -47,6 +47,12 @@ Every response is timestamped via `generatedAt` so automation can detect stale d
 - The admin config page now exposes **Worker Pool Degradation** (enabled by default). When utilization stays above ~90% or the worker queue keeps growing, Guardrails halves the effective `parallelThreads` (and eventually drops to one) so nodes can recover without manual intervention.
 - Disable the toggle if you are performing controlled perf tests or want the previous “always parallel” behaviour. Re-enabling immediately reapplies the adaptive cap during the next review.
 - Each degraded run emits a `config.workerDegradation` progress event plus the `config.workerDegradationActive` gauge inside `/metrics`, so dashboards and alerts can surface when the safety net is taking effect.
+- The Health dashboard’s **Scaling Hints** card evaluates queue backlog + worker utilization to recommend when to add nodes, enable auto-scale, or relax `maxConcurrentReviews`. Treat a persistent hint as a pre-incident signal before saturation trips SLAs.
+
+### Execution Timeline
+
+- Every review run now captures per-task timings (diff collection, chunk planning, each AI chunk, comment publishing). These appear inside the PR progress panel & history timelines with `durationMs`, thread name, and outcome so you can spot slow stages without diving into logs.
+- The same samples ship in `metrics.timeline.events`, making it easy to push slowest operations into external APM/BI tools.
 
 ## 2. Queue Saturation Playbook
 

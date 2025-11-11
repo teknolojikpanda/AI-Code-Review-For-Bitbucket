@@ -166,6 +166,7 @@
         $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
         renderCleanup(retention.schedule || {}, retention.recentRuns || [], null);
         renderWorkerNodes(data.workerPoolNodes || []);
+        renderScalingHints(data.scalingHints || [], data.generatedAt);
     }
 
     function renderWorkerNodes(nodes) {
@@ -209,6 +210,43 @@
         $('#worker-nodes-updated').text(latest);
         empty.hide();
         table.show();
+    }
+
+    function renderScalingHints(hints, generatedAt) {
+        hints = hints || [];
+        var list = $('#scaling-hints-list');
+        var empty = $('#scaling-hints-empty');
+        if (!hints.length) {
+            list.hide();
+            empty.show();
+            $('#scaling-hints-updated').text('—');
+            return;
+        }
+        list.empty();
+        hints.forEach(function(hint) {
+            var severity = (hint.severity || 'info').toLowerCase();
+            var label = severity.charAt(0).toUpperCase() + severity.slice(1);
+            var lozengeClass = 'aui-lozenge aui-lozenge-subtle';
+            if (severity === 'critical') {
+                lozengeClass = 'aui-lozenge aui-lozenge-error';
+            } else if (severity === 'warning') {
+                lozengeClass = 'aui-lozenge';
+            }
+            var recommendation = hint.recommendation ? '<div class="queue-meta">' + escapeHtml(hint.recommendation) + '</div>' : '';
+            var detail = hint.detail ? '<div class="queue-meta">' + escapeHtml(hint.detail) + '</div>' : '';
+            var item = '<li>' +
+                '<div class="health-hint">' +
+                '<span class="' + lozengeClass + '">' + escapeHtml(label) + '</span> ' +
+                '<strong>' + escapeHtml(hint.summary || 'Scaling hint') + '</strong>' +
+                detail +
+                recommendation +
+                '</div>' +
+                '</li>';
+            list.append(item);
+        });
+        $('#scaling-hints-updated').text(generatedAt ? formatTimestamp(generatedAt) : '—');
+        empty.hide();
+        list.show();
     }
 
     function renderQueue(data) {

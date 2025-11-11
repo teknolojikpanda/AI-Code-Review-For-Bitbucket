@@ -84,6 +84,17 @@
                     </div>
                 </section>
 
+                <section class="queue-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Scaling Hints</h2>
+                        <span id="scaling-hints-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-panel">
+                        <div class="queue-empty" id="scaling-hints-empty">No scaling actions recommended.</div>
+                        <ul class="health-list" id="scaling-hints-list" style="display:none;"></ul>
+                    </div>
+                </section>
+
                 <section class="automation-section" style="margin-top: 24px;">
                     <header class="queue-header">
                         <h2>Webhook Metrics</h2>
