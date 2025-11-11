@@ -30,7 +30,7 @@
 [X] 7. Capture per-task execution timelines so we can identify slow operations (diff fetch, AI call, comment publish) within worker threads. _(New timeline recorder emits duration-rich progress events + metrics for diff collection, chunk planning, every AI chunk, and comment publishing.)_
 
 ### 4. AI Backend Resilience
-[ ] 1. Wrap AI client calls with circuit breaker + retry/backoff policies; treat vendor 429/5xx separately. _(Existing `OllamaAiReviewClient` circuit breaker/rate limiter now tracked via plan)_
+[X] 1. Wrap AI client calls with circuit breaker + retry/backoff policies; treat vendor 429/5xx separately. _(Circuit breaker now trips on repeated 5xx/timeouts while 429 throttles get extended backoff + metrics, so retries/fallback react differently.)_
 [ ] 2. Cache overview responses keyed by commit hash to avoid duplicate processing on re-reviews. _(Completed via `OverviewCache`)_
 [ ] 3. Emit metrics for AI latency, error rates, retry counts, and circuit-breaker states (open/blocked/failure) by pushing structured snapshots through the shared `MetricsCollector`.
 [ ] 4. Return breaker + limiter telemetry to `AIReviewServiceImpl` so progress timelines, history views, and admin panels can surface when analysis is throttled or retried.

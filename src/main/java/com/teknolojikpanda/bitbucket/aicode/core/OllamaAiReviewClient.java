@@ -98,20 +98,27 @@ public class OllamaAiReviewClient implements AiReviewClient {
             circuitBlockedCalls.incrementAndGet();
             metrics.increment("ai.model.circuit.blocked");
             metrics.recordEnd("ai.chunk.call", start);
-            return ChunkReviewResult.builder()
-                    .chunk(chunk)
-                    .success(false)
-                    .error(ex.getMessage())
-                    .build();
+            return failureResult(chunk, "AI model recovery in progress; please retry shortly");
+        } catch (VendorServerException ex) {
+            metrics.increment("ai.model.vendor5xx");
+            metrics.recordEnd("ai.chunk.call", start);
+            log.warn("AI vendor server error for chunk {}: {}", chunk.getId(), ex.getMessage());
+            return failureResult(chunk, ex.getMessage());
         } catch (Exception ex) {
             hardFailures.incrementAndGet();
+            metrics.increment("ai.model.unhandledFailures");
             metrics.recordEnd("ai.chunk.call", start);
-            return ChunkReviewResult.builder()
-                    .chunk(chunk)
-                    .success(false)
-                    .error(ex.getMessage())
-                    .build();
+            log.error("AI model invocation failed for chunk {}: {}", chunk.getId(), ex.getMessage(), ex);
+            return failureResult(chunk, "AI model invocation failed: " + ex.getMessage());
         }
+    }
+
+    private ChunkReviewResult failureResult(ReviewChunk chunk, String message) {
+        return ChunkReviewResult.builder()
+                .chunk(chunk)
+                .success(false)
+                .error(message)
+                .build();
     }
 
     private ChunkReviewResult doReview(ReviewChunk chunk,
@@ -201,6 +208,9 @@ public class OllamaAiReviewClient implements AiReviewClient {
         long lastResponseBytes = 0;
         Integer lastStatusCode = null;
         boolean timeoutOccurred = false;
+        boolean vendorThrottled = false;
+        boolean serverSideFailure = false;
+        long penaltyBackoffMs = 0L;
 
         while (attempts < maxRetries) {
             try {
@@ -230,6 +240,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                         lastRequestBytes,
                         lastResponseBytes,
                         lastStatusCode,
+                        false,
                         false);
                 metrics.increment("ai.model." + modelRole + ".success");
                 recordBreakerMetrics(metrics);
@@ -239,6 +250,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 lastError = ex;
                 lastErrorMessage = ex.getMessage();
                 timeoutOccurred = true;
+                 serverSideFailure = true;
                 lastResponseBytes = 0;
                 lastStatusCode = null;
             } catch (Exception ex) {
@@ -255,6 +267,12 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     lastStatusCode = httpEx.statusCode;
                     lastRequestBytes = httpEx.requestBytes;
                     lastResponseBytes = httpEx.responseBytes;
+                    if (httpEx.statusCode == 429) {
+                        vendorThrottled = true;
+                        penaltyBackoffMs = Math.max(penaltyBackoffMs, backoff * (attempts + 1L));
+                    } else if (httpEx.statusCode >= 500) {
+                        serverSideFailure = true;
+                    }
                 }
                 if (!(ex instanceof OllamaHttpException) && !(ex instanceof SocketTimeoutException)) {
                     lastStatusCode = null;
@@ -264,7 +282,9 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
             if (attempts < maxRetries) {
                 try {
-                    Thread.sleep((long) Math.pow(2, attempts - 1) * backoff);
+                    long sleepMs = (long) Math.pow(2, attempts - 1) * backoff + penaltyBackoffMs;
+                    penaltyBackoffMs = 0L;
+                    Thread.sleep(Math.min(60_000L, sleepMs));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     lastError = ie;
@@ -291,32 +311,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     lastRequestBytes,
                     lastResponseBytes,
                     lastStatusCode,
-                    timeoutOccurred);
+                    timeoutOccurred,
+                    vendorThrottled);
             return null;
         }
-        if (lastError != null) {
-            log.error("Model {} failed after {} attempt(s) for chunk {}: {}",
-                    model, attempts, chunk.getId(), lastError.getMessage());
-            log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
-            metrics.increment("ai.model." + modelRole + ".failures");
-            recordBreakerMetrics(metrics);
-            recordChunkInvocation(metrics,
-                    chunk,
-                    model,
-                    baseUrl,
-                    modelRole,
-                    attempts,
-                    invocationStart,
-                    false,
-                    modelNotFound,
-                    lastErrorMessage,
-                    lastRequestBytes,
-                    lastResponseBytes,
-                    lastStatusCode,
-                    timeoutOccurred);
-            return null;
-        }
+        log.error("Model {} failed after {} attempt(s) for chunk {}: {}",
+                model, attempts, chunk.getId(), lastError != null ? lastError.getMessage() : "unknown error");
+        log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
         metrics.increment("ai.model." + modelRole + ".failures");
+        recordBreakerMetrics(metrics);
         recordChunkInvocation(metrics,
                 chunk,
                 model,
@@ -330,7 +333,14 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 lastRequestBytes,
                 lastResponseBytes,
                 lastStatusCode,
-                timeoutOccurred);
+                timeoutOccurred,
+                vendorThrottled);
+        if (vendorThrottled) {
+            metrics.increment("ai.model." + modelRole + ".throttled");
+        }
+        if (serverSideFailure || timeoutOccurred || (lastStatusCode != null && lastStatusCode >= 500)) {
+            throw new VendorServerException(model, baseUrl, lastStatusCode, lastErrorMessage);
+        }
         return null;
     }
 
@@ -347,7 +357,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
                                        long requestBytes,
                                        long responseBytes,
                                        Integer statusCode,
-                                       boolean timeout) {
+                                       boolean timeout,
+                                       boolean throttled) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("chunkId", chunk.getId());
         entry.put("role", modelRole);
@@ -360,6 +371,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
         entry.put("requestBytes", Math.max(0, requestBytes));
         entry.put("responseBytes", Math.max(0, responseBytes));
         entry.put("timeout", timeout);
+        entry.put("throttled", throttled);
         if (statusCode != null) {
             entry.put("statusCode", statusCode);
         }
@@ -420,6 +432,29 @@ public class OllamaAiReviewClient implements AiReviewClient {
             this.statusCode = statusCode;
             this.requestBytes = requestBytes;
             this.responseBytes = responseBytes;
+        }
+    }
+
+    private static final class VendorServerException extends RuntimeException {
+        private VendorServerException(String model, String endpoint, Integer statusCode, String detail) {
+            super(buildMessage(model, endpoint, statusCode, detail));
+        }
+
+        private static String buildMessage(String model, String endpoint, Integer statusCode, String detail) {
+            StringBuilder builder = new StringBuilder("AI vendor endpoint failure");
+            if (model != null && !model.isEmpty()) {
+                builder.append(" [model=").append(model).append("]");
+            }
+            if (endpoint != null && !endpoint.isEmpty()) {
+                builder.append(" at ").append(endpoint);
+            }
+            if (statusCode != null) {
+                builder.append(" returned ").append(statusCode);
+            }
+            if (detail != null && !detail.isEmpty()) {
+                builder.append(": ").append(detail);
+            }
+            return builder.toString();
         }
     }
 

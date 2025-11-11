@@ -119,17 +119,6 @@
                             <div class="description">Number of threads for parallel processing (default: 4)</div>
                         </div>
 
-                        <div class="field-group checkbox">
-                            <input class="checkbox" type="checkbox" id="worker-degradation-enabled"
-                                   name="workerDegradationEnabled"
-                                   #if($workerDegradationEnabled)checked="checked"#end>
-                            <label for="worker-degradation-enabled">Enable worker pool degradation</label>
-                            <div class="description">
-                                When enabled, Guardrails temporarily lowers <code>parallelThreads</code> if worker
-                                utilization stays above 90% or the worker queue grows faster than it drains.
-                            </div>
-                        </div>
-
                         <!-- Timeout Configuration -->
                         <h2>Timeout Configuration (milliseconds)</h2>
                         <div class="field-group">
@@ -360,6 +349,19 @@
                                 <label for="skip-tests">Skip Test Files</label>
                             </div>
                             <div class="description">Skip analysis of test files</div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="worker-degradation-enabled"
+                                       name="workerDegradationEnabled"
+                                       #if($workerDegradationEnabled)checked="checked"#end>
+                                <label for="worker-degradation-enabled">Enable worker pool degradation</label>
+                            </div>
+                            <div class="description">
+                                When enabled, Guardrails temporarily lowers <code>parallelThreads</code> if worker
+                                utilization stays above 90% or the worker queue grows faster than it drains.
+                            </div>
                         </div>
 
                         <div class="field-group">
