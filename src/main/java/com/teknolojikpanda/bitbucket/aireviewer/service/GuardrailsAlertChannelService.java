@@ -4,6 +4,7 @@ import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.net.Request;
 import com.atlassian.sal.api.net.RequestFactory;
+import com.atlassian.sal.api.net.RequestFactoryProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel;
 import org.slf4j.Logger;
@@ -23,14 +24,14 @@ public class GuardrailsAlertChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(GuardrailsAlertChannelService.class);
     private final ActiveObjects ao;
-    private final RequestFactory requestFactory;
+    private final RequestFactoryProvider requestFactoryProvider;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
     public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao,
-                                         @ComponentImport RequestFactory requestFactory) {
+                                         @ComponentImport RequestFactoryProvider requestFactoryProvider) {
         this.ao = Objects.requireNonNull(ao, "activeObjects");
-        this.requestFactory = Objects.requireNonNull(requestFactory, "requestFactory");
+        this.requestFactoryProvider = Objects.requireNonNull(requestFactoryProvider, "requestFactoryProvider");
     }
 
     public List<Channel> listChannels() {
@@ -100,6 +101,7 @@ public class GuardrailsAlertChannelService {
                 continue;
             }
             try {
+                RequestFactory requestFactory = requestFactoryProvider.getRequestFactory();
                 Request request = requestFactory.createRequest(Request.MethodType.POST, channel.getUrl());
                 request.addHeader("Content-Type", "application/json");
                 String payload = mapper.writeValueAsString(snapshot);
