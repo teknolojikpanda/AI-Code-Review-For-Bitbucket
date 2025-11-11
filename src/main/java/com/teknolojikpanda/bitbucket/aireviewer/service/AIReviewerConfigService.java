@@ -4,7 +4,6 @@ import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;

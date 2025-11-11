@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 
 /**
  * Produces human-readable scaling hints when queue and worker metrics indicate sustained pressure.

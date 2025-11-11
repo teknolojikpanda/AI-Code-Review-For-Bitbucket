@@ -17,8 +17,6 @@ import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import com.teknolojikpanda.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
-import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
-import com.teknolojikpanda.bitbucket.aireviewer.service.WorkerDegradationService;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockitoAnnotations;
