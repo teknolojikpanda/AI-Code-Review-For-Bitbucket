@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.math.BigDecimal;
@@ -46,6 +47,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 /**
  * Implementation of AIReviewerConfigService using Active Objects for persistence.
@@ -80,6 +82,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "maxQueuedPerProject",
             "repoRateLimitPerHour",
             "projectRateLimitPerHour",
+            "priorityRateLimitSnoozeMinutes",
+            "priorityRepoRateLimitPerHour",
+            "priorityProjectRateLimitPerHour",
             "connectTimeout",
             "readTimeout",
             "ollamaTimeout",
@@ -118,6 +123,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final int DEFAULT_MAX_QUEUED_PER_PROJECT = 15;
     private static final int DEFAULT_REPO_RATE_LIMIT_PER_HOUR = 12;
     private static final int DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR = 60;
+    private static final int DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES = 30;
+    private static final int DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR = 24;
+    private static final int DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR = 120;
     private static final int DEFAULT_CONNECT_TIMEOUT = 10000;
     private static final int DEFAULT_READ_TIMEOUT = 30000;
     private static final int DEFAULT_OLLAMA_TIMEOUT = 300000;
@@ -139,6 +147,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final boolean DEFAULT_SKIP_GENERATED = true;
     private static final boolean DEFAULT_SKIP_TESTS = false;
     private static final boolean DEFAULT_AUTO_APPROVE = false;
+    private static final String DEFAULT_PRIORITY_PROJECTS = "";
+    private static final String DEFAULT_PRIORITY_REPOSITORIES = "";
+    private static final Pattern PRIORITY_PROJECT_PATTERN = Pattern.compile("^[A-Za-z0-9_\\-]+$");
+    private static final Pattern PRIORITY_REPO_PATTERN = Pattern.compile("^[A-Za-z0-9_\\-]+/[A-Za-z0-9._\\-]+$");
 
     static {
         LinkedHashSet<String> keys = new LinkedHashSet<>(Arrays.asList(
@@ -156,6 +168,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "maxQueuedPerProject",
                 "repoRateLimitPerHour",
                 "projectRateLimitPerHour",
+                "priorityProjects",
+                "priorityRepositories",
+                "priorityRateLimitSnoozeMinutes",
+                "priorityRepoRateLimitPerHour",
+                "priorityProjectRateLimitPerHour",
                 "connectTimeout",
                 "readTimeout",
                 "ollamaTimeout",
@@ -304,6 +321,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "ollamaTimeout", 5_000, 600_000, errors);
         validateIntegerRange(configMap, "connectTimeout", 1_000, 120_000, errors);
         validateString(configMap, "aiReviewerUser", false, 255, errors, null);
+        validateString(configMap, "priorityProjects", false, 2000, errors,
+                value -> validatePriorityScopeList("priorityProjects", value, true, errors));
+        validateString(configMap, "priorityRepositories", false, 4000, errors,
+                value -> validatePriorityScopeList("priorityRepositories", value, false, errors));
+        validateIntegerRange(configMap, "priorityRateLimitSnoozeMinutes", 1, 1440, errors);
+        validateIntegerRange(configMap, "priorityRepoRateLimitPerHour", 0, 2000, errors);
+        validateIntegerRange(configMap, "priorityProjectRateLimitPerHour", 0, 4000, errors);
 
         String minSeverity = trimToNull(configMap.get("minSeverity"));
         if (minSeverity != null && !isValidSeverity(minSeverity)) {
@@ -465,6 +489,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("skipTests", DEFAULT_SKIP_TESTS);
         defaults.put("autoApprove", DEFAULT_AUTO_APPROVE);
         defaults.put("aiReviewerUser", null);
+        defaults.put("priorityProjects", DEFAULT_PRIORITY_PROJECTS);
+        defaults.put("priorityRepositories", DEFAULT_PRIORITY_REPOSITORIES);
+        defaults.put("priorityRateLimitSnoozeMinutes", DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES);
+        defaults.put("priorityRepoRateLimitPerHour", DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR);
+        defaults.put("priorityProjectRateLimitPerHour", DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR);
         return Collections.unmodifiableMap(defaults);
     }
 
@@ -649,6 +678,55 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             return true;
         }
         return ao.executeInTransaction(() -> findRepoConfiguration(projectKey, repositorySlug) != null);
+    }
+
+    @Override
+    public boolean isPriorityProject(@Nullable String projectKey) {
+        String normalized = canonicalProjectKey(projectKey);
+        if (normalized == null) {
+            return false;
+        }
+        AIReviewConfiguration config = getGlobalConfiguration();
+        return parsePriorityProjects(config.getPriorityProjects()).contains(normalized);
+    }
+
+    @Override
+    public boolean isPriorityRepository(@Nullable String projectKey, @Nullable String repositorySlug) {
+        String normalized = canonicalRepoKey(projectKey, repositorySlug);
+        if (normalized == null) {
+            return false;
+        }
+        AIReviewConfiguration config = getGlobalConfiguration();
+        return parsePriorityRepositories(config.getPriorityRepositories()).contains(normalized);
+    }
+
+    @Override
+    public int getPriorityRateLimitSnoozeMinutes() {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        int configured = config.getPrioritySnoozeMinutes();
+        return configured > 0 ? configured : DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES;
+    }
+
+    @Override
+    public int getPriorityProjectRateLimitPerHour() {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        int configured = config.getPriorityProjectRateLimit();
+        if (configured > 0) {
+            return configured;
+        }
+        int base = Math.max(config.getProjectRateLimitPerHour(), DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR);
+        return Math.max(DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR, base);
+    }
+
+    @Override
+    public int getPriorityRepoRateLimitPerHour() {
+        AIReviewConfiguration config = getGlobalConfiguration();
+        int configured = config.getPriorityRepoRateLimit();
+        if (configured > 0) {
+            return configured;
+        }
+        int base = Math.max(config.getRepoRateLimitPerHour(), DEFAULT_REPO_RATE_LIMIT_PER_HOUR);
+        return Math.max(DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR, base);
     }
 
     @Override
@@ -1007,6 +1085,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setMaxQueuedReviews(DEFAULT_MAX_QUEUED_REVIEWS);
         config.setRepoRateLimitPerHour(DEFAULT_REPO_RATE_LIMIT_PER_HOUR);
         config.setProjectRateLimitPerHour(DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR);
+        config.setPriorityProjects(DEFAULT_PRIORITY_PROJECTS);
+        config.setPriorityRepositories(DEFAULT_PRIORITY_REPOSITORIES);
+        config.setPrioritySnoozeMinutes(DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES);
+        config.setPriorityRepoRateLimit(DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR);
+        config.setPriorityProjectRateLimit(DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR);
         config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
         config.setReadTimeout(DEFAULT_READ_TIMEOUT);
         config.setOllamaTimeout(DEFAULT_OLLAMA_TIMEOUT);
@@ -1078,6 +1161,21 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("projectRateLimitPerHour")) {
             config.setProjectRateLimitPerHour(getIntValue(configMap, "projectRateLimitPerHour"));
+        }
+        if (configMap.containsKey("priorityProjects")) {
+            config.setPriorityProjects(normalizeScopeListValue(configMap.get("priorityProjects")));
+        }
+        if (configMap.containsKey("priorityRepositories")) {
+            config.setPriorityRepositories(normalizeScopeListValue(configMap.get("priorityRepositories")));
+        }
+        if (configMap.containsKey("priorityRateLimitSnoozeMinutes")) {
+            config.setPrioritySnoozeMinutes(getIntValue(configMap, "priorityRateLimitSnoozeMinutes"));
+        }
+        if (configMap.containsKey("priorityRepoRateLimitPerHour")) {
+            config.setPriorityRepoRateLimit(getIntValue(configMap, "priorityRepoRateLimitPerHour"));
+        }
+        if (configMap.containsKey("priorityProjectRateLimitPerHour")) {
+            config.setPriorityProjectRateLimit(getIntValue(configMap, "priorityProjectRateLimitPerHour"));
         }
         if (configMap.containsKey("connectTimeout")) {
             config.setConnectTimeout(getIntValue(configMap, "connectTimeout"));
@@ -1227,6 +1325,26 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             config.setProjectRateLimitPerHour(DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR);
             updated = true;
         }
+        if (isBlank(config.getPriorityProjects())) {
+            config.setPriorityProjects(DEFAULT_PRIORITY_PROJECTS);
+            updated = true;
+        }
+        if (isBlank(config.getPriorityRepositories())) {
+            config.setPriorityRepositories(DEFAULT_PRIORITY_REPOSITORIES);
+            updated = true;
+        }
+        if (config.getPrioritySnoozeMinutes() <= 0) {
+            config.setPrioritySnoozeMinutes(DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES);
+            updated = true;
+        }
+        if (config.getPriorityRepoRateLimit() <= 0) {
+            config.setPriorityRepoRateLimit(DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR);
+            updated = true;
+        }
+        if (config.getPriorityProjectRateLimit() <= 0) {
+            config.setPriorityProjectRateLimit(DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR);
+            updated = true;
+        }
 
         if (config.getConnectTimeout() <= 0) {
             config.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
@@ -1309,6 +1427,97 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return value == null || value.trim().isEmpty();
     }
 
+    private List<String> splitList(@Nullable String raw) {
+        if (raw == null) {
+            return Collections.emptyList();
+        }
+        String[] tokens = raw.split("[,\\n]");
+        List<String> values = new ArrayList<>(tokens.length);
+        for (String token : tokens) {
+            if (token == null) {
+                continue;
+            }
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                values.add(trimmed);
+            }
+        }
+        return values;
+    }
+
+    private String normalizeScopeListValue(@Nullable Object raw) {
+        if (raw == null) {
+            return "";
+        }
+        if (raw instanceof Collection) {
+            Collection<?> collection = (Collection<?>) raw;
+            return collection.stream()
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .collect(Collectors.joining(","));
+        }
+        return raw.toString();
+    }
+
+    private Set<String> parsePriorityProjects(@Nullable String raw) {
+        if (isBlank(raw)) {
+            return Collections.emptySet();
+        }
+        Set<String> projects = new LinkedHashSet<>();
+        for (String entry : splitList(raw)) {
+            String normalized = canonicalProjectKey(entry);
+            if (normalized != null) {
+                projects.add(normalized);
+            }
+        }
+        return projects;
+    }
+
+    private Set<String> parsePriorityRepositories(@Nullable String raw) {
+        if (isBlank(raw)) {
+            return Collections.emptySet();
+        }
+        Set<String> repos = new LinkedHashSet<>();
+        for (String entry : splitList(raw)) {
+            int slash = entry.indexOf('/');
+            if (slash <= 0 || slash >= entry.length() - 1) {
+                continue;
+            }
+            String project = entry.substring(0, slash);
+            String repo = entry.substring(slash + 1);
+            String normalized = canonicalRepoKey(project, repo);
+            if (normalized != null) {
+                repos.add(normalized);
+            }
+        }
+        return repos;
+    }
+
+    private String canonicalProjectKey(@Nullable String projectKey) {
+        if (projectKey == null) {
+            return null;
+        }
+        String trimmed = projectKey.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed.toUpperCase(Locale.ROOT);
+    }
+
+    private String canonicalRepoKey(@Nullable String projectKey, @Nullable String repositorySlug) {
+        String project = canonicalProjectKey(projectKey);
+        if (project == null || repositorySlug == null) {
+            return null;
+        }
+        String slug = repositorySlug.trim().toLowerCase(Locale.ROOT);
+        if (slug.isEmpty()) {
+            return null;
+        }
+        return project + "/" + slug;
+    }
+
     private Map<String, Object> convertToMap(AIReviewConfiguration config) {
         Map<String, Object> map = new HashMap<>();
         map.put("ollamaUrl", defaultString(config.getOllamaUrl(), DEFAULT_OLLAMA_URL));
@@ -1326,6 +1535,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("maxQueuedPerProject", defaultInt(config.getMaxQueuedPerProject(), DEFAULT_MAX_QUEUED_PER_PROJECT));
         map.put("repoRateLimitPerHour", defaultIntAllowZero(config.getRepoRateLimitPerHour(), DEFAULT_REPO_RATE_LIMIT_PER_HOUR));
         map.put("projectRateLimitPerHour", defaultIntAllowZero(config.getProjectRateLimitPerHour(), DEFAULT_PROJECT_RATE_LIMIT_PER_HOUR));
+        map.put("priorityProjects", defaultString(config.getPriorityProjects(), DEFAULT_PRIORITY_PROJECTS));
+        map.put("priorityRepositories", defaultString(config.getPriorityRepositories(), DEFAULT_PRIORITY_REPOSITORIES));
+        map.put("priorityRateLimitSnoozeMinutes",
+                defaultInt(config.getPrioritySnoozeMinutes(), DEFAULT_PRIORITY_RATE_LIMIT_SNOOZE_MINUTES));
+        map.put("priorityRepoRateLimitPerHour",
+                defaultIntAllowZero(config.getPriorityRepoRateLimit(), DEFAULT_PRIORITY_REPO_RATE_LIMIT_PER_HOUR));
+        map.put("priorityProjectRateLimitPerHour",
+                defaultIntAllowZero(config.getPriorityProjectRateLimit(), DEFAULT_PRIORITY_PROJECT_RATE_LIMIT_PER_HOUR));
         map.put("connectTimeout", defaultInt(config.getConnectTimeout(), DEFAULT_CONNECT_TIMEOUT));
         map.put("readTimeout", defaultInt(config.getReadTimeout(), DEFAULT_READ_TIMEOUT));
         map.put("ollamaTimeout", defaultInt(config.getOllamaTimeout(), DEFAULT_OLLAMA_TIMEOUT));
@@ -1414,6 +1631,26 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             }
         }
         return null;
+    }
+
+    private void validatePriorityScopeList(String key,
+                                           @Nullable String value,
+                                           boolean projects,
+                                           Map<String, String> errors) {
+        if (value == null || value.trim().isEmpty()) {
+            return;
+        }
+        for (String entry : splitList(value)) {
+            if (projects) {
+                if (!PRIORITY_PROJECT_PATTERN.matcher(entry).matches()) {
+                    errors.put(key, "Invalid project key '" + entry + "'");
+                    return;
+                }
+            } else if (!PRIORITY_REPO_PATTERN.matcher(entry).matches()) {
+                errors.put(key, "Invalid repository coordinate '" + entry + "' (expected PROJECT/slug)");
+                return;
+            }
+        }
     }
 
     private boolean isValidSeverity(String severity) {

@@ -114,6 +114,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ReviewConcurrencyController concurrencyController;
     private final ReviewRateLimiter rateLimiter;
     private final ReviewWorkerPool workerPool;
+    private final GuardrailsAutoSnoozeService autoSnoozeService;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -135,7 +136,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             @ComponentImport RepositoryHookService repositoryHookService,
             ReviewConcurrencyController concurrencyController,
             ReviewRateLimiter rateLimiter,
-            ReviewWorkerPool workerPool) {
+            ReviewWorkerPool workerPool,
+            GuardrailsAutoSnoozeService autoSnoozeService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -153,6 +155,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController cannot be null");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter cannot be null");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool cannot be null");
+        this.autoSnoozeService = Objects.requireNonNull(autoSnoozeService, "autoSnoozeService cannot be null");
 
     }
 
@@ -238,6 +241,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                     MANUAL_RATE_LIMIT_SNOOZE_MS,
                     run.manual ? "manual-review" : "forced-review");
         }
+        autoSnoozeService.ensurePriorityCapacity(run.getProjectKey(), run.getRepositorySlug());
     }
 
     private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {

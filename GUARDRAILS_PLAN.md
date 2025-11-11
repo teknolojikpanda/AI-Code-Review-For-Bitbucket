@@ -16,7 +16,7 @@
 [X] 3. Share limiter counters cluster-wide using AO + caching (with short TTL invalidation) so scaling nodes respect the same budgets. _(AO buckets + cached snapshots back the new `GuardrailsRateLimitStore`.)_
 [X] 4. Provide global + per-repo admin controls to temporarily raise/lower limits and display recent throttle incidents directly on the configuration screen. _(Overrides + incidents surfaced via `/rest/ai-reviewer/1.0/config/limiter` and Config UI payload.)_
 [X] 5. Emit per-repo limiter metrics (recent throttle rate, refill ETA, tokens remaining) into progress snapshots and `/metrics` so teams can self-diagnose. _(Bucket states now include remaining tokens/reset ETA + metrics emit per-scope samples.)_
-[ ] 6. Add auto-snooze/resume logic that can temporarily relax limits for high-priority repos (merge-critical) while logging the override for auditability.
+[X] 6. Add auto-snooze/resume logic that can temporarily relax limits for high-priority repos (merge-critical) while logging the override for auditability. _(Priority scope lists now drive AO-backed auto-snooze overrides + audit trails.)_
 [ ] 7. Introduce alert thresholds per repo/project so stakeholders get notified before throttling becomes blocking.
 [ ] 8. Allow “burst credits” that can be granted programmatically (e.g., via REST) for CI spikes, with automatic expiration and audit entries.
 

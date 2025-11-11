@@ -89,6 +89,23 @@ public interface AIReviewConfiguration extends Entity {
     int getProjectRateLimitPerHour();
     void setProjectRateLimitPerHour(int limit);
 
+    @StringLength(StringLength.UNLIMITED)
+    String getPriorityProjects();
+    void setPriorityProjects(String priorityProjects);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getPriorityRepositories();
+    void setPriorityRepositories(String priorityRepositories);
+
+    int getPrioritySnoozeMinutes();
+    void setPrioritySnoozeMinutes(int minutes);
+
+    int getPriorityRepoRateLimit();
+    void setPriorityRepoRateLimit(int limit);
+
+    int getPriorityProjectRateLimit();
+    void setPriorityProjectRateLimit(int limit);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();

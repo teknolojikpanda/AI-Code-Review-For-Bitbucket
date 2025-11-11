@@ -3,6 +3,7 @@ package com.teknolojikpanda.bitbucket.aireviewer.service;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -170,6 +171,31 @@ public interface AIReviewerConfigService {
      * @return true if the repository is in scope
      */
     boolean isRepositoryWithinScope(@Nonnull String projectKey, @Nonnull String repositorySlug);
+
+    /**
+     * Returns true if the provided project key is marked as high priority for rate-limit auto-snoozing.
+     */
+    boolean isPriorityProject(@Nullable String projectKey);
+
+    /**
+     * Returns true if the provided repository is marked as high priority for rate-limit auto-snoozing.
+     */
+    boolean isPriorityRepository(@Nullable String projectKey, @Nullable String repositorySlug);
+
+    /**
+     * @return duration in minutes applied to auto-snooze overrides.
+     */
+    int getPriorityRateLimitSnoozeMinutes();
+
+    /**
+     * @return override limit applied to project-level priority auto-snoozes.
+     */
+    int getPriorityProjectRateLimitPerHour();
+
+    /**
+     * @return override limit applied to repo-level priority auto-snoozes.
+     */
+    int getPriorityRepoRateLimitPerHour();
 
     /**
      * Immutable value object representing a page of repository catalogue entries.

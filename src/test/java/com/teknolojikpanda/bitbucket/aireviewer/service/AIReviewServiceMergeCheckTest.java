@@ -49,6 +49,7 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewWorkerPool workerPool;
     private GuardrailsRateLimitStore rateLimitStore;
     private GuardrailsRateLimitOverrideService overrideService;
+    private GuardrailsAutoSnoozeService autoSnoozeService;
     private ReviewSchedulerStateService schedulerStateService;
     private ReviewQueueAuditService queueAuditService;
 
@@ -91,6 +92,7 @@ public class AIReviewServiceMergeCheckTest {
         concurrencyController = new ReviewConcurrencyController(configService, schedulerStateService, queueAuditService);
         rateLimiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService);
         workerPool = new ReviewWorkerPool(configService);
+        autoSnoozeService = mock(GuardrailsAutoSnoozeService.class);
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -109,7 +111,8 @@ public class AIReviewServiceMergeCheckTest {
                 repositoryHookService,
                 concurrencyController,
                 rateLimiter,
-                workerPool);
+                workerPool,
+                autoSnoozeService);
 
         try {
             setSecurityServiceNull();
