@@ -20,6 +20,8 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `PUT /rest/ai-reviewer/1.0/automation/channels/{id}` | Updates channel description/enablement without touching the URL. |
 | `DELETE /rest/ai-reviewer/1.0/automation/channels/{id}` | Removes a channel (used when rotating credentials or off-boarding an incident room). |
 | `POST /rest/ai-reviewer/1.0/automation/channels/{id}/test` | Sends a benign sample alert to the target URL so operators can verify wiring before relying on production alerts. |
+| `GET /rest/ai-reviewer/1.0/automation/alerts/deliveries` | Paginates the most recent webhook deliveries (success/failure, HTTP code, payload snippet) for auditing. |
+| `POST /rest/ai-reviewer/1.0/automation/alerts/deliveries/{id}/ack` | Marks a delivery as acknowledged (optionally storing a note) so the incident log reflects operator hand-offs. |
 
 Core metric names emitted via `/metrics`:
 

@@ -5,6 +5,8 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService.Channel;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService.Delivery;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import org.junit.Before;
@@ -26,6 +28,7 @@ public class AutomationResourceTest {
     private UserManager userManager;
     private ReviewSchedulerStateService schedulerStateService;
     private GuardrailsAlertChannelService channelService;
+    private GuardrailsAlertDeliveryService deliveryService;
     private AutomationResource resource;
     private HttpServletRequest request;
     private UserProfile profile;
@@ -35,13 +38,19 @@ public class AutomationResourceTest {
         userManager = mock(UserManager.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         channelService = mock(GuardrailsAlertChannelService.class);
-        resource = new AutomationResource(userManager, schedulerStateService, channelService);
+        deliveryService = mock(GuardrailsAlertDeliveryService.class);
+        resource = new AutomationResource(userManager, schedulerStateService, channelService, deliveryService);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L);
         Page<Channel> page = new Page<>(List.of(channel), 1, 50, 0);
         when(channelService.listChannels(anyInt(), anyInt())).thenReturn(page);
         when(channelService.sendTestAlert(anyInt())).thenReturn(true);
+        Delivery delivery = new Delivery(42, 1, "https://example", "Ops Pager", System.currentTimeMillis(),
+                true, false, 200, "{}", null, false, null, null, 0L, null);
+        Page<Delivery> deliveryPage = new Page<>(List.of(delivery), 1, 50, 0);
+        when(deliveryService.listDeliveries(anyInt(), anyInt())).thenReturn(deliveryPage);
+        when(deliveryService.acknowledge(anyInt(), any(), any(), any())).thenReturn(delivery);
     }
 
     @Test
@@ -154,5 +163,54 @@ public class AutomationResourceTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         verify(channelService).sendTestAlert(1);
+    }
+
+    @Test
+    public void deliveriesRequireAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(null);
+
+        Response response = resource.listDeliveries(request, null, null);
+
+        assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
+        verifyNoInteractions(deliveryService);
+    }
+
+    @Test
+    public void deliveriesEndpointReturnsPage() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+
+        Response response = resource.listDeliveries(request, 25, 10);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(deliveryService).listDeliveries(10, 25);
+    }
+
+    @Test
+    public void acknowledgeDeliveryRequiresAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(null);
+
+        Response response = resource.acknowledgeDelivery(request, 1, new AutomationResource.AckRequest());
+
+        assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
+        verifyNoInteractions(deliveryService);
+    }
+
+    @Test
+    public void acknowledgeDeliveryInvokesService() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(profile.getFullName()).thenReturn("Admin");
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+        AutomationResource.AckRequest payload = new AutomationResource.AckRequest();
+        payload.note = "Investigated";
+
+        Response response = resource.acknowledgeDelivery(request, 10, payload);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(deliveryService).acknowledge(eq(10), eq("admin"), eq("Admin"), eq("Investigated"));
     }
 }

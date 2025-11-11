@@ -4,6 +4,7 @@ import com.atlassian.activeobjects.external.ActiveObjects;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import net.java.ao.Query;
@@ -27,11 +28,14 @@ public class GuardrailsAlertChannelService {
 
     private static final Logger log = LoggerFactory.getLogger(GuardrailsAlertChannelService.class);
     private final ActiveObjects ao;
+    private final GuardrailsAlertDeliveryService deliveryService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Inject
-    public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao) {
+    public GuardrailsAlertChannelService(@ComponentImport ActiveObjects ao,
+                                         GuardrailsAlertDeliveryService deliveryService) {
         this.ao = Objects.requireNonNull(ao, "activeObjects");
+        this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
     }
 
     public List<Channel> listChannels() {
@@ -124,7 +128,7 @@ public class GuardrailsAlertChannelService {
     public boolean sendTestAlert(int id) {
         Channel channel = getChannel(id);
         GuardrailsAlertingService.AlertSnapshot snapshot = GuardrailsAlertingService.AlertSnapshot.sample(channel.getDescription());
-        return deliverSnapshot(channel, snapshot);
+        return deliverSnapshot(channel, snapshot, true);
     }
 
     public void notifyChannels(GuardrailsAlertingService.AlertSnapshot snapshot) {
@@ -136,17 +140,23 @@ public class GuardrailsAlertChannelService {
             if (!channel.isEnabled()) {
                 continue;
             }
-            deliverSnapshot(channel, snapshot);
+            deliverSnapshot(channel, snapshot, false);
         }
     }
 
-    private boolean deliverSnapshot(Channel channel, GuardrailsAlertingService.AlertSnapshot snapshot) {
+    private boolean deliverSnapshot(Channel channel,
+                                    GuardrailsAlertingService.AlertSnapshot snapshot,
+                                    boolean test) {
         URL target = toUrl(channel.getUrl());
         if (target == null) {
             log.warn("Skipping alert delivery; invalid URL {}", channel.getUrl());
+            recordDelivery(channel, snapshot, false, 0, "Invalid URL", test);
             return false;
         }
         HttpURLConnection connection = null;
+        boolean success = false;
+        int status = 0;
+        String error = null;
         try {
             connection = (HttpURLConnection) target.openConnection();
             connection.setDoOutput(true);
@@ -158,19 +168,53 @@ public class GuardrailsAlertChannelService {
             try (OutputStream os = connection.getOutputStream()) {
                 os.write(payload);
             }
-            int status = connection.getResponseCode();
+            status = connection.getResponseCode();
             if (status >= 400) {
                 log.warn("Guardrails alert delivery to {} failed with HTTP {}", channel.getUrl(), status);
+                error = "HTTP " + status;
                 return false;
             }
+            success = true;
             return true;
         } catch (IOException ex) {
             log.warn("Failed to deliver guardrails alert to {}: {}", channel.getUrl(), ex.getMessage());
+            error = ex.getMessage();
             return false;
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
+            recordDelivery(channel, snapshot, success, status, error, test);
+        }
+    }
+
+    private void recordDelivery(Channel channel,
+                                GuardrailsAlertingService.AlertSnapshot snapshot,
+                                boolean success,
+                                int httpStatus,
+                                String errorMessage,
+                                boolean test) {
+        String json = null;
+        try {
+            json = mapper.writeValueAsString(snapshot);
+        } catch (Exception e) {
+            json = "{\"error\":\"Failed to serialize snapshot\"}";
+        }
+        GuardrailsAlertDeliveryService.DeliveryRequest request =
+                new GuardrailsAlertDeliveryService.DeliveryRequest(
+                        channel.getId(),
+                        channel.getUrl(),
+                        channel.getDescription(),
+                        System.currentTimeMillis(),
+                        success,
+                        test,
+                        httpStatus,
+                        json,
+                        errorMessage);
+        try {
+            deliveryService.recordDelivery(request);
+        } catch (Exception ex) {
+            log.warn("Failed to record guardrails alert delivery for channel {}: {}", channel.getUrl(), ex.getMessage());
         }
     }
 

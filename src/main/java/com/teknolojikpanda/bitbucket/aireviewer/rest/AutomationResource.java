@@ -5,6 +5,8 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService.Channel;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService.Delivery;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 
@@ -39,14 +41,17 @@ public class AutomationResource {
     private final UserManager userManager;
     private final ReviewSchedulerStateService schedulerStateService;
     private final GuardrailsAlertChannelService channelService;
+    private final GuardrailsAlertDeliveryService deliveryService;
 
     @Inject
     public AutomationResource(@ComponentImport UserManager userManager,
                               ReviewSchedulerStateService schedulerStateService,
-                              GuardrailsAlertChannelService channelService) {
+                              GuardrailsAlertChannelService channelService,
+                              GuardrailsAlertDeliveryService deliveryService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
         this.channelService = Objects.requireNonNull(channelService, "channelService");
+        this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
     }
 
     @POST
@@ -175,6 +180,45 @@ public class AutomationResource {
                 "delivered", delivered)).build();
     }
 
+    @GET
+    @Path("/alerts/deliveries")
+    public Response listDeliveries(@Context HttpServletRequest request,
+                                   @QueryParam("limit") Integer limitParam,
+                                   @QueryParam("offset") Integer offsetParam) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        int limit = limitParam == null ? 50 : Math.max(1, Math.min(limitParam, 200));
+        int offset = offsetParam == null ? 0 : Math.max(0, offsetParam);
+        Page<Delivery> page = deliveryService.listDeliveries(offset, limit);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("deliveries", page.getValues());
+        payload.put("total", page.getTotal());
+        payload.put("limit", page.getLimit());
+        payload.put("offset", page.getOffset());
+        return Response.ok(payload).build();
+    }
+
+    @POST
+    @Path("/alerts/deliveries/{id}/ack")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response acknowledgeDelivery(@Context HttpServletRequest request,
+                                        @PathParam("id") int id,
+                                        AckRequest body) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        AckRequest payload = body != null ? body : new AckRequest();
+        Delivery delivery = deliveryService.acknowledge(
+                id,
+                access.profile.getUserKey().getStringValue(),
+                access.profile.getFullName(),
+                payload.note);
+        return Response.ok(delivery).build();
+    }
+
     private Access requireSystemAdmin(HttpServletRequest request) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (profile == null) {
@@ -198,6 +242,10 @@ public class AutomationResource {
                 throw new IllegalArgumentException("Channel URL is required");
             }
         }
+    }
+
+    public static final class AckRequest {
+        public String note;
     }
 
     private static final class Access {

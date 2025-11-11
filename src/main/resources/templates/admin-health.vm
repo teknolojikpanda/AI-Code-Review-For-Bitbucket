@@ -195,6 +195,30 @@
                     </form>
                 </section>
 
+                <section class="automation-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Alert Delivery History</h2>
+                        <span id="deliveries-count" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-panel">
+                        <div class="aui-message" id="deliveries-message" style="display:none;"></div>
+                        <div class="queue-empty" id="deliveries-empty">No deliveries logged yet.</div>
+                        <table class="aui aui-table aui-table-rowhover" id="deliveries-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>When</th>
+                                <th>Channel</th>
+                                <th>Status</th>
+                                <th>HTTP</th>
+                                <th>Error</th>
+                                <th>Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
+
                 <section class="queue-section" style="margin-top: 24px;">
                     <header class="queue-header">
                         <h2>Retention Cleanup</h2>

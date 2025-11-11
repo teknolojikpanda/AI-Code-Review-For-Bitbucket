@@ -13,6 +13,7 @@
     var automationBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/automation';
     var rolloutStateUrl = automationBaseUrl + '/rollout/state';
     var channelsUrl = automationBaseUrl + '/channels';
+    var deliveriesUrl = automationBaseUrl + '/alerts/deliveries';
     var channelListLimit = 200;
 
     function init() {
@@ -53,6 +54,10 @@
             event.preventDefault();
             testChannel($(this).data('id'));
         });
+        $('#deliveries-table').on('click', '.delivery-ack', function(event) {
+            event.preventDefault();
+            acknowledgeDelivery($(this).data('id'));
+        });
         loadHealth();
         loadAutomationData();
     }
@@ -82,6 +87,7 @@
     function loadAutomationData() {
         loadRolloutState();
         loadChannels();
+        loadDeliveries();
     }
 
     function loadRolloutState() {
@@ -107,6 +113,19 @@
             setChannelMessage();
         }).fail(function(xhr) {
             setChannelMessage('error', describeError(xhr, 'Failed to load alert channels'));
+        });
+    }
+
+    function loadDeliveries() {
+        $.ajax({
+            url: deliveriesUrl + '?limit=50&offset=0',
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            renderDeliveries(resp || {});
+            setDeliveriesMessage();
+        }).fail(function(xhr) {
+            setDeliveriesMessage('error', describeError(xhr, 'Failed to load alert deliveries'));
         });
     }
 
@@ -532,6 +551,48 @@
         $table.show();
     }
 
+    function renderDeliveries(payload) {
+        payload = payload || {};
+        var deliveries = payload.deliveries || [];
+        var total = payload.total != null ? payload.total : deliveries.length;
+        $('#deliveries-count').text(total + (total === 1 ? ' delivery' : ' deliveries'));
+        var $table = $('#deliveries-table');
+        var $empty = $('#deliveries-empty');
+        if (!deliveries.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.show();
+            return;
+        }
+        var rows = deliveries.map(function(delivery) {
+            var statusClass = delivery.success ? 'deliveries-status-success' : 'deliveries-status-failed';
+            var statusLabel = delivery.success ? 'Success' : 'Failed';
+            if (delivery.test) {
+                statusLabel += ' (test)';
+            }
+            var ackLabel = delivery.acknowledged
+                ? 'Ack by ' + (delivery.ackUserDisplayName || delivery.ackUserKey || 'admin')
+                : '';
+            var errorText = delivery.errorMessage ? escapeHtml(delivery.errorMessage) : '—';
+            var actions = delivery.acknowledged
+                ? '<span class="aui-lozenge aui-lozenge-success">Acknowledged</span>'
+                : '<button type="button" class="aui-button aui-button-link delivery-ack" data-id="' + delivery.id + '">Acknowledge</button>';
+            return '<tr>' +
+                '<td>' + escapeHtml(formatTimestamp(delivery.deliveredAt)) + '</td>' +
+                '<td>' + escapeHtml(delivery.channelDescription || delivery.channelUrl || ('Channel ' + delivery.channelId)) + '</td>' +
+                '<td class="' + statusClass + '">' + escapeHtml(statusLabel) +
+                (ackLabel ? '<div class="queue-meta">' + escapeHtml(ackLabel) + '</div>' : '') +
+                '</td>' +
+                '<td>' + (delivery.httpStatus || '—') + '</td>' +
+                '<td>' + errorText + '</td>' +
+                '<td>' + actions + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $empty.hide();
+        $table.show();
+    }
+
     function changeRolloutState(mode) {
         if (!mode) {
             return;
@@ -644,6 +705,36 @@
 
     function setChannelMessage(type, message) {
         var $message = $('#channel-message');
+        if (!message) {
+            $message.hide().text('');
+            return;
+        }
+        var css = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+        $message.removeClass('error success info').addClass(css).text(message).show();
+    }
+
+    function acknowledgeDelivery(id) {
+        var note = window.prompt('Add acknowledgement note (optional):', '');
+        if (note === null) {
+            return;
+        }
+        setDeliveriesMessage('info', 'Acknowledging delivery…');
+        $.ajax({
+            url: deliveriesUrl + '/' + id + '/ack',
+            type: 'POST',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify({ note: note || null })
+        }).done(function() {
+            setDeliveriesMessage('success', 'Delivery acknowledged.');
+            loadDeliveries();
+        }).fail(function(xhr) {
+            setDeliveriesMessage('error', describeError(xhr, 'Failed to acknowledge delivery'));
+        });
+    }
+
+    function setDeliveriesMessage(type, message) {
+        var $message = $('#deliveries-message');
         if (!message) {
             $message.hide().text('');
             return;

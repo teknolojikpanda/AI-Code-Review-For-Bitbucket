@@ -22,6 +22,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupStatus</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewCleanupAudit</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertChannel</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsAlertDelivery</entity>
     </ao>
 
     <!--

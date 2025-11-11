@@ -284,6 +284,21 @@
     color: #a5adba;
 }
 
+.deliveries-status-success {
+    color: #006644;
+    font-weight: 600;
+}
+
+.deliveries-status-failed {
+    color: #de350b;
+    font-weight: 600;
+}
+
+.deliveries-status-test {
+    font-style: italic;
+    color: #6554c0;
+}
+
 .ai-reviewer-account.disabled {
     opacity: 0.5;
     pointer-events: none;
