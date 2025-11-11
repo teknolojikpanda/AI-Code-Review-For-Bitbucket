@@ -1,6 +1,7 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
+import com.atlassian.sal.api.lifecycle.LifecycleAware;
 import com.atlassian.scheduler.JobRunner;
 import com.atlassian.scheduler.JobRunnerRequest;
 import com.atlassian.scheduler.JobRunnerResponse;
@@ -22,7 +23,7 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 @Named
-public class ReviewHistoryCleanupScheduler implements DisposableBean {
+public class ReviewHistoryCleanupScheduler implements LifecycleAware, DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewHistoryCleanupScheduler.class);
     static final JobRunnerKey JOB_RUNNER_KEY = JobRunnerKey.of("com.teknolojikpanda.bitbucket.ai-code-reviewer:history-cleanup-runner");
@@ -32,6 +33,7 @@ public class ReviewHistoryCleanupScheduler implements DisposableBean {
     private final ReviewHistoryCleanupService cleanupService;
     private final ReviewHistoryCleanupStatusService statusService;
     private final JobRunner cleanupRunner = new CleanupJobRunner();
+    private volatile boolean lifecycleStarted;
 
     @Inject
     public ReviewHistoryCleanupScheduler(@ComponentImport SchedulerService schedulerService,
@@ -40,19 +42,32 @@ public class ReviewHistoryCleanupScheduler implements DisposableBean {
         this.schedulerService = Objects.requireNonNull(schedulerService, "schedulerService");
         this.cleanupService = Objects.requireNonNull(cleanupService, "cleanupService");
         this.statusService = Objects.requireNonNull(statusService, "statusService");
-        registerJobRunner();
-        scheduleNextRun();
     }
 
     public void reschedule() {
+        if (!lifecycleStarted) {
+            log.debug("Cleanup scheduler reschedule ignored; lifecycle not started");
+            return;
+        }
         schedulerService.unscheduleJob(JOB_ID);
         scheduleNextRun();
     }
 
     @Override
+    public void onStart() {
+        registerJobRunner();
+        lifecycleStarted = true;
+        scheduleNextRun();
+    }
+
+    @Override
+    public void onStop() {
+        shutdownScheduler();
+    }
+
+    @Override
     public void destroy() {
-        schedulerService.unscheduleJob(JOB_ID);
-        schedulerService.unregisterJobRunner(JOB_RUNNER_KEY);
+        shutdownScheduler();
     }
 
     private void registerJobRunner() {
@@ -61,7 +76,17 @@ public class ReviewHistoryCleanupScheduler implements DisposableBean {
     }
 
     private void scheduleNextRun() {
-        ReviewHistoryCleanupStatusService.Status status = statusService.getStatus();
+        if (!lifecycleStarted) {
+            log.debug("Cleanup scheduler not started; skipping schedule");
+            return;
+        }
+        ReviewHistoryCleanupStatusService.Status status;
+        try {
+            status = statusService.getStatus();
+        } catch (IllegalStateException ex) {
+            log.warn("ActiveObjects not ready for cleanup scheduling yet: {}", ex.getMessage());
+            return;
+        }
         if (!status.isEnabled()) {
             log.info("AI review history cleanup job disabled; not scheduling");
             return;
@@ -98,5 +123,11 @@ public class ReviewHistoryCleanupScheduler implements DisposableBean {
                 return JobRunnerResponse.failed(ex);
             }
         }
+    }
+
+    private void shutdownScheduler() {
+        lifecycleStarted = false;
+        schedulerService.unscheduleJob(JOB_ID);
+        schedulerService.unregisterJobRunner(JOB_RUNNER_KEY);
     }
 }
