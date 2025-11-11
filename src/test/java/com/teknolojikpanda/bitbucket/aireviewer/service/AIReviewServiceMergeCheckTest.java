@@ -17,6 +17,7 @@ import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import com.teknolojikpanda.bitbucket.aireviewer.hook.AIReviewInProgressMergeCheck;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockitoAnnotations;
@@ -49,6 +50,7 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewWorkerPool workerPool;
     private GuardrailsRateLimitStore rateLimitStore;
     private GuardrailsRateLimitOverrideService overrideService;
+    private GuardrailsBurstCreditService burstCreditService;
     private GuardrailsAutoSnoozeService autoSnoozeService;
     private ReviewSchedulerStateService schedulerStateService;
     private ReviewQueueAuditService queueAuditService;
@@ -78,6 +80,7 @@ public class AIReviewServiceMergeCheckTest {
                 .thenAnswer(invocation -> invocation.getArgument(2));
         when(overrideService.resolveProjectLimit(any(), anyInt()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        burstCreditService = mock(GuardrailsBurstCreditService.class);
         securityService = mock(SecurityService.class);
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         queueAuditService = mock(ReviewQueueAuditService.class);
@@ -90,7 +93,7 @@ public class AIReviewServiceMergeCheckTest {
                         System.currentTimeMillis());
         when(schedulerStateService.getState()).thenReturn(schedulerState);
         concurrencyController = new ReviewConcurrencyController(configService, schedulerStateService, queueAuditService);
-        rateLimiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService);
+        rateLimiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService, burstCreditService);
         workerPool = new ReviewWorkerPool(configService);
         autoSnoozeService = mock(GuardrailsAutoSnoozeService.class);
 

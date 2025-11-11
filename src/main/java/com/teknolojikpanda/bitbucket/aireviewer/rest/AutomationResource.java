@@ -7,6 +7,9 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelSe
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService.Channel;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService.Delivery;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService.BurstCredit;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitScope;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 
@@ -27,8 +30,11 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 import static javax.ws.rs.core.Response.Status.FORBIDDEN;
 import static javax.ws.rs.core.Response.Status.UNAUTHORIZED;
@@ -42,16 +48,19 @@ public class AutomationResource {
     private final ReviewSchedulerStateService schedulerStateService;
     private final GuardrailsAlertChannelService channelService;
     private final GuardrailsAlertDeliveryService deliveryService;
+    private final GuardrailsBurstCreditService burstCreditService;
 
     @Inject
     public AutomationResource(@ComponentImport UserManager userManager,
                               ReviewSchedulerStateService schedulerStateService,
                               GuardrailsAlertChannelService channelService,
-                              GuardrailsAlertDeliveryService deliveryService) {
+                              GuardrailsAlertDeliveryService deliveryService,
+                              GuardrailsBurstCreditService burstCreditService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
         this.channelService = Objects.requireNonNull(channelService, "channelService");
         this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
+        this.burstCreditService = Objects.requireNonNull(burstCreditService, "burstCreditService");
     }
 
     @POST
@@ -232,6 +241,69 @@ public class AutomationResource {
         return Response.ok(delivery).build();
     }
 
+    @GET
+    @Path("/burst-credits")
+    public Response listBurstCredits(@Context HttpServletRequest request,
+                                     @QueryParam("includeExpired") boolean includeExpired) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        burstCreditService.purgeExpired();
+        List<BurstCredit> credits = burstCreditService.listCredits(includeExpired);
+        List<Map<String, Object>> items = credits.stream()
+                .map(this::burstCreditToMap)
+                .collect(Collectors.toList());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("items", items);
+        payload.put("includeExpired", includeExpired);
+        return Response.ok(payload).build();
+    }
+
+    @POST
+    @Path("/burst-credits")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response grantBurstCredit(@Context HttpServletRequest request,
+                                     BurstCreditRequest body) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        BurstCreditRequest payload = body != null ? body : new BurstCreditRequest();
+        GuardrailsRateLimitScope scope = payload.resolveScope();
+        String identifier = payload.resolveIdentifier(scope);
+        BurstCredit credit = burstCreditService.grantCredit(
+                scope,
+                identifier,
+                payload.tokens != null ? payload.tokens : 5,
+                payload.durationMinutes != null ? payload.durationMinutes.longValue() : 60L,
+                payload.reason,
+                payload.note,
+                access.profile.getUserKey().getStringValue(),
+                access.profile.getFullName());
+        return Response.ok(burstCreditToMap(credit)).build();
+    }
+
+    @DELETE
+    @Path("/burst-credits/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response revokeBurstCredit(@Context HttpServletRequest request,
+                                      @PathParam("id") int id,
+                                      BurstCreditRevokeRequest body) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        BurstCreditRevokeRequest payload = body != null ? body : new BurstCreditRevokeRequest();
+        boolean removed = burstCreditService.revokeCredit(id, payload.note);
+        if (!removed) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(Map.of("error", "Burst credit " + id + " not found"))
+                    .build();
+        }
+        return Response.noContent().build();
+    }
+
     private Access requireSystemAdmin(HttpServletRequest request) {
         UserProfile profile = userManager.getRemoteUser(request);
         if (profile == null) {
@@ -266,6 +338,49 @@ public class AutomationResource {
         public String note;
     }
 
+    public static final class BurstCreditRequest {
+        public String scope;
+        public String projectKey;
+        public String repositorySlug;
+        public Integer tokens;
+        public Integer durationMinutes;
+        public String reason;
+        public String note;
+
+        GuardrailsRateLimitScope resolveScope() {
+            String value = scope != null ? scope.trim().toLowerCase(Locale.ROOT) : "repository";
+            switch (value) {
+                case "project":
+                    return GuardrailsRateLimitScope.PROJECT;
+                case "repo":
+                case "repository":
+                case "":
+                case "null":
+                case "default":
+                    return GuardrailsRateLimitScope.REPOSITORY;
+                default:
+                    throw new IllegalArgumentException("Unsupported scope '" + scope + "'. Use 'project' or 'repository'.");
+            }
+        }
+
+        String resolveIdentifier(GuardrailsRateLimitScope target) {
+            if (target == GuardrailsRateLimitScope.PROJECT) {
+                if (projectKey == null || projectKey.trim().isEmpty()) {
+                    throw new IllegalArgumentException("projectKey is required for project burst credits");
+                }
+                return projectKey.trim();
+            }
+            if (repositorySlug == null || repositorySlug.trim().isEmpty()) {
+                throw new IllegalArgumentException("repositorySlug is required for repository burst credits");
+            }
+            return repositorySlug.trim();
+        }
+    }
+
+    public static final class BurstCreditRevokeRequest {
+        public String note;
+    }
+
     private static final class Access {
         final boolean allowed;
         final Response response;
@@ -293,6 +408,25 @@ public class AutomationResource {
         map.put("updatedByDisplayName", state.getUpdatedByDisplayName());
         map.put("reason", state.getReason());
         map.put("updatedAt", state.getUpdatedAt());
+        return map;
+    }
+
+    private Map<String, Object> burstCreditToMap(BurstCredit credit) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", credit.getId());
+        map.put("scope", credit.getScope().name().toLowerCase(Locale.ROOT));
+        map.put("identifier", credit.getIdentifier());
+        map.put("tokensGranted", credit.getTokensGranted());
+        map.put("tokensConsumed", credit.getTokensConsumed());
+        map.put("tokensRemaining", credit.getTokensRemaining());
+        map.put("createdAt", credit.getCreatedAt());
+        map.put("expiresAt", credit.getExpiresAt());
+        map.put("active", credit.isActive());
+        map.put("createdBy", credit.getCreatedBy());
+        map.put("createdByDisplayName", credit.getCreatedByDisplayName());
+        map.put("reason", credit.getReason());
+        map.put("note", credit.getNote());
+        map.put("lastConsumedAt", credit.getLastConsumedAt());
         return map;
     }
 }

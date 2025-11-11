@@ -7,6 +7,9 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelSe
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService.Channel;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService.Delivery;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService.BurstCredit;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitScope;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import org.junit.Before;
@@ -20,6 +23,8 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -29,6 +34,7 @@ public class AutomationResourceTest {
     private ReviewSchedulerStateService schedulerStateService;
     private GuardrailsAlertChannelService channelService;
     private GuardrailsAlertDeliveryService deliveryService;
+    private GuardrailsBurstCreditService burstCreditService;
     private AutomationResource resource;
     private HttpServletRequest request;
     private UserProfile profile;
@@ -39,7 +45,8 @@ public class AutomationResourceTest {
         schedulerStateService = mock(ReviewSchedulerStateService.class);
         channelService = mock(GuardrailsAlertChannelService.class);
         deliveryService = mock(GuardrailsAlertDeliveryService.class);
-        resource = new AutomationResource(userManager, schedulerStateService, channelService, deliveryService);
+        burstCreditService = mock(GuardrailsBurstCreditService.class);
+        resource = new AutomationResource(userManager, schedulerStateService, channelService, deliveryService, burstCreditService);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L, true, "secret", 2, 5);
@@ -213,5 +220,62 @@ public class AutomationResourceTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         verify(deliveryService).acknowledge(eq(10), eq("admin"), eq("Admin"), eq("Investigated"));
+    }
+
+    @Test
+    public void burstCreditsRequireAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(null);
+
+        Response response = resource.listBurstCredits(request, false);
+
+        assertEquals(Response.Status.UNAUTHORIZED.getStatusCode(), response.getStatus());
+        verifyNoInteractions(burstCreditService);
+    }
+
+    @Test
+    public void burstCreditEndpointsInvokeService() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(profile.getFullName()).thenReturn("Admin");
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+        BurstCredit credit = new BurstCredit(
+                5,
+                GuardrailsRateLimitScope.REPOSITORY,
+                "repo",
+                5,
+                0,
+                5,
+                System.currentTimeMillis(),
+                System.currentTimeMillis() + 60000,
+                true,
+                "admin",
+                "Admin",
+                "spike",
+                null,
+                0L);
+        when(burstCreditService.listCredits(false)).thenReturn(List.of(credit));
+        when(burstCreditService.purgeExpired()).thenReturn(0);
+        when(burstCreditService.grantCredit(any(), any(), anyInt(), anyLong(), any(), any(), any(), any()))
+                .thenReturn(credit);
+        when(burstCreditService.revokeCredit(eq(5), any())).thenReturn(true);
+
+        Response listResponse = resource.listBurstCredits(request, false);
+        assertEquals(Response.Status.OK.getStatusCode(), listResponse.getStatus());
+
+        AutomationResource.BurstCreditRequest grant = new AutomationResource.BurstCreditRequest();
+        grant.scope = "repository";
+        grant.projectKey = "PRJ";
+        grant.repositorySlug = "repo";
+        grant.tokens = 5;
+        grant.durationMinutes = 30;
+        grant.reason = "spike";
+
+        Response grantResponse = resource.grantBurstCredit(request, grant);
+        assertEquals(Response.Status.OK.getStatusCode(), grantResponse.getStatus());
+
+        Response revokeResponse = resource.revokeBurstCredit(request, 5, new AutomationResource.BurstCreditRevokeRequest());
+        assertEquals(Response.Status.NO_CONTENT.getStatusCode(), revokeResponse.getStatus());
+        verify(burstCreditService).revokeCredit(eq(5), any());
     }
 }

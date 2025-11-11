@@ -22,6 +22,7 @@ public class ReviewRateLimiterTest {
     private AIReviewerConfigService configService;
     private GuardrailsRateLimitStore rateLimitStore;
     private GuardrailsRateLimitOverrideService overrideService;
+    private GuardrailsBurstCreditService burstCreditService;
 
     @Before
     public void setUp() {
@@ -32,6 +33,7 @@ public class ReviewRateLimiterTest {
         overrideService = mock(GuardrailsRateLimitOverrideService.class);
         when(overrideService.resolveRepoLimit(any(), any(), anyInt())).thenAnswer(invocation -> invocation.getArgument(2));
         when(overrideService.resolveProjectLimit(any(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
+        burstCreditService = mock(GuardrailsBurstCreditService.class);
     }
 
     @Test
@@ -51,7 +53,7 @@ public class ReviewRateLimiterTest {
                 anyLong(),
                 anyLong());
 
-        ReviewRateLimiter limiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService);
+        ReviewRateLimiter limiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService, burstCreditService);
         limiter.acquire("PRJ", "repo"); // consumes the only token
         assertThrows(RateLimitExceededException.class, () -> limiter.acquire("PRJ", "repo"));
 
@@ -76,7 +78,7 @@ public class ReviewRateLimiterTest {
                 anyLong(),
                 anyLong());
 
-        ReviewRateLimiter limiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService);
+        ReviewRateLimiter limiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService, burstCreditService);
         limiter.acquire("PRJ", "repo");
         assertThrows(RateLimitExceededException.class, () -> limiter.acquire("PRJ", "repo"));
 
@@ -89,6 +91,26 @@ public class ReviewRateLimiterTest {
                 (java.util.concurrent.ConcurrentHashMap<String, Long>) snoozesField.get(limiter);
         snoozes.put("repo", System.currentTimeMillis() - 1);
 
+        assertThrows(RateLimitExceededException.class, () -> limiter.acquire("PRJ", "repo"));
+    }
+
+    @Test
+    public void burstCreditAllowsRunWhenLimitExceeded() {
+        doAnswer(invocation -> {
+            String identifier = invocation.getArgument(1);
+            int limit = invocation.getArgument(2);
+            throw RateLimitExceededException.repository(identifier, limit, 1000L);
+        }).when(rateLimitStore).acquireToken(
+                eq(GuardrailsRateLimitScope.REPOSITORY),
+                anyString(),
+                anyInt(),
+                anyLong(),
+                anyLong(),
+                anyLong());
+        when(burstCreditService.consumeCredit(eq(GuardrailsRateLimitScope.REPOSITORY), eq("repo"))).thenReturn(true, false);
+
+        ReviewRateLimiter limiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService, burstCreditService);
+        limiter.acquire("PRJ", "repo"); // first call uses burst credit
         assertThrows(RateLimitExceededException.class, () -> limiter.acquire("PRJ", "repo"));
     }
 }

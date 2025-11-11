@@ -41,6 +41,7 @@ public class ReviewRateLimiter {
     private final AIReviewerConfigService configService;
     private final GuardrailsRateLimitStore rateLimitStore;
     private final GuardrailsRateLimitOverrideService overrideService;
+    private final GuardrailsBurstCreditService burstCreditService;
     private final ConcurrentHashMap<String, Long> repoSnoozes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> projectSnoozes = new ConcurrentHashMap<>();
 
@@ -51,13 +52,65 @@ public class ReviewRateLimiter {
     @Inject
     public ReviewRateLimiter(AIReviewerConfigService configService,
                              GuardrailsRateLimitStore rateLimitStore,
-                             GuardrailsRateLimitOverrideService overrideService) {
+                             GuardrailsRateLimitOverrideService overrideService,
+                             GuardrailsBurstCreditService burstCreditService) {
         this.configService = Objects.requireNonNull(configService, "configService");
         this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
         this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
+        this.burstCreditService = Objects.requireNonNull(burstCreditService, "burstCreditService");
         this.repoLimitPerHour = DEFAULT_REPO_LIMIT;
         this.projectLimitPerHour = DEFAULT_PROJECT_LIMIT;
         this.lastRefresh = 0L;
+    }
+
+    private void tryAcquireScope(GuardrailsRateLimitScope scope,
+                                 @Nullable String identifier,
+                                 @Nullable String projectKey,
+                                 @Nullable String repositorySlug,
+                                 int limitPerHour,
+                                 long windowStart,
+                                 long now,
+                                 ConcurrentHashMap<String, Long> snoozes) {
+        if (identifier == null || identifier.trim().isEmpty() || limitPerHour <= 0) {
+            return;
+        }
+        String snoozeKey = identifier.toLowerCase(Locale.ROOT);
+        if (isSnoozed(snoozes, snoozeKey, now)) {
+            return;
+        }
+        try {
+            rateLimitStore.acquireToken(
+                    scope,
+                    identifier,
+                    limitPerHour,
+                    windowStart,
+                    WINDOW_MS,
+                    now);
+        } catch (RateLimitExceededException ex) {
+            boolean creditUsed = consumeBurstCredit(scope, identifier);
+            if (creditUsed) {
+                log.info("Burst credit applied for {} {}", scope, identifier);
+                return;
+            }
+            recordThrottleIncident(
+                    scope,
+                    identifier,
+                    projectKey,
+                    repositorySlug,
+                    limitPerHour,
+                    ex.getRetryAfterMillis(),
+                    now);
+            throw ex;
+        }
+    }
+
+    private boolean consumeBurstCredit(GuardrailsRateLimitScope scope, String identifier) {
+        try {
+            return burstCreditService.consumeCredit(scope, identifier);
+        } catch (Exception ex) {
+            log.warn("Unable to apply burst credit for {} {}: {}", scope, identifier, ex.getMessage());
+            return false;
+        }
     }
 
     public void acquire(@Nullable String projectKey, @Nullable String repositorySlug) {
@@ -67,57 +120,27 @@ public class ReviewRateLimiter {
 
         if (repositorySlug != null) {
             int repoLimit = overrideService.resolveRepoLimit(projectKey, repositorySlug, repoLimitPerHour);
-            if (repoLimit > 0) {
-                String snoozeKey = repositorySlug.toLowerCase(Locale.ROOT);
-                if (!isSnoozed(repoSnoozes, snoozeKey, now)) {
-                    try {
-                        rateLimitStore.acquireToken(
-                                GuardrailsRateLimitScope.REPOSITORY,
-                                repositorySlug,
-                                repoLimit,
-                                windowStart,
-                                WINDOW_MS,
-                                now);
-                    } catch (RateLimitExceededException ex) {
-                        recordThrottleIncident(
-                                GuardrailsRateLimitScope.REPOSITORY,
-                                repositorySlug,
-                                projectKey,
-                                repositorySlug,
-                                repoLimit,
-                                ex.getRetryAfterMillis(),
-                                now);
-                        throw ex;
-                    }
-                }
-            }
+            tryAcquireScope(
+                    GuardrailsRateLimitScope.REPOSITORY,
+                    repositorySlug,
+                    projectKey,
+                    repositorySlug,
+                    repoLimit,
+                    windowStart,
+                    now,
+                    repoSnoozes);
         }
         if (projectKey != null) {
             int projectLimit = overrideService.resolveProjectLimit(projectKey, projectLimitPerHour);
-            if (projectLimit > 0) {
-                String snoozeKey = projectKey.toLowerCase(Locale.ROOT);
-                if (!isSnoozed(projectSnoozes, snoozeKey, now)) {
-                    try {
-                        rateLimitStore.acquireToken(
-                                GuardrailsRateLimitScope.PROJECT,
-                                projectKey,
-                                projectLimit,
-                                windowStart,
-                                WINDOW_MS,
-                                now);
-                    } catch (RateLimitExceededException ex) {
-                        recordThrottleIncident(
-                                GuardrailsRateLimitScope.PROJECT,
-                                projectKey,
-                                projectKey,
-                                repositorySlug,
-                                projectLimit,
-                                ex.getRetryAfterMillis(),
-                                now);
-                        throw ex;
-                    }
-                }
-            }
+            tryAcquireScope(
+                    GuardrailsRateLimitScope.PROJECT,
+                    projectKey,
+                    projectKey,
+                    repositorySlug,
+                    projectLimit,
+                    windowStart,
+                    now,
+                    projectSnoozes);
         }
     }
 

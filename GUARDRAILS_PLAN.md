@@ -1,6 +1,6 @@
 ## AI Review Guardrails – Implementation Plan
 
-### 1. Configurable Concurrency & Queueing (X)
+### 1. Configurable Concurrency & Queueing
 [X] 1. Add new config parameters (global + per-repository) for `maxConcurrentReviews`, `maxQueuedReviews`, and `maxParallelChunks`.
 [X] 2. Introduce a cluster-aware scheduler service that enqueues review requests and only dispatches when slots are available (manual/merge-blocking runs get priority).
 [X] 3. Persist queue metadata (in-memory + short-term AO table) so UI can show pending runs; add admin REST endpoints to inspect/flush the queue.
@@ -18,7 +18,7 @@
 [X] 5. Emit per-repo limiter metrics (recent throttle rate, refill ETA, tokens remaining) into progress snapshots and `/metrics` so teams can self-diagnose. _(Bucket states now include remaining tokens/reset ETA + metrics emit per-scope samples.)_
 [X] 6. Add auto-snooze/resume logic that can temporarily relax limits for high-priority repos (merge-critical) while logging the override for auditability. _(Priority scope lists now drive AO-backed auto-snooze overrides + audit trails.)_
 [X] 7. Introduce alert thresholds per repo/project so stakeholders get notified before throttling becomes blocking. _(Configurable percent floors + per-scope overrides now raise rate-limiter alerts before 100% consumption.)_
-[ ] 8. Allow “burst credits” that can be granted programmatically (e.g., via REST) for CI spikes, with automatic expiration and audit entries.
+[X] 8. Allow “burst credits” that can be granted programmatically (e.g., via REST) for CI spikes, with automatic expiration and audit entries. _(New automation REST endpoints grant/revoke credits, backed by AO audit + runtime consumption support.)_
 
 ### 3. Bounded Worker Pools & Async Execution
 [ ] 1. Implement `ReviewWorkerPool` and route `executeWithRun` through it (done).
@@ -78,6 +78,6 @@
 [ ] 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Ship Section 2.8 burst-credit REST/CLI workflows so CI spikes can borrow tokens on demand (plus audit + expiry).
-> 2. Wire the new limiter warnings into outbound alert channels/CLI helpers (Sections 6.5/8.5) so ops teams can subscribe/automate responses.
-> 3. Extend the runbook + config UI with guidance on alert tuning and burst-credit playbooks.
+> 1. Wire limiter warning telemetry into outbound alert channels + CLI helpers (Sections 6.5/8.5) so ops teams can subscribe/automate responses.
+> 2. Ship CLI/SDK utilities that wrap the burst-credit REST endpoints for CI systems (Section 8.5).
+> 3. Add usage analytics for burst credits/alerts (Section 6.6) to tune defaults and catch abuse.

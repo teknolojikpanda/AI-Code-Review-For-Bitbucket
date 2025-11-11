@@ -26,6 +26,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateBucket</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateIncident</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateOverride</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsBurstCredit</entity>
     </ao>
 
     <!--
