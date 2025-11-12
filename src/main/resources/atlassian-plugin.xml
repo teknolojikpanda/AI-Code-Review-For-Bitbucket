@@ -218,6 +218,11 @@
         <description>Aggregates queue, worker, limiter, and retention telemetry for guardrails</description>
     </component>
 
+    <component key="modelHealthService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ModelHealthService">
+        <description>Tracks model probe health and config overrides when providers degrade.</description>
+    </component>
+
     <component key="modelHealthProbeScheduler"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ModelHealthProbeScheduler">
         <description>Probes AI models periodically so degraded providers are detected before user traffic fails.</description>
