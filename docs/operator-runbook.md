@@ -43,7 +43,7 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `ai.rateLimiter.repo.avgRetryAfterMs` | ≥ 15,000 ms | ≥ 30,000 ms | `gte` | Repository throttles enforcing long retry-after windows. |
 | `ai.rateLimiter.project.avgRetryAfterMs` | ≥ 20,000 ms | ≥ 45,000 ms | `gte` | Project throttles enforcing long retry-after windows. |
 
-Consumers should treat `direction="lte"` as “alert when value is less than or equal to threshold” and `direction="gte"` as “greater than or equal”. The JSON payload mirrors this table so automation can stay in sync even if we adjust defaults later.
+Consumers should treat `direction="lte"` as “alert when value is less than or equal to threshold” and `direction="gte"` as “greater than or equal”. The JSON payload mirrors this table so automation can stay in sync even if we adjust defaults later. A clustered alerting job polls these metrics every minute and automatically pushes any warning/critical transitions to the configured webhook channels (and logs each delivery). You can also trigger an on-demand run with `./scripts/guardrails-cli.sh alerts` if you need to force a notification outside the regular cadence.
 
 > **In-product view:** the Health dashboard now includes a **Metrics Summary** card deck that renders the key metrics above with their current status (Normal/Warning/Critical) so operators can see throttle, breaker, and cleanup health without leaving Bitbucket.
 
@@ -86,6 +86,9 @@ export GUARDRAILS_AUTH=admin:api-token
 
 # Inspect current state
 ./scripts/guardrails-cli.sh state
+
+# Manually evaluate + stream alerts (also notifies webhooks)
+./scripts/guardrails-cli.sh alerts
 ```
 
 The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.

@@ -20,6 +20,10 @@ import java.util.concurrent.TimeUnit;
 public class GuardrailsAlertingService {
 
     private static final long CLEANUP_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000L; // 24 hours
+    private static final double BREAKER_WARNING_RATIO = 0.10d;
+    private static final double BREAKER_CRITICAL_RATIO = 0.25d;
+    private static final double BREAKER_BLOCKED_WARNING = 1d;
+    private static final double BREAKER_BLOCKED_CRITICAL = 5d;
     private final GuardrailsTelemetryService telemetryService;
     private final GuardrailsAlertChannelService channelService;
     private final AIReviewerConfigService configService;
@@ -49,6 +53,8 @@ public class GuardrailsAlertingService {
         evaluateRetentionAlerts(schedule, recentRuns, alerts);
         Map<String, Object> rateLimiter = asMap(runtime.get("rateLimiter"));
         evaluateRateLimiterAlerts(rateLimiter, alerts);
+        Map<String, Object> circuitBreaker = asMap(runtime.get("circuitBreaker"));
+        evaluateBreakerAlerts(circuitBreaker, alerts);
 
         return new AlertSnapshot(System.currentTimeMillis(), runtime, alerts);
     }
@@ -206,6 +212,50 @@ public class GuardrailsAlertingService {
                     ? "Grant burst credits or raise the repository rate limit if this is expected."
                     : "Consider increasing the project rate limit or staggering AI requests.";
             alerts.add(alert("warning", summary, detail.toString(), recommendation));
+        }
+    }
+
+    void evaluateBreakerAlerts(Map<String, Object> circuit,
+                               List<Map<String, Object>> alerts) {
+        if (circuit == null || circuit.isEmpty()) {
+            return;
+        }
+        Number openRatio = toNumber(circuit.get("openSampleRatio"));
+        if (openRatio != null) {
+            double ratio = openRatio.doubleValue();
+            if (ratio >= BREAKER_CRITICAL_RATIO) {
+                alerts.add(alert("critical",
+                        "AI vendor circuit breaker is open",
+                        "Breaker spent " + Math.round(ratio * 100) + "% of recent samples in OPEN state.",
+                        "Fail over to the fallback model or pause reviews until the vendor recovers."));
+            } else if (ratio >= BREAKER_WARNING_RATIO) {
+                alerts.add(alert("warning",
+                        "AI vendor circuit breaker flapping",
+                        "Breaker open ratio is " + Math.round(ratio * 100) + "% over the recent window.",
+                        "Investigate vendor health before the breaker locks open."));
+            }
+        }
+        Number blockedAvg = toNumber(circuit.get("avgBlockedCallsPerSample"));
+        if (blockedAvg != null) {
+            double avg = blockedAvg.doubleValue();
+            if (avg >= BREAKER_BLOCKED_CRITICAL) {
+                alerts.add(alert("critical",
+                        "Breaker blocking AI calls",
+                        "Blocked calls per sample sits at " + String.format(Locale.ROOT, "%.1f", avg) + ".",
+                        "Reduce concurrency or switch models until block pressure subsides."));
+            } else if (avg >= BREAKER_BLOCKED_WARNING) {
+                alerts.add(alert("warning",
+                        "Breaker starting to block AI calls",
+                        "Average blocked calls per sample is " + String.format(Locale.ROOT, "%.1f", avg) + ".",
+                        "Keep an eye on model latency and consider granting burst credits sparingly."));
+            }
+        }
+        Number clientHardFailures = toNumber(circuit.get("clientHardFailures"));
+        if (clientHardFailures != null && clientHardFailures.longValue() > 0) {
+            alerts.add(alert("info",
+                    "AI client reported hard failures",
+                    clientHardFailures.longValue() + " unrecoverable model calls were recorded.",
+                    "Check AI vendor status or recent release changes affecting prompts."));
         }
     }
 

@@ -13,6 +13,7 @@ Commands:
   drain            Allow active runs to finish but stop new dispatches.
   resume|active    Resume normal scheduling.
   state            Print the current scheduler state JSON.
+  alerts           Fetch the latest guardrails alerts (and trigger outbound notifications).
 
 Environment:
   GUARDRAILS_BASE_URL   Base Bitbucket URL (e.g. https://bitbucket.example.com).
@@ -68,6 +69,10 @@ main() {
             endpoint="/rest/ai-reviewer/1.0/automation/rollout/state"
             method="GET"
             ;;
+        alerts|ALERTS)
+            endpoint="/rest/ai-reviewer/1.0/alerts"
+            method="GET"
+            ;;
         *)
             echo "Unknown command: ${command}" >&2
             usage
@@ -92,4 +97,3 @@ main() {
 }
 
 main "$@"
-
