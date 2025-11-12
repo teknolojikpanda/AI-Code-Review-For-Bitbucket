@@ -9,6 +9,7 @@ import com.atlassian.audit.entity.CoverageArea;
 import com.atlassian.audit.entity.CoverageLevel;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit;
+import net.java.ao.DBParam;
 import net.java.ao.Query;
 import java.util.Locale;
 import org.slf4j.Logger;
@@ -51,11 +52,13 @@ public class ReviewQueueAuditService {
         if (action == null) {
             return;
         }
+        final long timestamp = action.getTimestamp() > 0 ? action.getTimestamp() : System.currentTimeMillis();
+        final String actionName = defaultString(sanitize(action.getAction(), 32), "unknown");
         try {
             ao.executeInTransaction(() -> {
-                AIReviewQueueAudit entity = ao.create(AIReviewQueueAudit.class);
-                entity.setCreatedAt(action.getTimestamp());
-                entity.setAction(sanitize(action.getAction(), 32));
+                AIReviewQueueAudit entity = ao.create(AIReviewQueueAudit.class,
+                        new DBParam("CREATED_AT", timestamp),
+                        new DBParam("ACTION", actionName));
                 entity.setRunId(sanitize(action.getRunId(), 255));
                 entity.setProjectKey(sanitize(action.getProjectKey(), 64));
                 entity.setRepositorySlug(sanitize(action.getRepositorySlug(), 128));
@@ -167,6 +170,10 @@ public class ReviewQueueAuditService {
             }
         }
         return null;
+    }
+
+    private String defaultString(@Nullable String value, String fallback) {
+        return value != null ? value : fallback;
     }
 
     private String buildSchedulerNote(ReviewSchedulerStateService.SchedulerState state) {
