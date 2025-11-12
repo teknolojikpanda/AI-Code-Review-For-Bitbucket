@@ -310,7 +310,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         recordProgress("review.canceled", 100, progressDetails(
                 "runId", run != null ? run.runId : null,
                 "reason", message));
-        completeCurrentRun(ReviewResult.Status.CANCELED);
+        completeRun(run, ReviewResult.Status.CANCELED);
         Map<String, Object> metrics = instantReviewMetrics("canceled");
         metrics.put("review.canceled.reason", message);
         return buildCanceledResult(pullRequestId, message, metrics);
@@ -2305,7 +2305,10 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private void completeCurrentRun(ReviewResult.Status status) {
-        ReviewRun run = REVIEW_RUN_CONTEXT.get();
+        completeRun(REVIEW_RUN_CONTEXT.get(), status);
+    }
+
+    private void completeRun(@Nullable ReviewRun run, ReviewResult.Status status) {
         if (run == null) {
             return;
         }
