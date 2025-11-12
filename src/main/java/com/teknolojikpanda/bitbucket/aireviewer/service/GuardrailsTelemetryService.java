@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Aggregates runtime telemetry for queue, worker, rate limiter, and retention guardrails.
@@ -107,6 +108,7 @@ public class GuardrailsTelemetryService {
         export.put("generatedAt", runtime.get("generatedAt"));
         export.put("runtime", runtime);
         export.put("metrics", collectMetricPoints(runtime));
+        export.put("alertThresholds", buildAlertThresholds(runtime));
         return export;
     }
 
@@ -588,5 +590,53 @@ public class GuardrailsTelemetryService {
             }
         }
         return sum;
+    }
+
+    private Map<String, Object> buildAlertThresholds(Map<String, Object> runtime) {
+        Map<String, Object> thresholds = new LinkedHashMap<>();
+        thresholds.put("ai.queue.availableSlots",
+                threshold(1, 0, "Fire when all concurrent review slots are consumed.", "count", "lte"));
+        thresholds.put("ai.queue.waiting",
+                threshold(5, 15, "Warn when reviews pile up in the scheduler queue.", "count", "gte"));
+        thresholds.put("ai.queue.scheduler.paused",
+                threshold(1, 1, "Scheduler paused outside maintenance windows.", "flag", "eq"));
+        thresholds.put("ai.worker.queuedTasks",
+                threshold(10, 25, "Worker backlog suggests thread starvation.", "tasks", "gte"));
+        thresholds.put("ai.rateLimiter.totalThrottles",
+                threshold(5, 20, "High throttle volume indicates limits too low or burst credits needed.", "events", "gte"));
+        thresholds.put("ai.alerts.deliveries.failureRate",
+                threshold(0.1, 0.25, "Alert webhooks failing above healthy error budget.", "ratio", "gte"));
+        thresholds.put("ai.retention.cleanup.lastRunAgeSeconds",
+                threshold(TimeUnit.HOURS.toSeconds(24), TimeUnit.HOURS.toSeconds(48),
+                        "Cleanup job overdue; history backlog may grow.", "seconds", "gte"));
+        thresholds.put("ai.model.errorRate",
+                threshold(0.05, 0.1, "Model failures/timeouts impacting review quality.", "ratio", "gte"));
+        thresholds.put("ai.retention.cleanup.lastErrorFlag",
+                threshold(1, 1, "Last cleanup job failed—manual intervention required.", "flag", "eq"));
+        return thresholds;
+    }
+
+    private Map<String, Object> threshold(Number warning,
+                                          Number critical,
+                                          String description,
+                                          String unit,
+                                          String direction) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        if (warning != null) {
+            map.put("warning", warning);
+        }
+        if (critical != null) {
+            map.put("critical", critical);
+        }
+        if (unit != null) {
+            map.put("unit", unit);
+        }
+        if (direction != null) {
+            map.put("direction", direction);
+        }
+        if (description != null) {
+            map.put("description", description);
+        }
+        return map;
     }
 }

@@ -23,6 +23,24 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `GET /rest/ai-reviewer/1.0/automation/alerts/deliveries` | Lists recent webhook deliveries (success flag, HTTP status, payload snippet) so you can audit outages. |
 | `POST /rest/ai-reviewer/1.0/automation/alerts/deliveries/{id}/ack` | Marks a delivery as acknowledged with an optional note—use this to capture incident response hand-offs. |
 
+### Recommended Alert Thresholds
+
+`GET /rest/ai-reviewer/1.0/metrics` returns an `alertThresholds` object alongside the flattened `metrics` array. Each entry lists recommended `warning`/`critical` values, the preferred comparison `direction`, and a short description so monitoring systems can be wired automatically. The defaults are summarised below:
+
+| Metric | Warning | Critical | Direction | Rationale |
+| --- | --- | --- | --- | --- |
+| `ai.queue.availableSlots` | ≤ 1 slot | 0 slots | `lte` | All worker capacity is consumed; reviews will start queueing. |
+| `ai.queue.waiting` | ≥ 5 reviews | ≥ 15 reviews | `gte` | Indicates backlog building; consider pausing low-priority repos. |
+| `ai.queue.scheduler.paused` | 1 | 1 | `eq` | Scheduler paused outside maintenance windows. |
+| `ai.worker.queuedTasks` | ≥ 10 tasks | ≥ 25 tasks | `gte` | Worker pool saturated; scale nodes or reduce chunk concurrency. |
+| `ai.rateLimiter.totalThrottles` | ≥ 5 events/hr | ≥ 20 events/hr | `gte` | High throttle volume—raise limits or grant burst credits. |
+| `ai.alerts.deliveries.failureRate` | ≥ 10% | ≥ 25% | `gte` | Webhook channel failing, alerts not leaving the cluster. |
+| `ai.retention.cleanup.lastRunAgeSeconds` | ≥ 86,400s (24h) | ≥ 172,800s (48h) | `gte` | Cleanup job overdue; AO history will bloat. |
+| `ai.retention.cleanup.lastErrorFlag` | 1 | 1 | `eq` | Last cleanup failed; inspect `/history/cleanup/log`. |
+| `ai.model.errorRate` | ≥ 5% | ≥ 10% | `gte` | Vendor/model instability impacting review results. |
+
+Consumers should treat `direction="lte"` as “alert when value is less than or equal to threshold” and `direction="gte"` as “greater than or equal”. The JSON payload mirrors this table so automation can stay in sync even if we adjust defaults later.
+
 ### Webhook Security & Retries
 
 - **Signing:** Enable “Sign requests” on a channel to append `X-Guardrails-Signed-At` and `X-Guardrails-Signature` headers (HMAC-SHA256). Share the secret displayed on the health page with the receiver. Rotate secrets regularly via the UI or `rotateSecret=true` on `PUT`.

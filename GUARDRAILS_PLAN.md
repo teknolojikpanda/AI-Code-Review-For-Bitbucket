@@ -51,7 +51,7 @@
 
 ### 6. Monitoring & Alerting
 [X] 1. Add gauges/counters (Micrometer or existing MetricsCollector) for queue depth, active reviews, throttled requests, AI errors. _(Guardrails telemetry now emits queue depth/active gauges plus throttle + AI error counters through `/rest/ai-reviewer/1.0/metrics`.)_
-[ ] 2. Expose a `/metrics` snapshot for external monitoring and document recommended alert thresholds.
+[X] 2. Expose a `/metrics` snapshot for external monitoring and document recommended alert thresholds. _(`/rest/ai-reviewer/1.0/metrics` now returns `alertThresholds`, and the operator runbook lists the recommended warning/critical values.)_
 [ ] 3. Include aggregated circuit-breaker + rate-limiter stats (open duration, blocked call deltas, retry counts) in the `/metrics` response so platform monitoring can alert on sustained degradation.
 [ ] 4. Add lightweight REST/ADF panels inside Bitbucket admin that summarize these metrics for quick diagnosis without leaving the product.
 [ ] 5. Provide outbound alert hooks (webhook/email/Atlassian Alerts) that trigger when breaker openness, queue depth, or throttle rate crosses operator-defined thresholds. _(Initial REST-based alert feed now available via `/rest/ai-reviewer/1.0/alerts`; next step is wiring this into external channels.)_
