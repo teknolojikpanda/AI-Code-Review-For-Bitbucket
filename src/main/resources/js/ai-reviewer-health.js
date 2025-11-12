@@ -78,6 +78,15 @@
                 cancelActiveRun(runId);
             }
         });
+        $('.queue-panel').on('click', '.queue-bulk-btn', function(event) {
+            event.preventDefault();
+            var action = $(this).data('action');
+            if (action === 'cancel-all') {
+                cancelQueuedBulk();
+            } else if (action === 'cancel-running') {
+                cancelRunningBulk();
+            }
+        });
         loadHealth();
         loadAutomationData();
     }
@@ -517,6 +526,57 @@
                 'Failed to cancel active review');
     }
 
+    function cancelQueuedBulk() {
+        var scope = ($('#queue-bulk-scope').val() || 'ALL').toUpperCase();
+        var value = ($('#queue-bulk-value').val() || '').trim();
+        var payload = {};
+        if (scope === 'PROJECT') {
+            if (!value) {
+                alert('Enter a project key to cancel queued reviews.');
+                return;
+            }
+            payload.scope = 'PROJECT';
+            payload.projectKey = value;
+        } else if (scope === 'REPOSITORY' || scope === 'REPO') {
+            var parts = value.split('/');
+            if (parts.length !== 2) {
+                alert('Enter repository as PROJECT/slug.');
+                return;
+            }
+            payload.scope = 'REPOSITORY';
+            payload.projectKey = parts[0];
+            payload.repositorySlug = parts[1];
+        } else {
+            payload.scope = 'ALL';
+        }
+        var reason = getQueueActionReason();
+        if (reason) {
+            payload.reason = reason;
+        }
+        if (!confirm('Cancel queued reviews for ' + describeBulkScope(payload) + '?')) {
+            return;
+        }
+        performQueueAction(queueCancelUrl + '/bulk', payload,
+                'Canceling queued reviews…',
+                'Queued reviews canceled.',
+                'Failed to cancel queued reviews');
+    }
+
+    function cancelRunningBulk() {
+        if (!confirm('Cancel all active reviews currently running?')) {
+            return;
+        }
+        var payload = {};
+        var reason = getQueueActionReason();
+        if (reason) {
+            payload.reason = reason;
+        }
+        performQueueAction(runningCancelUrl + '/bulk', payload,
+                'Canceling active reviews…',
+                'Active reviews are being canceled.',
+                'Failed to cancel active reviews');
+    }
+
     function performQueueAction(url, payload, pendingMessage, successMessage, errorMessage) {
         setQueueAdminMessage('info', pendingMessage);
         $.ajax({
@@ -584,6 +644,19 @@
         return labels.map(function(label) {
             return '<span class="aui-lozenge aui-lozenge-subtle">' + escapeHtml(label) + '</span>';
         }).join(' ');
+    }
+
+    function describeBulkScope(payload) {
+        if (!payload || !payload.scope) {
+            return 'all queues';
+        }
+        if (payload.scope === 'PROJECT' && payload.projectKey) {
+            return 'project ' + payload.projectKey;
+        }
+        if (payload.scope === 'REPOSITORY' && payload.projectKey && payload.repositorySlug) {
+            return 'repository ' + payload.projectKey + '/' + payload.repositorySlug;
+        }
+        return 'all queues';
     }
 
     function renderCleanup(status, recentRuns, latestResult) {

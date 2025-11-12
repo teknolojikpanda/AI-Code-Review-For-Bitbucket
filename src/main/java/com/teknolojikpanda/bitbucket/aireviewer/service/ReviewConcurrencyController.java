@@ -211,6 +211,31 @@ public class ReviewConcurrencyController {
         return true;
     }
 
+    public BulkCancelResult cancelQueuedRuns(@Nonnull BulkCancelRequest request,
+                                             @Nullable String actor,
+                                             @Nullable String note) {
+        Objects.requireNonNull(request, "request");
+        List<String> canceled = new ArrayList<>();
+        ConcurrentLinkedDeque<QueuedPermit> matches = new ConcurrentLinkedDeque<>();
+        waitingByRunId.forEach((runId, permit) -> {
+            if (request.matches(permit.getRequest())) {
+                matches.add(permit);
+            }
+        });
+        while (!matches.isEmpty()) {
+            QueuedPermit permit = matches.poll();
+            if (permit == null) {
+                continue;
+            }
+            if (waitingByRunId.remove(permit.getRunId(), permit)) {
+                permit.release();
+                recordQueueAction("bulk-canceled", permit.getRunId(), permit.getRequest(), actor, note);
+                canceled.add(permit.getRunId());
+            }
+        }
+        return new BulkCancelResult(canceled, 0);
+    }
+
     public void registerActiveRun(@Nonnull ReviewExecutionRequest request, @Nonnull Future<?> future) {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(future, "future");
@@ -250,6 +275,18 @@ public class ReviewConcurrencyController {
                 request.getPullRequestId());
         recordQueueAction("terminated", runId, request, actor, note);
         return true;
+    }
+
+    public BulkCancelResult cancelActiveRuns(@Nullable String actor,
+                                             @Nullable String note) {
+        List<String> canceled = new ArrayList<>();
+        activeRuns.forEach((runId, active) -> {
+            if (active.cancel()) {
+                recordQueueAction("bulk-terminated", runId, active.getRequest(), actor, note);
+                canceled.add(runId);
+            }
+        });
+        return new BulkCancelResult(canceled, 0);
     }
 
     private void recordQueueAction(String action,
@@ -886,6 +923,73 @@ public class ReviewConcurrencyController {
             @Nullable
             public String getRequestedBy() {
                 return requestedBy;
+            }
+        }
+    }
+
+    public static final class BulkCancelResult {
+        private final List<String> canceledRunIds;
+        private final int failed;
+
+        public BulkCancelResult(List<String> canceledRunIds, int failed) {
+            this.canceledRunIds = canceledRunIds != null ? canceledRunIds : Collections.emptyList();
+            this.failed = failed;
+        }
+
+        public List<String> getCanceledRunIds() {
+            return canceledRunIds;
+        }
+
+        public int getFailed() {
+            return failed;
+        }
+    }
+
+    public static final class BulkCancelRequest {
+        public enum Scope {
+            ALL,
+            PROJECT,
+            REPOSITORY
+        }
+
+        private final Scope scope;
+        private final String projectKey;
+        private final String repositorySlug;
+
+        public BulkCancelRequest(Scope scope, String projectKey, String repositorySlug) {
+            this.scope = scope != null ? scope : Scope.ALL;
+            this.projectKey = projectKey;
+            this.repositorySlug = repositorySlug;
+        }
+
+        public Scope getScope() {
+            return scope;
+        }
+
+        @Nullable
+        public String getProjectKey() {
+            return projectKey;
+        }
+
+        @Nullable
+        public String getRepositorySlug() {
+            return repositorySlug;
+        }
+
+        public boolean matches(ReviewExecutionRequest request) {
+            if (request == null) {
+                return false;
+            }
+            switch (scope) {
+                case PROJECT:
+                    return projectKey != null && projectKey.equalsIgnoreCase(request.getProjectKey());
+                case REPOSITORY:
+                    return projectKey != null
+                            && projectKey.equalsIgnoreCase(request.getProjectKey())
+                            && repositorySlug != null
+                            && repositorySlug.equalsIgnoreCase(request.getRepositorySlug());
+                default:
+                    return true;
             }
         }
     }

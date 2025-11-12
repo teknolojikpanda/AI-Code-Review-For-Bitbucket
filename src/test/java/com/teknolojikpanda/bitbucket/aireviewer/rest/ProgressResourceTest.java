@@ -17,6 +17,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateServ
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.core.Response;
@@ -257,6 +258,43 @@ public class ProgressResourceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertEquals(true, payload.get("canceled"));
+    }
+
+    @Test
+    public void adminQueueBulkCancelUsesScope() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        ReviewConcurrencyController.BulkCancelResult bulkResult =
+                new ReviewConcurrencyController.BulkCancelResult(List.of("run-1"), 0);
+        when(concurrencyController.cancelQueuedRuns(any(), any(), any())).thenReturn(bulkResult);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        body.scope = "project";
+        body.projectKey = "PROJ";
+        Response response = resource.cancelQueuedRuns(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals(List.of("run-1"), payload.get("canceled"));
+        ArgumentCaptor<ReviewConcurrencyController.BulkCancelRequest> captor = ArgumentCaptor.forClass(ReviewConcurrencyController.BulkCancelRequest.class);
+        verify(concurrencyController).cancelQueuedRuns(captor.capture(), any(), any());
+        assertEquals(ReviewConcurrencyController.BulkCancelRequest.Scope.PROJECT, captor.getValue().getScope());
+    }
+
+    @Test
+    public void adminRunningBulkCancelSucceeds() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        ReviewConcurrencyController.BulkCancelResult bulkResult =
+                new ReviewConcurrencyController.BulkCancelResult(List.of("run-9"), 0);
+        when(concurrencyController.cancelActiveRuns(any(), any())).thenReturn(bulkResult);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        Response response = resource.cancelRunningRuns(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        verify(concurrencyController).cancelActiveRuns(any(), any());
     }
 
     @Test

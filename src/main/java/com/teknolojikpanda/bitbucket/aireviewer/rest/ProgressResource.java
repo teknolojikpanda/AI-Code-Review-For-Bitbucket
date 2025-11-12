@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -325,6 +326,28 @@ public class ProgressResource {
     }
 
     @POST
+    @Path("/admin/queue/cancel/bulk")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response cancelQueuedRuns(@Context HttpServletRequest request,
+                                     QueueCancelRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        ReviewConcurrencyController.BulkCancelRequest cancelRequest = toBulkRequest(body);
+        String actor = admin.profile != null && admin.profile.getUserKey() != null
+                ? admin.profile.getUserKey().getStringValue()
+                : "admin";
+        String note = normalizeReason(body);
+        ReviewConcurrencyController.BulkCancelResult result = concurrencyController.cancelQueuedRuns(cancelRequest, actor, note);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("canceled", result.getCanceledRunIds());
+        payload.put("failed", result.getFailed());
+        payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
+        return Response.ok(payload).build();
+    }
+
+    @POST
     @Path("/admin/running/cancel")
     @Consumes(MediaType.APPLICATION_JSON)
     public Response cancelRunningRun(@Context HttpServletRequest request,
@@ -351,6 +374,27 @@ public class ProgressResource {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("canceled", true);
         payload.put("runId", body.runId.trim());
+        payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
+        return Response.ok(payload).build();
+    }
+
+    @POST
+    @Path("/admin/running/cancel/bulk")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response cancelRunningRuns(@Context HttpServletRequest request,
+                                      QueueCancelRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        String actor = admin.profile != null && admin.profile.getUserKey() != null
+                ? admin.profile.getUserKey().getStringValue()
+                : "admin";
+        String note = normalizeReason(body);
+        ReviewConcurrencyController.BulkCancelResult result = concurrencyController.cancelActiveRuns(actor, note);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("canceled", result.getCanceledRunIds());
+        payload.put("failed", result.getFailed());
         payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
         return Response.ok(payload).build();
     }
@@ -731,6 +775,29 @@ public class ProgressResource {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private ReviewConcurrencyController.BulkCancelRequest toBulkRequest(QueueCancelRequest request) {
+        if (request == null || request.scope == null) {
+            return new ReviewConcurrencyController.BulkCancelRequest(ReviewConcurrencyController.BulkCancelRequest.Scope.ALL, null, null);
+        }
+        String scope = request.scope.trim().toUpperCase(Locale.ROOT);
+        if ("PROJECT".equals(scope)) {
+            return new ReviewConcurrencyController.BulkCancelRequest(
+                    ReviewConcurrencyController.BulkCancelRequest.Scope.PROJECT,
+                    request.projectKey,
+                    null);
+        }
+        if ("REPOSITORY".equals(scope) || "REPO".equals(scope)) {
+            return new ReviewConcurrencyController.BulkCancelRequest(
+                    ReviewConcurrencyController.BulkCancelRequest.Scope.REPOSITORY,
+                    request.projectKey,
+                    request.repositorySlug);
+        }
+        return new ReviewConcurrencyController.BulkCancelRequest(
+                ReviewConcurrencyController.BulkCancelRequest.Scope.ALL,
+                null,
+                null);
+    }
+
     private String userKey(@Nullable UserProfile profile) {
         if (profile == null || profile.getUserKey() == null) {
             return null;
@@ -765,6 +832,9 @@ public class ProgressResource {
     static final class QueueCancelRequest {
         public String runId;
         public String reason;
+        public String scope;
+        public String projectKey;
+        public String repositorySlug;
     }
 
     private static final class RateLimiter {

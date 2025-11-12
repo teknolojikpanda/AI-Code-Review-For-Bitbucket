@@ -161,6 +161,16 @@
                             <header>
                                 <h3>Queued Reviews</h3>
                                 <span class="queue-panel-count" id="queue-entries-count"></span>
+                                <div class="queue-panel-actions">
+                                    <label for="queue-bulk-scope" class="bulk-label">Scope</label>
+                                    <select id="queue-bulk-scope" class="select">
+                                        <option value="ALL">All</option>
+                                        <option value="project">Project…</option>
+                                        <option value="repository">Repository…</option>
+                                    </select>
+                                    <input type="text" id="queue-bulk-value" class="text medium-field" placeholder="PROJECT or PROJECT/repo"/>
+                                    <button type="button" class="aui-button queue-bulk-btn" data-action="cancel-all">Cancel Queue</button>
+                                </div>
                             </header>
                             <div class="queue-empty" id="queue-entries-empty">Loading queued reviews…</div>
                             <table class="aui aui-table aui-table-rowhover" id="queue-entries-table" style="display:none;">
@@ -201,6 +211,9 @@
                         <header>
                             <h3>Running Reviews</h3>
                             <span class="queue-panel-count" id="queue-active-count"></span>
+                            <div class="queue-panel-actions">
+                                <button type="button" class="aui-button queue-bulk-btn" data-action="cancel-running">Cancel All Active</button>
+                            </div>
                         </header>
                         <div class="queue-empty" id="queue-active-empty">Loading running reviews…</div>
                         <table class="aui aui-table aui-table-rowhover" id="queue-active-table" style="display:none;">
