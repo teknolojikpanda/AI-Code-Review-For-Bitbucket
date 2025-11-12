@@ -10,6 +10,7 @@ import com.atlassian.audit.entity.CoverageLevel;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit;
 import net.java.ao.Query;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +22,6 @@ import javax.inject.Singleton;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -76,6 +76,31 @@ public class ReviewQueueAuditService {
         }
     }
 
+    public void recordSchedulerStateChange(@Nullable ReviewSchedulerStateService.SchedulerState state) {
+        if (state == null) {
+            return;
+        }
+        String action = "scheduler-" + state.getMode().name().toLowerCase(Locale.ROOT);
+        String actor = firstNonBlank(state.getUpdatedByDisplayName(), state.getUpdatedBy(), "system");
+        String requestedBy = firstNonBlank(state.getUpdatedBy(), state.getUpdatedByDisplayName());
+        String note = buildSchedulerNote(state);
+        ReviewConcurrencyController.QueueStats.QueueAction queueAction =
+                new ReviewConcurrencyController.QueueStats.QueueAction(
+                        action,
+                        System.currentTimeMillis(),
+                        null,
+                        null,
+                        null,
+                        -1,
+                        false,
+                        false,
+                        false,
+                        actor,
+                        note,
+                        requestedBy);
+        recordAction(queueAction);
+    }
+
     @Nonnull
     public List<ReviewConcurrencyController.QueueStats.QueueAction> listRecentActions(int limit) {
         int fetch = Math.min(Math.max(limit, 1), MAX_FETCH_LIMIT);
@@ -126,6 +151,30 @@ public class ReviewQueueAuditService {
                 entity.getActor(),
                 entity.getNote(),
                 entity.getRequestedBy());
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String trimmed = value.trim();
+            if (!trimmed.isEmpty()) {
+                return trimmed;
+            }
+        }
+        return null;
+    }
+
+    private String buildSchedulerNote(ReviewSchedulerStateService.SchedulerState state) {
+        StringBuilder builder = new StringBuilder("mode=").append(state.getMode().name());
+        if (state.getReason() != null && !state.getReason().trim().isEmpty()) {
+            builder.append(" reason=").append(state.getReason().trim());
+        }
+        return builder.toString();
     }
 
     @Nullable

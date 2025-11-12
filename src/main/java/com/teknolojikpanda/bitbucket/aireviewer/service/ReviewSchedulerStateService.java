@@ -22,10 +22,13 @@ public class ReviewSchedulerStateService {
     private static final Logger log = LoggerFactory.getLogger(ReviewSchedulerStateService.class);
 
     private final ActiveObjects ao;
+    private final ReviewQueueAuditService queueAuditService;
 
     @Inject
-    public ReviewSchedulerStateService(@ComponentImport ActiveObjects ao) {
+    public ReviewSchedulerStateService(@ComponentImport ActiveObjects ao,
+                                       ReviewQueueAuditService queueAuditService) {
         this.ao = Objects.requireNonNull(ao, "activeObjects");
+        this.queueAuditService = Objects.requireNonNull(queueAuditService, "queueAuditService");
     }
 
     @Nonnull
@@ -51,7 +54,9 @@ public class ReviewSchedulerStateService {
                     mode,
                     updatedBy != null ? updatedBy : "system",
                     updatedByDisplayName != null ? updatedByDisplayName : "-");
-            return toValue(entity);
+            SchedulerState state = toValue(entity);
+            queueAuditService.recordSchedulerStateChange(state);
+            return state;
         });
     }
 
