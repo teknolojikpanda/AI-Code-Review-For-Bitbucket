@@ -295,6 +295,14 @@
         <link>/plugins/servlet/ai-reviewer/health</link>
     </web-item>
 
+    <web-item key="ai-reviewer-operations-link"
+              name="AI Review Operations"
+              section="atl.admin/ai-reviewer-admin-section"
+              weight="40">
+        <label>Operations</label>
+        <link>/plugins/servlet/ai-reviewer/operations</link>
+    </web-item>
+
     <!-- Admin Configuration Servlet -->
     <servlet key="ai-reviewer-admin-servlet"
              name="AI Reviewer Admin Servlet"
@@ -315,6 +323,13 @@
              class="com.teknolojikpanda.bitbucket.aireviewer.servlet.ReviewHealthServlet">
         <description>Admin health dashboard for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/health</url-pattern>
+    </servlet>
+
+    <servlet key="ai-reviewer-operations-servlet"
+             name="AI Reviewer Operations Servlet"
+             class="com.teknolojikpanda.bitbucket.aireviewer.servlet.ReviewOperationsServlet">
+        <description>Operational controls for AI Code Reviewer</description>
+        <url-pattern>/ai-reviewer/operations</url-pattern>
     </servlet>
     <!-- Web Resources -->
     <web-resource key="ai-reviewer-admin-resources" name="AI Reviewer Admin Resources">
@@ -353,6 +368,16 @@
         <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
         <resource type="download" name="ai-reviewer-health.js" location="/js/ai-reviewer-health.js"/>
         <context>ai-reviewer-health</context>
+    </web-resource>
+
+    <web-resource key="ai-reviewer-ops-resources" name="AI Reviewer Operations Resources">
+        <description>Resources for the AI review operations page</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>com.atlassian.auiplugin:aui-spinner</dependency>
+        <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-ops.js" location="/js/ai-reviewer-ops.js"/>
+        <context>ai-reviewer-ops</context>
     </web-resource>
 
     <web-resource key="ai-reviewer-pr-progress-resources" name="AI Reviewer PR Progress Resources">
