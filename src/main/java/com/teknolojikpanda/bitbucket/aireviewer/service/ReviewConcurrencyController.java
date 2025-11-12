@@ -244,7 +244,7 @@ public class ReviewConcurrencyController {
         ActiveRun previous = activeRuns.put(runId, activeRun);
         if (previous != null) {
             log.warn("Replacing dangling active run {} while registering new execution", runId);
-            previous.cancel();
+            previous.cancel(null);
         }
     }
 
