@@ -361,6 +361,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private ReviewResult reviewPullRequestInternal(@Nonnull PullRequest pullRequest) {
         ReviewRun run = REVIEW_RUN_CONTEXT.get();
         ProgressTracker tracker = progressTracker();
+        checkForCancellation();
         long pullRequestId = pullRequest.getId();
         String modeLabel = run.update ? "update" : "initial";
         if (run.manual) {
@@ -2283,6 +2284,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (stage == null || stage.isEmpty()) {
             return;
         }
+        checkForCancellation();
         Map<String, Object> safeDetails = details == null ? Collections.emptyMap() : details;
         ProgressEvent event;
         if (tracker != null) {
@@ -2315,6 +2317,18 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private ProgressTracker progressTracker() {
         return PROGRESS_TRACKER.get();
+    }
+
+    private void checkForCancellation() {
+        ReviewRun run = REVIEW_RUN_CONTEXT.get();
+        if (run == null) {
+            return;
+        }
+        boolean interrupted = Thread.currentThread().isInterrupted();
+        if (interrupted || concurrencyController.isCancelRequested(run.runId)) {
+            String reason = concurrencyController.getCancelReason(run.runId);
+            throw new ReviewCanceledException(run.runId, reason);
+        }
     }
 
     private Map<String, Object> progressDetails(Object... keyValues) {

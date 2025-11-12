@@ -264,7 +264,7 @@ public class ReviewConcurrencyController {
         if (active == null) {
             return false;
         }
-        boolean cancelled = active.cancel();
+        boolean cancelled = active.cancel(note);
         if (!cancelled) {
             return false;
         }
@@ -281,7 +281,7 @@ public class ReviewConcurrencyController {
                                              @Nullable String note) {
         List<String> canceled = new ArrayList<>();
         activeRuns.forEach((runId, active) -> {
-            if (active.cancel()) {
+            if (active.cancel(note)) {
                 recordQueueAction("bulk-terminated", runId, active.getRequest(), actor, note);
                 canceled.add(runId);
             }
@@ -927,6 +927,20 @@ public class ReviewConcurrencyController {
         }
     }
 
+    public boolean isCancelRequested(@Nonnull String runId) {
+        ActiveRun active = activeRuns.get(runId);
+        return active != null && active.isCancelRequested();
+    }
+
+    @Nullable
+    public String getCancelReason(@Nonnull String runId) {
+        ActiveRun active = activeRuns.get(runId);
+        if (active == null || !active.isCancelRequested()) {
+            return null;
+        }
+        return active.getCancelReason();
+    }
+
     public static final class BulkCancelResult {
         private final List<String> canceledRunIds;
         private final int failed;
@@ -1057,6 +1071,7 @@ public class ReviewConcurrencyController {
         private final Future<?> future;
         private final long startedAt;
         private final AtomicBoolean cancelRequested = new AtomicBoolean();
+        private volatile String cancelReason;
 
         private ActiveRun(ReviewExecutionRequest request, Future<?> future) {
             this.request = request;
@@ -1064,8 +1079,9 @@ public class ReviewConcurrencyController {
             this.startedAt = System.currentTimeMillis();
         }
 
-        boolean cancel() {
+        boolean cancel(@Nullable String reason) {
             cancelRequested.set(true);
+            this.cancelReason = reason;
             Future<?> future = this.future;
             if (future == null) {
                 return false;
@@ -1075,6 +1091,17 @@ public class ReviewConcurrencyController {
 
         void markCompleted() {
             // No-op for now; removal from activeRuns signals completion.
+            cancelRequested.set(false);
+            cancelReason = null;
+        }
+
+        boolean isCancelRequested() {
+            return cancelRequested.get();
+        }
+
+        @Nullable
+        String getCancelReason() {
+            return cancelReason;
         }
 
         QueueStats.ActiveRunEntry toEntry() {
