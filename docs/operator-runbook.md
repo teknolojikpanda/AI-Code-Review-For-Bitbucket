@@ -42,6 +42,29 @@ Core metric names emitted via `/metrics`:
 
 Every response is timestamped via `generatedAt` so automation can detect stale data.
 
+## 2. CLI Helper
+
+For maintenance windows it is often easier to script scheduler changes. The repository ships a tiny wrapper at `scripts/guardrails-cli.sh` that issues the rollout REST calls with curl. Usage:
+
+```bash
+export GUARDRAILS_BASE_URL=https://bitbucket.example.com
+export GUARDRAILS_AUTH=admin:api-token
+
+# Pause immediately with a reason
+./scripts/guardrails-cli.sh pause "Nightly patching"
+
+# Drain (finish current runs, block new ones)
+./scripts/guardrails-cli.sh drain "Deploy in progress"
+
+# Resume normal scheduling
+./scripts/guardrails-cli.sh resume
+
+# Inspect current state
+./scripts/guardrails-cli.sh state
+```
+
+The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.
+
 ### Worker Pool Degradation
 
 - The admin config page now exposes **Worker Pool Degradation** (enabled by default). When utilization stays above ~90% or the worker queue keeps growing, Guardrails halves the effective `parallelThreads` (and eventually drops to one) so nodes can recover without manual intervention.

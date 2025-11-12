@@ -47,7 +47,7 @@
 [X] 4. Add permission checks + audit events so only global admins can pause/cancel and every action is traceable (who, when, which PR/repository, reason). _(Admin endpoints now enforce system-admin auth and both queue cancels + scheduler toggles emit audit rows with actor + reason.)_
 [X] 5. Provide bulk cancellation (per repo/project or entire queue) with confirmation prompts and progress feedback. _(Admin UI now offers scoped cancel controls plus REST endpoints that nuke queued/running reviews with audit+reason logging.)_
 [X] 6. Integrate pause/cancel actions with the fairness + rate-limit subsystems so overrides are reflected consistently across telemetry. _(Queue audit + rate-limit override feeds now flow into telemetry/health APIs so fairness + limiter views stay in sync with admin actions.)_
-[ ] 7. Offer REST + CLI tooling so automation can pause/resume during maintenance windows.
+[X] 7. Offer REST + CLI tooling so automation can pause/resume during maintenance windows. _(Added `scripts/guardrails-cli.sh` + runbook docs showing how to pause/drain/resume via curl-backed CLI.)_
 
 ### 6. Monitoring & Alerting
 [ ] 1. Add gauges/counters (Micrometer or existing MetricsCollector) for queue depth, active reviews, throttled requests, AI errors.
