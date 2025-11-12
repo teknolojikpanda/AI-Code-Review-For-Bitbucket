@@ -22,6 +22,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -1173,6 +1174,27 @@ public class ReviewHistoryService {
         });
     }
 
+    public ModelStats getRecentModelStats(int sampleLimit) {
+        final int limit = Math.min(Math.max(sampleLimit, 50), 2000);
+        return ao.executeInTransaction(() -> {
+            AIReviewChunk[] chunks = ao.find(AIReviewChunk.class,
+                    Query.select()
+                            .order("ID DESC")
+                            .limit(limit));
+            if (chunks.length == 0) {
+                return ModelStats.empty();
+            }
+            List<ModelSample> samples = new ArrayList<>(chunks.length);
+            for (AIReviewChunk chunk : chunks) {
+                samples.add(ModelSample.from(chunk,
+                        normalizeEndpoint(chunk.getEndpoint()),
+                        normalizeModel(chunk.getModel()),
+                        chunk.getID()));
+            }
+            return aggregateModelStats(samples, chunks.length, System.currentTimeMillis());
+        });
+    }
+
     public Map<String, Object> getRetentionStats(int retentionDays) {
         final int days = Math.max(1, retentionDays);
         final long now = System.currentTimeMillis();
@@ -1546,6 +1568,302 @@ public class ReviewHistoryService {
                 return project;
             }
             return project + "/" + repo;
+        }
+    }
+
+    static ModelStats aggregateModelStats(List<ModelSample> samples, int scanned, long generatedAt) {
+        if (samples == null || samples.isEmpty()) {
+            return ModelStats.empty();
+        }
+        Map<ModelEndpointKey, ModelAggregation> aggregations = new LinkedHashMap<>();
+        for (ModelSample sample : samples) {
+            if (sample == null || sample.model == null || sample.model.isEmpty()) {
+                continue;
+            }
+            ModelEndpointKey key = new ModelEndpointKey(sample.endpoint, sample.model);
+            aggregations.computeIfAbsent(key, ModelAggregation::new).accept(sample);
+        }
+        if (aggregations.isEmpty()) {
+            return ModelStats.empty();
+        }
+        List<ModelStats.Entry> entries = aggregations.values().stream()
+                .map(ModelAggregation::toEntry)
+                .sorted(Comparator.comparingLong(ModelStats.Entry::getTotalInvocations).reversed())
+                .collect(Collectors.toList());
+        return new ModelStats(entries, scanned, generatedAt);
+    }
+
+    public static final class ModelStats {
+        private final List<Entry> entries;
+        private final int scannedSamples;
+        private final long generatedAt;
+
+        ModelStats(List<Entry> entries, int scannedSamples, long generatedAt) {
+            this.entries = entries != null ? entries : Collections.emptyList();
+            this.scannedSamples = scannedSamples;
+            this.generatedAt = generatedAt;
+        }
+
+        public static ModelStats empty() {
+            return new ModelStats(Collections.emptyList(), 0, System.currentTimeMillis());
+        }
+
+        public List<Entry> getEntries() {
+            return entries;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("generatedAt", generatedAt);
+            map.put("scannedSamples", scannedSamples);
+            List<Map<String, Object>> entryMaps = entries.stream()
+                    .map(Entry::toMap)
+                    .collect(Collectors.toList());
+            map.put("entries", entryMaps);
+            return map;
+        }
+
+        public static final class Entry {
+            private final String endpoint;
+            private final String model;
+            private final long totalInvocations;
+            private final double averageDurationMs;
+            private final double percentile95thMs;
+            private final double successRate;
+            private final long failureCount;
+            private final long timeoutCount;
+            private final String lastError;
+            private final Map<String, Long> statusCounts;
+
+            Entry(String endpoint,
+                  String model,
+                  long totalInvocations,
+                  double averageDurationMs,
+                  double percentile95thMs,
+                  double successRate,
+                  long failureCount,
+                  long timeoutCount,
+                  String lastError,
+                  Map<String, Long> statusCounts) {
+                this.endpoint = endpoint;
+                this.model = model;
+                this.totalInvocations = totalInvocations;
+                this.averageDurationMs = averageDurationMs;
+                this.percentile95thMs = percentile95thMs;
+                this.successRate = successRate;
+                this.failureCount = failureCount;
+                this.timeoutCount = timeoutCount;
+                this.lastError = lastError;
+                this.statusCounts = statusCounts != null ? statusCounts : Collections.emptyMap();
+            }
+
+            public long getTotalInvocations() {
+                return totalInvocations;
+            }
+
+            public double getSuccessRate() {
+                return successRate;
+            }
+
+            public long getTimeoutCount() {
+                return timeoutCount;
+            }
+
+            public Map<String, Long> getStatusCounts() {
+                return statusCounts;
+            }
+
+            public Map<String, Object> toMap() {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("endpoint", endpoint);
+                map.put("model", model);
+                map.put("totalInvocations", totalInvocations);
+                map.put("averageDurationMs", averageDurationMs);
+                map.put("p95DurationMs", percentile95thMs);
+                map.put("successRate", successRate);
+                map.put("failureCount", failureCount);
+                map.put("timeoutCount", timeoutCount);
+                if (!statusCounts.isEmpty()) {
+                    map.put("statusCounts", statusCounts);
+                }
+                if (lastError != null && !lastError.isEmpty()) {
+                    map.put("lastError", lastError);
+                }
+                return map;
+            }
+        }
+    }
+
+    static final class ModelSample {
+        final String endpoint;
+        final String model;
+        final long durationMs;
+        final boolean success;
+        final boolean timeout;
+        final int statusCode;
+        final String lastError;
+        final long chunkId;
+
+        private ModelSample(String endpoint,
+                            String model,
+                            long durationMs,
+                            boolean success,
+                            boolean timeout,
+                            int statusCode,
+                            String lastError,
+                            long chunkId) {
+            this.endpoint = endpoint;
+            this.model = model;
+            this.durationMs = durationMs;
+            this.success = success;
+            this.timeout = timeout;
+            this.statusCode = statusCode;
+            this.lastError = lastError;
+            this.chunkId = chunkId;
+        }
+
+        static ModelSample from(AIReviewChunk chunk,
+                                String endpoint,
+                                String model,
+                                long chunkId) {
+            long duration = Math.max(0, chunk.getDurationMs());
+            String error = chunk.getLastError();
+            if (error != null && error.length() > 512) {
+                error = error.substring(0, 512);
+            }
+            return new ModelSample(endpoint,
+                    model,
+                    duration,
+                    chunk.isSuccess(),
+                    chunk.isTimeout(),
+                    chunk.getStatusCode(),
+                    error,
+                    chunkId);
+        }
+
+        static ModelSample of(String endpoint,
+                              String model,
+                              long durationMs,
+                              boolean success,
+                              boolean timeout,
+                              int statusCode,
+                              String lastError,
+                              long chunkId) {
+            return new ModelSample(endpoint, model, durationMs, success, timeout, statusCode, lastError, chunkId);
+        }
+    }
+
+    private static final class ModelEndpointKey {
+        private final String endpoint;
+        private final String model;
+
+        private ModelEndpointKey(String endpoint, String model) {
+            this.endpoint = endpoint;
+            this.model = model;
+        }
+
+        private ModelEndpointKey(ModelSample sample) {
+            this(sample.endpoint, sample.model);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof ModelEndpointKey)) {
+                return false;
+            }
+            ModelEndpointKey other = (ModelEndpointKey) obj;
+            return Objects.equals(endpoint, other.endpoint) && Objects.equals(model, other.model);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(endpoint, model);
+        }
+    }
+
+    private static final class ModelAggregation {
+        private static final int DURATION_SAMPLE_LIMIT = 200;
+        private final String endpoint;
+        private final String model;
+        private final List<Long> durationSamples = new ArrayList<>();
+        private final Map<Integer, Long> statusCounts = new LinkedHashMap<>();
+        private long totalDuration;
+        private long invocations;
+        private long successes;
+        private long failures;
+        private long timeouts;
+        private long lastErrorChunkId = -1;
+        private String lastError;
+
+        private ModelAggregation(ModelEndpointKey key) {
+            this.endpoint = key.endpoint;
+            this.model = key.model;
+        }
+
+        void accept(ModelSample sample) {
+            invocations++;
+            totalDuration += sample.durationMs;
+            if (durationSamples.size() < DURATION_SAMPLE_LIMIT) {
+                durationSamples.add(sample.durationMs);
+            }
+            if (sample.success) {
+                successes++;
+            } else {
+                failures++;
+                if (sample.lastError != null && (lastError == null || sample.chunkId > lastErrorChunkId)) {
+                    lastErrorChunkId = sample.chunkId;
+                    lastError = sample.lastError;
+                }
+            }
+            if (sample.timeout) {
+                timeouts++;
+            }
+            if (sample.statusCode > 0) {
+                statusCounts.merge(sample.statusCode, 1L, Long::sum);
+            }
+        }
+
+        ModelStats.Entry toEntry() {
+            double avg = invocations == 0 ? 0d : (double) totalDuration / invocations;
+            double p95 = durationSamples.isEmpty() ? 0d : percentileLong(durationSamples, 0.95d);
+            double successRate = invocations == 0 ? 0d : (double) successes / invocations;
+            Map<String, Long> statusMap = new LinkedHashMap<>();
+            statusCounts.forEach((code, count) -> statusMap.put(String.valueOf(code), count));
+            return new ModelStats.Entry(
+                    endpoint,
+                    model,
+                    invocations,
+                    avg,
+                    p95,
+                    successRate,
+                    failures,
+                    timeouts,
+                    lastError,
+                    Collections.unmodifiableMap(statusMap));
+        }
+
+        private double percentileLong(List<Long> values, double percentile) {
+            if (values.isEmpty()) {
+                return 0d;
+            }
+            List<Long> sorted = new ArrayList<>(values);
+            Collections.sort(sorted);
+            if (sorted.size() == 1) {
+                return sorted.get(0);
+            }
+            double index = percentile * (sorted.size() - 1);
+            int lower = (int) Math.floor(index);
+            int upper = (int) Math.ceil(index);
+            if (lower == upper) {
+                return sorted.get(lower);
+            }
+            double fraction = index - lower;
+            double lowerValue = sorted.get(lower);
+            double upperValue = sorted.get(upper);
+            return lowerValue + (upperValue - lowerValue) * fraction;
         }
     }
 
@@ -2147,6 +2465,21 @@ public class ReviewHistoryService {
             }
         }
         return defaultValue;
+    }
+
+    private String normalizeEndpoint(Object raw) {
+        if (raw == null) {
+            return "unknown";
+        }
+        String value = raw.toString().trim();
+        if (value.isEmpty()) {
+            return "unknown";
+        }
+        return value.replaceAll("/+$", "");
+    }
+
+    private String normalizeModel(Object raw) {
+        return limitString(raw, 255);
     }
 
     private String limitString(Object value, int maxLength) {

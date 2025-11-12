@@ -5,12 +5,13 @@ import com.teknolojikpanda.bitbucket.aireviewer.util.ChunkTelemetryUtil;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 import static org.junit.Assert.assertNotNull;
 import static org.mockito.Mockito.mock;
 
@@ -92,5 +93,22 @@ public class ReviewHistoryServiceTest {
         assertEquals("OPEN", sample.get("state"));
         Map<String, Object> snapshot = (Map<String, Object>) sample.get("snapshot");
         assertEquals(3L, snapshot.get("blockedCalls"));
+    }
+
+    @Test
+    public void modelStatsAggregationComputesLatencyAndFailures() {
+        List<ReviewHistoryService.ModelSample> samples = Arrays.asList(
+                ReviewHistoryService.ModelSample.of("http://ollama", "primary", 120, true, false, 200, null, 1),
+                ReviewHistoryService.ModelSample.of("http://ollama", "primary", 300, false, true, 504, "timeout", 2)
+        );
+        ReviewHistoryService.ModelStats stats =
+                ReviewHistoryService.aggregateModelStats(samples, samples.size(), 123L);
+        assertEquals(1, stats.getEntries().size());
+        ReviewHistoryService.ModelStats.Entry entry = stats.getEntries().get(0);
+        assertEquals(2, entry.getTotalInvocations());
+        assertEquals(0.5d, entry.getSuccessRate(), 0.0001d);
+        assertEquals(1, entry.getTimeoutCount());
+        assertTrue(entry.getStatusCounts().containsKey("504"));
+        assertTrue(entry.toMap().containsKey("p95DurationMs"));
     }
 }

@@ -27,6 +27,7 @@ public class GuardrailsTelemetryServiceTest {
     private GuardrailsAlertDeliveryService deliveryService;
     private GuardrailsWorkerNodeService workerNodeService;
     private GuardrailsScalingAdvisor scalingAdvisor;
+    private ModelHealthService modelHealthService;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -66,6 +67,7 @@ public class GuardrailsTelemetryServiceTest {
         when(workerPool.snapshot()).thenReturn(createWorkerSnapshot());
         when(rateLimiter.snapshot()).thenReturn(createRateSnapshot());
         when(historyService.getRecentDurationStats(anyInt())).thenReturn(createDurationStats());
+        when(historyService.getRecentModelStats(anyInt())).thenReturn(ReviewHistoryService.ModelStats.empty());
         when(historyService.getRetentionStats(anyInt())).thenReturn(retentionStatsMap());
 
         ReviewHistoryCleanupStatusService.Status cleanupStatus =
@@ -99,6 +101,8 @@ public class GuardrailsTelemetryServiceTest {
                                 "Workers hot",
                                 "Utilization > 90%",
                                 "Add nodes")));
+        modelHealthService = mock(ModelHealthService.class);
+        when(modelHealthService.snapshot()).thenReturn(Collections.emptyMap());
 
         telemetryService = new GuardrailsTelemetryService(
                 concurrencyController,
@@ -110,7 +114,8 @@ public class GuardrailsTelemetryServiceTest {
                 schedulerStateService,
                 deliveryService,
                 workerNodeService,
-                scalingAdvisor);
+                scalingAdvisor,
+                modelHealthService);
     }
 
     @Test
@@ -124,7 +129,9 @@ public class GuardrailsTelemetryServiceTest {
         assertTrue(snapshot.containsKey("rateLimiter"));
         assertTrue(snapshot.containsKey("scalingHints"));
         assertTrue(snapshot.containsKey("retention"));
+        assertTrue(snapshot.containsKey("modelStats"));
         assertTrue(snapshot.containsKey("schedulerState"));
+        assertTrue(snapshot.containsKey("modelHealth"));
         @SuppressWarnings("unchecked")
         Map<String, Object> retention = (Map<String, Object>) snapshot.get("retention");
         assertTrue(retention.containsKey("schedule"));

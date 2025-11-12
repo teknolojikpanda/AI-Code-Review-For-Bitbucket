@@ -25,6 +25,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -54,6 +55,7 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewSchedulerStateService schedulerStateService;
     private ReviewQueueAuditService queueAuditService;
     private WorkerDegradationService workerDegradationService;
+    private ModelHealthService modelHealthService;
 
     private AIReviewServiceImpl service;
 
@@ -99,6 +101,9 @@ public class AIReviewServiceMergeCheckTest {
         autoSnoozeService = mock(GuardrailsAutoSnoozeService.class);
         when(workerDegradationService.apply(any())).thenAnswer(invocation ->
                 WorkerDegradationService.Result.passThrough(invocation.getArgument(0)));
+        modelHealthService = mock(ModelHealthService.class);
+        when(modelHealthService.apply(any())).thenAnswer(invocation ->
+                ModelHealthService.Result.passThrough(invocation.getArgument(0)));
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -119,7 +124,8 @@ public class AIReviewServiceMergeCheckTest {
                 rateLimiter,
                 workerPool,
                 autoSnoozeService,
-                workerDegradationService);
+                workerDegradationService,
+                modelHealthService);
 
         try {
             setSecurityServiceNull();

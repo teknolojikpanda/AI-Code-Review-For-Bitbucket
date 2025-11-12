@@ -26,6 +26,7 @@ public final class ReviewConfig {
     private final int chunkRetryDelayMs;
     private final int overviewMaxRetries;
     private final int overviewRetryDelayMs;
+    private final boolean skipPrimaryModel;
     private final Set<String> reviewableExtensions;
     private final List<String> ignorePatterns;
     private final List<String> ignorePaths;
@@ -48,6 +49,7 @@ public final class ReviewConfig {
         this.chunkRetryDelayMs = builder.chunkRetryDelayMs;
         this.overviewMaxRetries = builder.overviewMaxRetries;
         this.overviewRetryDelayMs = builder.overviewRetryDelayMs;
+        this.skipPrimaryModel = builder.skipPrimaryModel;
         this.reviewableExtensions = Collections.unmodifiableSet(builder.reviewableExtensions);
         this.ignorePatterns = Collections.unmodifiableList(builder.ignorePatterns);
         this.ignorePaths = Collections.unmodifiableList(builder.ignorePaths);
@@ -124,6 +126,10 @@ public final class ReviewConfig {
         return overviewRetryDelayMs;
     }
 
+    public boolean isSkipPrimaryModel() {
+        return skipPrimaryModel;
+    }
+
     @Nonnull
     public Set<String> getReviewableExtensions() {
         return reviewableExtensions;
@@ -172,6 +178,7 @@ public final class ReviewConfig {
         private int chunkRetryDelayMs = 1_000;
         private int overviewMaxRetries = 2;
         private int overviewRetryDelayMs = 1_500;
+        private boolean skipPrimaryModel = false;
         private Set<String> reviewableExtensions = Collections.emptySet();
         private List<String> ignorePatterns = Collections.emptyList();
         private List<String> ignorePaths = Collections.emptyList();
@@ -246,6 +253,11 @@ public final class ReviewConfig {
 
         public Builder overviewRetryDelayMs(int value) {
             this.overviewRetryDelayMs = value;
+            return this;
+        }
+
+        public Builder skipPrimaryModel(boolean value) {
+            this.skipPrimaryModel = value;
             return this;
         }
 

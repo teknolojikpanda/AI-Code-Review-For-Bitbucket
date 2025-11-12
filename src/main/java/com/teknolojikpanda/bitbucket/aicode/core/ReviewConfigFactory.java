@@ -68,6 +68,7 @@ public class ReviewConfigFactory {
         builder.reviewableExtensions(splitToSet(config.get("reviewExtensions")));
         builder.ignorePatterns(splitToList(config.get("ignorePatterns")));
         builder.ignorePaths(splitToList(config.get("ignorePaths")));
+        builder.skipPrimaryModel(booleanValue(config.get("skipPrimaryModel"), false));
 
         builder.profile(buildProfile(config));
         builder.promptTemplates(loadPromptTemplates(config));

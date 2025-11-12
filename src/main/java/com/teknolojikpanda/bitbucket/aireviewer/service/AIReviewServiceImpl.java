@@ -119,6 +119,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final ReviewWorkerPool workerPool;
     private final GuardrailsAutoSnoozeService autoSnoozeService;
     private final WorkerDegradationService workerDegradationService;
+    private final ModelHealthService modelHealthService;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -142,7 +143,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             ReviewRateLimiter rateLimiter,
             ReviewWorkerPool workerPool,
             GuardrailsAutoSnoozeService autoSnoozeService,
-            WorkerDegradationService workerDegradationService) {
+            WorkerDegradationService workerDegradationService,
+            ModelHealthService modelHealthService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -162,6 +164,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool cannot be null");
         this.autoSnoozeService = Objects.requireNonNull(autoSnoozeService, "autoSnoozeService cannot be null");
         this.workerDegradationService = Objects.requireNonNull(workerDegradationService, "workerDegradationService cannot be null");
+        this.modelHealthService = Objects.requireNonNull(modelHealthService, "modelHealthService cannot be null");
 
     }
 
@@ -383,10 +386,24 @@ public class AIReviewServiceImpl implements AIReviewService {
             Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
             WorkerDegradationService.Result degradationResult = workerDegradationService.apply(configMap);
             configMap = degradationResult.getConfiguration();
+            ModelHealthService.Result modelHealthResult = modelHealthService.apply(configMap);
+            configMap = modelHealthResult.getConfiguration();
             ApplicationUser reviewerUser = resolveReviewerUser(configMap);
             ReviewConfig reviewConfig = configFactory.from(configMap);
             metrics.setGauge("config.parallelThreads", reviewConfig.getParallelThreads());
             metrics.setGauge("config.maxChunks", reviewConfig.getMaxChunks());
+            metrics.setGauge("config.primaryModelDegraded", reviewConfig.isSkipPrimaryModel() ? 1 : 0);
+            ModelHealthService.HealthSnapshot primaryHealth = modelHealthResult.getPrimarySnapshot();
+            if (primaryHealth != null) {
+                metrics.setGauge("model.primary.status", primaryHealth.getStatus().name().toLowerCase(Locale.ROOT));
+            }
+            ModelHealthService.HealthSnapshot fallbackHealth = modelHealthResult.getFallbackSnapshot();
+            if (fallbackHealth != null) {
+                metrics.setGauge("model.fallback.status", fallbackHealth.getStatus().name().toLowerCase(Locale.ROOT));
+            } else {
+                metrics.setGauge("model.fallback.status", "unconfigured");
+            }
+            metrics.setGauge("model.health.failoverApplied", modelHealthResult.isFailoverApplied() ? 1 : 0);
             boolean degraded = degradationResult.isDegraded();
             metrics.setGauge("config.workerDegradationActive", degraded ? 1 : 0);
             if (degraded) {
@@ -403,6 +420,23 @@ public class AIReviewServiceImpl implements AIReviewService {
                         degradationResult.getAdjustedParallelThreads(),
                         utilizationText,
                         degradationResult.getQueuedTasks());
+            }
+            if (modelHealthResult.isPrimaryDegraded()) {
+                Map<String, Object> degradeDetails = progressDetails(
+                        "primaryModel", reviewConfig.getPrimaryModel(),
+                        "fallbackModel", reviewConfig.getFallbackModel(),
+                        "primaryStatus", primaryHealth != null
+                                ? primaryHealth.getStatus().name().toLowerCase(Locale.ROOT)
+                                : "unknown");
+                if (primaryHealth != null && primaryHealth.getMessage() != null) {
+                    degradeDetails.put("message", primaryHealth.getMessage());
+                }
+                if (fallbackHealth != null) {
+                    degradeDetails.put("fallbackStatus", fallbackHealth.getStatus().name().toLowerCase(Locale.ROOT));
+                }
+                recordProgress("config.primaryModelDegraded", 11, degradeDetails);
+                log.warn("Primary model {} marked degraded for PR #{}; routing chunks to fallback",
+                        reviewConfig.getPrimaryModel(), pullRequestId);
             }
             recordProgress("config.resolved", 10, progressDetails(
                     "primaryModel", reviewConfig.getPrimaryModel(),

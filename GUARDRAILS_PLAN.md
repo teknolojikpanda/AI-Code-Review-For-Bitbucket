@@ -37,8 +37,8 @@
 [X] 5. Enrich `ProgressRegistry` updates (e.g., `analysis.started`, `analysis.completed`) with the latest circuit snapshot + current chunk identifiers so the PR progress panel shows exactly what is running and whether calls are throttled. _(Analysis progress now includes circuit snapshots + chunk plan previews, while `analysis.active` events stream currently-running chunk labels.)_
 [X] 6. Teach `AIReviewHistoryService` to persist that telemetry so the history UI can display past breaker or rate-limiter incidents alongside chunk timing. _(History payloads now expose guardrails telemetry and the admin UI renders limiter/breaker cards for every run.)_
 [X] 7. Add configurable retry policies per model (different backoff windows for overview vs chunk calls) with UI knobs for admins. _(Config now persists separate overview/chunk retry policies, exposes them via REST/UI, and chunk execution honors the per-phase settings.)_
-[ ] 8. Implement proactive health probes that periodically test models and mark them “degraded” before real reviews fail, falling back automatically.
-[ ] 9. Surface cumulative AI vendor latency/error stats per endpoint so operators can justify switching models/providers if reliability drops.
+[X] 8. Implement proactive health probes that periodically test models and mark them “degraded” before real reviews fail, falling back automatically. _(Scheduled probes ping both primary/fallback models, surface their status in telemetry, and instruct the reviewer to skip degraded primaries so chunks go straight to the fallback.)_
+[X] 9. Surface cumulative AI vendor latency/error stats per endpoint so operators can justify switching models/providers if reliability drops. _(Guardrails telemetry now emits `modelStats` with per-endpoint averages, P95 latency, failure/timeouts, and HTTP status mixes so ops can compare vendors at a glance.)_
 
 ### 5. Admin Controls (Pause/Cancel)
 [ ] 1. Extend Progress REST resource with POST endpoints to pause/resume the scheduler and cancel individual queued/running reviews. _(Pause/resume/cancel endpoints implemented, plus AO-backed audit logging for every queue override)_

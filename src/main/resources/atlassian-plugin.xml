@@ -218,6 +218,11 @@
         <description>Aggregates queue, worker, limiter, and retention telemetry for guardrails</description>
     </component>
 
+    <component key="modelHealthProbeScheduler"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ModelHealthProbeScheduler">
+        <description>Probes AI models periodically so degraded providers are detected before user traffic fails.</description>
+    </component>
+
     <component key="guardrailsAlertingService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertingService">
         <description>Evaluates guardrail alerts based on telemetry snapshots</description>

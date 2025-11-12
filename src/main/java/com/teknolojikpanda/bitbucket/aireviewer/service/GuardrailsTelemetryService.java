@@ -24,6 +24,7 @@ import java.util.Objects;
 public class GuardrailsTelemetryService {
 
     private static final int DURATION_SAMPLE_LIMIT = 200;
+    private static final int MODEL_STATS_SAMPLE_LIMIT = 600;
 
     private final ReviewConcurrencyController concurrencyController;
     private final ReviewWorkerPool workerPool;
@@ -35,6 +36,7 @@ public class GuardrailsTelemetryService {
     private final GuardrailsAlertDeliveryService deliveryService;
     private final GuardrailsWorkerNodeService workerNodeService;
     private final GuardrailsScalingAdvisor scalingAdvisor;
+    private final ModelHealthService modelHealthService;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -46,7 +48,8 @@ public class GuardrailsTelemetryService {
                                       ReviewSchedulerStateService schedulerStateService,
                                       GuardrailsAlertDeliveryService deliveryService,
                                       GuardrailsWorkerNodeService workerNodeService,
-                                      GuardrailsScalingAdvisor scalingAdvisor) {
+                                      GuardrailsScalingAdvisor scalingAdvisor,
+                                      ModelHealthService modelHealthService) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -57,6 +60,7 @@ public class GuardrailsTelemetryService {
         this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
         this.workerNodeService = Objects.requireNonNull(workerNodeService, "workerNodeService");
         this.scalingAdvisor = Objects.requireNonNull(scalingAdvisor, "scalingAdvisor");
+        this.modelHealthService = Objects.requireNonNull(modelHealthService, "modelHealthService");
     }
 
     /**
@@ -78,6 +82,8 @@ public class GuardrailsTelemetryService {
         payload.put("scalingHints", scalingHintsToList(scalingAdvisor.evaluate(queueStats, workerNodes)));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
+        payload.put("modelStats", historyService.getRecentModelStats(MODEL_STATS_SAMPLE_LIMIT).toMap());
+        payload.put("modelHealth", modelHealthService.snapshot());
         payload.put("generatedAt", System.currentTimeMillis());
         return payload;
     }

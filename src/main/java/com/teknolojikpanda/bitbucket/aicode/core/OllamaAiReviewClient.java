@@ -137,15 +137,21 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     .build();
         }
 
-        List<ReviewFinding> findings = invokeModelWithRetry(
-                chunk,
-                overview,
-                context,
-                config.getPrimaryModelEndpoint().toString(),
-                config.getPrimaryModel(),
-                config,
-                "primary",
-                metrics);
+        List<ReviewFinding> findings = null;
+        if (config.isSkipPrimaryModel()) {
+            metrics.increment("ai.model.primarySkipped");
+            log.info("Skipping primary model {} due to health probes marking it degraded", config.getPrimaryModel());
+        } else {
+            findings = invokeModelWithRetry(
+                    chunk,
+                    overview,
+                    context,
+                    config.getPrimaryModelEndpoint().toString(),
+                    config.getPrimaryModel(),
+                    config,
+                    "primary",
+                    metrics);
+        }
 
         if (findings == null) {
             metrics.increment("ai.model.fallback.triggered");
