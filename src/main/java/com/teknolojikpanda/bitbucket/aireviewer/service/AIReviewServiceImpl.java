@@ -387,6 +387,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                 "forced", run.force));
         TimelineRecorder timeline = new TimelineRecorder(run, tracker, metrics);
 
+        Map<String, Object> configMap = Collections.emptyMap();
         try {
             logPullRequestInfo(pullRequest);
 
@@ -412,7 +413,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                     "projectKey", projectKey,
                     "repositorySlug", repositorySlug));
 
-            Map<String, Object> configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
+            configMap = configService.getEffectiveConfiguration(projectKey, repositorySlug);
             WorkerDegradationService.Result degradationResult = workerDegradationService.apply(configMap);
             configMap = degradationResult.getConfiguration();
             ModelHealthService.Result modelHealthResult = modelHealthService.apply(configMap);
@@ -650,7 +651,15 @@ public class AIReviewServiceImpl implements AIReviewService {
             saveReviewHistory(pullRequest, validated, result, configMap);
             completeCurrentRun(result.getStatus());
             return result;
-
+        } catch (ReviewCanceledException canceled) {
+            Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
+            String message = (canceled.getMessage() == null || canceled.getMessage().isBlank())
+                    ? "Review canceled by administrator."
+                    : canceled.getMessage();
+            ReviewResult canceledResult = buildCanceledResult(pullRequestId, message, metricsSnapshot);
+            saveReviewHistory(pullRequest, Collections.emptyList(), canceledResult, configMap);
+            completeRun(run, canceledResult.getStatus());
+            return canceledResult;
         } catch (Exception e) {
             return handleReviewException(pullRequestId, e, metrics, overallStart);
         } finally {
