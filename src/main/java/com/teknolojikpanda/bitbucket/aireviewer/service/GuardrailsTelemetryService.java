@@ -119,6 +119,7 @@ public class GuardrailsTelemetryService {
         Map<String, Object> schedule = asMap(retention.get("schedule"));
         Map<String, Object> schedulerState = asMap(runtime.get("schedulerState"));
         Map<String, Object> durations = asMap(runtime.get("reviewDurations"));
+        Map<String, Object> modelStats = asMap(runtime.get("modelStats"));
         GuardrailsAlertDeliveryService.Aggregates deliveryAgg = deliveryService.aggregateRecentDeliveries(200);
 
         Number maxConcurrent = toNumber(queue.get("maxConcurrent"));
@@ -155,8 +156,19 @@ public class GuardrailsTelemetryService {
                 "Repositories tracked by the limiter");
         addMetric(metrics, "ai.rateLimiter.trackedProjectBuckets", limiter.get("trackedProjectBuckets"), "count",
                 "Projects tracked by the limiter");
-        addLimiterBucketMetrics(metrics, "repo", asList(limiter.get("topRepoBuckets")), 5);
-        addLimiterBucketMetrics(metrics, "project", asList(limiter.get("topProjectBuckets")), 5);
+        List<Map<String, Object>> repoBuckets = asList(limiter.get("topRepoBuckets"));
+        List<Map<String, Object>> projectBuckets = asList(limiter.get("topProjectBuckets"));
+        addLimiterBucketMetrics(metrics, "repo", repoBuckets, 5);
+        addLimiterBucketMetrics(metrics, "project", projectBuckets, 5);
+
+        long repoThrottleEvents = sumListField(repoBuckets, "throttledCount");
+        long projectThrottleEvents = sumListField(projectBuckets, "throttledCount");
+        addMetric(metrics, "ai.rateLimiter.repoThrottles", repoThrottleEvents, "events",
+                "Throttle incidents recorded across sampled repositories");
+        addMetric(metrics, "ai.rateLimiter.projectThrottles", projectThrottleEvents, "events",
+                "Throttle incidents recorded across sampled projects");
+        addMetric(metrics, "ai.rateLimiter.totalThrottles", repoThrottleEvents + projectThrottleEvents, "events",
+                "Total throttle incidents seen across sampled scopes");
 
         addMetric(metrics, "ai.retention.windowDays", retention.get("retentionDays"), "days",
                 "Retention window applied to AI review history");
@@ -200,6 +212,27 @@ public class GuardrailsTelemetryService {
                 "Failed deliveries in recent sample");
         addMetric(metrics, "ai.alerts.deliveries.failureRate", deliveryAgg.getFailureRate(), "ratio",
                 "Fraction of failed deliveries in recent sample");
+
+        List<Map<String, Object>> modelEntries = asList(modelStats.get("entries"));
+        long totalInvocations = sumListField(modelEntries, "totalInvocations");
+        long failureCount = sumListField(modelEntries, "failureCount");
+        long timeoutCount = sumListField(modelEntries, "timeoutCount");
+        long totalErrors = failureCount + timeoutCount;
+        addMetric(metrics, "ai.model.invocations", totalInvocations, "chunks",
+                "Model invocations sampled for recent telemetry");
+        addMetric(metrics, "ai.model.failures", failureCount, "chunks",
+                "Model calls that failed before completion");
+        addMetric(metrics, "ai.model.timeouts", timeoutCount, "chunks",
+                "Model calls that timed out");
+        addMetric(metrics, "ai.model.errors", totalErrors, "chunks",
+                "Total failed or timed-out model calls");
+        addMetric(metrics, "ai.model.sampledEntries", modelStats.get("scannedSamples"), "chunks",
+                "Chunk samples scanned when computing model stats");
+        if (totalInvocations > 0 && totalErrors >= 0) {
+            double errorRate = (double) totalErrors / (double) totalInvocations;
+            addMetric(metrics, "ai.model.errorRate", errorRate, "ratio",
+                    "Error rate derived from sampled model invocations");
+        }
 
         return metrics;
     }
@@ -538,5 +571,22 @@ public class GuardrailsTelemetryService {
             return ((List<?>) value).size();
         }
         return 0;
+    }
+
+    private long sumListField(List<Map<String, Object>> list, String field) {
+        if (list == null || list.isEmpty()) {
+            return 0L;
+        }
+        long sum = 0L;
+        for (Map<String, Object> entry : list) {
+            if (entry == null) {
+                continue;
+            }
+            Number number = toNumber(entry.get(field));
+            if (number != null) {
+                sum += number.longValue();
+            }
+        }
+        return sum;
     }
 }

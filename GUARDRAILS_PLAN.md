@@ -50,7 +50,7 @@
 [X] 7. Offer REST + CLI tooling so automation can pause/resume during maintenance windows. _(Added `scripts/guardrails-cli.sh` + runbook docs showing how to pause/drain/resume via curl-backed CLI.)_
 
 ### 6. Monitoring & Alerting
-[ ] 1. Add gauges/counters (Micrometer or existing MetricsCollector) for queue depth, active reviews, throttled requests, AI errors.
+[X] 1. Add gauges/counters (Micrometer or existing MetricsCollector) for queue depth, active reviews, throttled requests, AI errors. _(Guardrails telemetry now emits queue depth/active gauges plus throttle + AI error counters through `/rest/ai-reviewer/1.0/metrics`.)_
 [ ] 2. Expose a `/metrics` snapshot for external monitoring and document recommended alert thresholds.
 [ ] 3. Include aggregated circuit-breaker + rate-limiter stats (open duration, blocked call deltas, retry counts) in the `/metrics` response so platform monitoring can alert on sustained degradation.
 [ ] 4. Add lightweight REST/ADF panels inside Bitbucket admin that summarize these metrics for quick diagnosis without leaving the product.
