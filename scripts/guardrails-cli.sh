@@ -14,6 +14,8 @@ Commands:
   resume|active    Resume normal scheduling.
   state            Print the current scheduler state JSON.
   alerts           Fetch the latest guardrails alerts (and trigger outbound notifications).
+  cleanup-status   Fetch cleanup schedule + recent runs.
+  cleanup-run      Trigger an immediate cleanup run using saved schedule.
 
 Environment:
   GUARDRAILS_BASE_URL   Base Bitbucket URL (e.g. https://bitbucket.example.com).
@@ -54,6 +56,7 @@ main() {
     local endpoint=""
     local method="POST"
     local payload="{}"
+    local custom_payload="false"
 
     case "${command}" in
         pause|PAUSE)
@@ -73,6 +76,16 @@ main() {
             endpoint="/rest/ai-reviewer/1.0/alerts"
             method="GET"
             ;;
+        cleanup-status)
+            endpoint="/rest/ai-reviewer/1.0/history/cleanup/status"
+            method="GET"
+            ;;
+        cleanup-run)
+            endpoint="/rest/ai-reviewer/1.0/history/cleanup"
+            method="POST"
+            payload='{"runNow":true}'
+            custom_payload="true"
+            ;;
         *)
             echo "Unknown command: ${command}" >&2
             usage
@@ -81,13 +94,14 @@ main() {
     esac
 
     if [[ "${method}" == "POST" ]]; then
-        if [[ -n "${reason}" ]]; then
-            payload=$(printf '{"reason":"%s"}' "$(printf "%s" "${reason}" | sed 's/"/\\"/g')")
+        local body="${payload}"
+        if [[ "${custom_payload}" != "true" && -n "${reason}" ]]; then
+            body=$(printf '{"reason":"%s"}' "$(printf "%s" "${reason}" | sed 's/"/\\"/g')")
         fi
         curl --fail -sS -u "${auth}" \
             -H "Content-Type: application/json" \
             -X POST \
-            -d "${payload}" \
+            -d "${body}" \
             "${base_url}${endpoint}" | jq '.'
     else
         curl --fail -sS -u "${auth}" \

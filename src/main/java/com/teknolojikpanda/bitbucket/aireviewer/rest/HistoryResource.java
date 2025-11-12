@@ -302,6 +302,21 @@ public class HistoryResource {
         return Response.ok(result).build();
     }
 
+    @GET
+    @Path("/cleanup/status")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response cleanupStatus(@Context HttpServletRequest request) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required.")).build();
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", cleanupStatusToMap(cleanupStatusService.getStatus()));
+        payload.put("recentRuns", cleanupAuditService.listRecent(10));
+        return Response.ok(payload).build();
+    }
+
     @POST
     @Path("/cleanup")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -335,7 +350,7 @@ public class HistoryResource {
             try {
                 ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(retentionDays, batchSize);
                 long duration = System.currentTimeMillis() - start;
-                cleanupStatusService.recordRun(result, duration);
+                cleanupStatusService.recordRun(result);
                 cleanupAuditService.recordRun(start, duration,
                         result.getDeletedHistories(),
                         result.getDeletedChunks(),
@@ -769,6 +784,8 @@ public class HistoryResource {
         map.put("deletedChunks", result.getDeletedChunks());
         map.put("remainingCandidates", result.getRemainingCandidates());
         map.put("cutoffEpochMs", result.getCutoffEpochMs());
+        map.put("elapsedMs", result.getElapsedMs());
+        map.put("throughputPerSecond", result.getThroughputPerSecond());
         return map;
     }
 

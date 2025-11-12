@@ -92,6 +92,12 @@ export GUARDRAILS_AUTH=admin:api-token
 
 # Manually evaluate + stream alerts (also notifies webhooks)
 ./scripts/guardrails-cli.sh alerts
+
+# Inspect cleanup schedule + recent runs
+./scripts/guardrails-cli.sh cleanup-status
+
+# Trigger an on-demand cleanup using the saved schedule
+./scripts/guardrails-cli.sh cleanup-run
 ```
 
 The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.

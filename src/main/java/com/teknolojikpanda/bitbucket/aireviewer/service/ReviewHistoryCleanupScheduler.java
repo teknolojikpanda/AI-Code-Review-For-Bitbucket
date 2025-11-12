@@ -118,7 +118,7 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
             try {
                 ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(status.getRetentionDays(), status.getBatchSize());
                 long duration = System.currentTimeMillis() - start;
-                statusService.recordRun(result, duration);
+                statusService.recordRun(result);
                 auditService.recordRun(start,
                         duration,
                         result.getDeletedHistories(),

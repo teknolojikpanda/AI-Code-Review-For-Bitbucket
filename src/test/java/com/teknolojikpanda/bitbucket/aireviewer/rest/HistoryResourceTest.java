@@ -270,7 +270,7 @@ public class HistoryResourceTest {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
         ReviewHistoryCleanupService.CleanupResult result =
-                new ReviewHistoryCleanupService.CleanupResult(60, 100, 5, 20, 10, System.currentTimeMillis());
+                new ReviewHistoryCleanupService.CleanupResult(60, 100, 5, 20, 10, System.currentTimeMillis(), 1200L, 4.1);
         when(cleanupService.cleanupOlderThanDays(eq(60), eq(100))).thenReturn(result);
         HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
         body.retentionDays = 60;
@@ -285,7 +285,7 @@ public class HistoryResourceTest {
         verify(cleanupService).cleanupOlderThanDays(60, 100);
         verify(cleanupStatusService).updateSchedule(60, 100, 180, true);
         verify(cleanupScheduler).reschedule();
-        verify(cleanupStatusService).recordRun(any(), anyLong());
+        verify(cleanupStatusService).recordRun(any());
     }
 
     @Test
@@ -330,7 +330,7 @@ public class HistoryResourceTest {
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 60, 500, 30, System.currentTimeMillis(), 2500L, 12, 24, null);
         when(cleanupStatusService.getStatus()).thenReturn(current, updated);
         ReviewHistoryCleanupService.CleanupResult result =
-                new ReviewHistoryCleanupService.CleanupResult(60, 500, 3, 12, 5, System.currentTimeMillis());
+                new ReviewHistoryCleanupService.CleanupResult(60, 500, 3, 12, 5, System.currentTimeMillis(), 1500L, 2.0);
         when(cleanupService.cleanupOlderThanDays(60, 500)).thenReturn(result);
 
         HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
@@ -346,7 +346,7 @@ public class HistoryResourceTest {
         verify(cleanupStatusService).updateSchedule(60, 500, 30, true);
         verify(cleanupScheduler).reschedule();
         verify(cleanupService).cleanupOlderThanDays(60, 500);
-        verify(cleanupStatusService).recordRun(eq(result), anyLong());
+        verify(cleanupStatusService).recordRun(eq(result));
         verify(cleanupAuditService).recordRun(anyLong(), anyLong(), eq(3), eq(12), eq(true), eq("admin"), eq("Admin"));
 
         @SuppressWarnings("unchecked")
@@ -384,6 +384,37 @@ public class HistoryResourceTest {
         assertTrue(payload.containsKey("status"));
         assertTrue(!payload.containsKey("result"));
         assertTrue(payload.containsKey("recentRuns"));
+    }
+
+    @Test
+    public void cleanupStatusEndpointRequiresAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(false);
+
+        Response response = resource.cleanupStatus(request);
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
+        verify(cleanupStatusService, never()).getStatus();
+    }
+
+    @Test
+    public void cleanupStatusEndpointReturnsPayload() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        ReviewHistoryCleanupStatusService.Status status =
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 60, System.currentTimeMillis(), 1000L, 5, 12, null);
+        when(cleanupStatusService.getStatus()).thenReturn(status);
+        when(cleanupAuditService.listRecent(anyInt())).thenReturn(Collections.singletonList(Map.of("success", true)));
+
+        Response response = resource.cleanupStatus(request);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertTrue(payload.containsKey("status"));
+        assertTrue(payload.containsKey("recentRuns"));
+        verify(cleanupStatusService).getStatus();
+        verify(cleanupAuditService).listRecent(10);
     }
 
     @Test

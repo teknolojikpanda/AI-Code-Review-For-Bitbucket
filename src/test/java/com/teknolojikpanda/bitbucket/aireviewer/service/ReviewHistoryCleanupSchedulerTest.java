@@ -83,7 +83,7 @@ public class ReviewHistoryCleanupSchedulerTest {
                 ReviewHistoryCleanupStatusService.Status.snapshot(true, 45, 125, 60, 0L, 0L, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status);
         ReviewHistoryCleanupService.CleanupResult result =
-                new ReviewHistoryCleanupService.CleanupResult(45, 125, 5, 18, 42, System.currentTimeMillis());
+                new ReviewHistoryCleanupService.CleanupResult(45, 125, 5, 18, 42, System.currentTimeMillis(), 800L, 4.5);
         when(cleanupService.cleanupOlderThanDays(45, 125)).thenReturn(result);
 
         ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
@@ -93,7 +93,7 @@ public class ReviewHistoryCleanupSchedulerTest {
         JobRunnerResponse response = runner.runJob(null);
 
         verify(cleanupService).cleanupOlderThanDays(45, 125);
-        verify(statusService).recordRun(eq(result), anyLong());
+        verify(statusService).recordRun(eq(result));
         verify(auditService).recordRun(anyLong(), anyLong(), eq(5), eq(18), eq(false), eq("system"), eq("System"));
         assertNotNull(response.getMessage());
         assertEquals(RunOutcome.SUCCESS, response.getRunOutcome());
@@ -112,7 +112,7 @@ public class ReviewHistoryCleanupSchedulerTest {
         JobRunnerResponse response = runner.runJob(null);
 
         verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
-        verify(statusService, never()).recordRun(any(), anyLong());
+        verify(statusService, never()).recordRun(any());
         assertEquals(RunOutcome.ABORTED, response.getRunOutcome());
     }
 

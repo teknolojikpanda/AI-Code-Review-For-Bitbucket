@@ -30,7 +30,8 @@ public class ReviewHistoryCleanupService {
         final int days = Math.max(1, retentionDays);
         final int limit = Math.max(1, batchSize);
         return ao.executeInTransaction(() -> {
-            long cutoff = System.currentTimeMillis() - days * 24L * 60L * 60L * 1000L;
+            long start = System.currentTimeMillis();
+            long cutoff = start - days * 24L * 60L * 60L * 1000L;
             AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
                     Query.select()
                             .where("REVIEW_START_TIME < ?", cutoff)
@@ -52,7 +53,9 @@ public class ReviewHistoryCleanupService {
             if (deletedHistory > 0) {
                 log.info("Deleted {} history rows and {} chunks older than {} days", deletedHistory, deletedChunks, days);
             }
-            return new CleanupResult(days, limit, deletedHistory, deletedChunks, remaining, cutoff);
+            long durationMs = Math.max(0, System.currentTimeMillis() - start);
+            double recordsPerSecond = durationMs > 0 ? (deletedHistory / (durationMs / 1000d)) : deletedHistory;
+            return new CleanupResult(days, limit, deletedHistory, deletedChunks, remaining, cutoff, durationMs, recordsPerSecond);
         });
     }
 
@@ -63,19 +66,25 @@ public class ReviewHistoryCleanupService {
         private final int deletedChunks;
         private final int remainingCandidates;
         private final long cutoffEpochMs;
+        private final long elapsedMs;
+        private final double throughputPerSecond;
 
         public CleanupResult(int retentionDays,
                              int batchSize,
                              int deletedHistories,
                              int deletedChunks,
                              int remainingCandidates,
-                             long cutoffEpochMs) {
+                             long cutoffEpochMs,
+                             long elapsedMs,
+                             double throughputPerSecond) {
             this.retentionDays = retentionDays;
             this.batchSize = batchSize;
             this.deletedHistories = deletedHistories;
             this.deletedChunks = deletedChunks;
             this.remainingCandidates = remainingCandidates;
             this.cutoffEpochMs = cutoffEpochMs;
+            this.elapsedMs = elapsedMs;
+            this.throughputPerSecond = throughputPerSecond;
         }
 
         public int getRetentionDays() {
@@ -100,6 +109,14 @@ public class ReviewHistoryCleanupService {
 
         public long getCutoffEpochMs() {
             return cutoffEpochMs;
+        }
+
+        public long getElapsedMs() {
+            return elapsedMs;
+        }
+
+        public double getThroughputPerSecond() {
+            return throughputPerSecond;
         }
     }
 }

@@ -44,11 +44,11 @@ public class ReviewHistoryCleanupStatusService {
         });
     }
 
-    public void recordRun(ReviewHistoryCleanupService.CleanupResult result, long durationMs) {
+    public void recordRun(ReviewHistoryCleanupService.CleanupResult result) {
         ao.executeInTransaction(() -> {
             AIReviewCleanupStatus entity = loadOrCreate();
             entity.setLastRun(System.currentTimeMillis());
-            entity.setLastDurationMs(Math.max(0, durationMs));
+            entity.setLastDurationMs(Math.max(0, result.getElapsedMs()));
             entity.setLastDeletedHistories(result.getDeletedHistories());
             entity.setLastDeletedChunks(result.getDeletedChunks());
             entity.setLastError(null);
