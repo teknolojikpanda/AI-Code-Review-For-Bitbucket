@@ -1227,6 +1227,29 @@ public class ReviewHistoryService {
         });
     }
 
+    public CircuitStats getRecentCircuitStats(int sampleLimit) {
+        final int limit = Math.min(Math.max(sampleLimit, 25), 2000);
+        return ao.executeInTransaction(() -> {
+            AIReviewHistory[] histories = ao.find(AIReviewHistory.class,
+                    Query.select()
+                            .order("ID DESC")
+                            .limit(limit));
+            if (histories.length == 0) {
+                return CircuitStats.empty();
+            }
+            CircuitAggregation aggregation = new CircuitAggregation();
+            for (AIReviewHistory history : histories) {
+                Map<String, Object> metricsMap = ChunkTelemetryUtil.readMetricsMap(history.getMetricsJson());
+                aggregation.accept(metricsMap);
+            }
+            Map<String, Object> data = aggregation.toMap();
+            if (data.isEmpty()) {
+                return CircuitStats.empty();
+            }
+            return CircuitStats.from(data, System.currentTimeMillis());
+        });
+    }
+
     public List<Map<String, Object>> exportRetentionCandidates(int retentionDays, int limit) {
         RetentionExportBatch batch = buildRetentionExport(retentionDays, limit, false);
         if (batch.getEntries().isEmpty()) {
@@ -1864,6 +1887,58 @@ public class ReviewHistoryService {
             double lowerValue = sorted.get(lower);
             double upperValue = sorted.get(upper);
             return lowerValue + (upperValue - lowerValue) * fraction;
+        }
+    }
+
+    public static final class CircuitStats {
+        private final Map<String, Object> payload;
+        private final long generatedAt;
+
+        private CircuitStats(Map<String, Object> payload, long generatedAt) {
+            this.payload = payload != null ? Collections.unmodifiableMap(payload) : Collections.emptyMap();
+            this.generatedAt = generatedAt;
+        }
+
+        public static CircuitStats empty() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            long now = System.currentTimeMillis();
+            map.put("generatedAt", now);
+            return new CircuitStats(map, now);
+        }
+
+        static CircuitStats from(Map<String, Object> data, long generatedAt) {
+            Map<String, Object> payload = new LinkedHashMap<>(data);
+            Map<String, Long> stateCounts = new LinkedHashMap<>();
+            Object rawStates = data.get("stateCounts");
+            if (rawStates instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<Object, Object> rawMap = (Map<Object, Object>) rawStates;
+                rawMap.forEach((key, value) -> stateCounts.put(String.valueOf(key).toUpperCase(Locale.ROOT),
+                        toLongValue(value)));
+            }
+            payload.put("stateCounts", stateCounts);
+            long samples = toLongValue(data.get("samples"));
+            long openSamples = stateCounts.getOrDefault("OPEN", 0L);
+            payload.put("openSampleRatio", samples > 0 ? (double) openSamples / samples : 0d);
+            payload.put("generatedAt", generatedAt);
+            return new CircuitStats(payload, generatedAt);
+        }
+
+        public Map<String, Object> toMap() {
+            return payload;
+        }
+
+        private static long toLongValue(Object value) {
+            if (value instanceof Number) {
+                return ((Number) value).longValue();
+            }
+            if (value instanceof String) {
+                try {
+                    return Long.parseLong(((String) value).trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            return 0L;
         }
     }
 

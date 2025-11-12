@@ -28,6 +28,7 @@ public class GuardrailsTelemetryService {
 
     private static final int DURATION_SAMPLE_LIMIT = 200;
     private static final int MODEL_STATS_SAMPLE_LIMIT = 600;
+    private static final int CIRCUIT_SAMPLE_LIMIT = 400;
 
     private final ReviewConcurrencyController concurrencyController;
     private final ReviewWorkerPool workerPool;
@@ -93,8 +94,11 @@ public class GuardrailsTelemetryService {
         payload.put("scalingHints", scalingHintsToList(scalingAdvisor.evaluate(queueStats, workerNodes)));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
-        payload.put("modelStats", historyService.getRecentModelStats(MODEL_STATS_SAMPLE_LIMIT).toMap());
+        ReviewHistoryService.ModelStats modelStats = historyService.getRecentModelStats(MODEL_STATS_SAMPLE_LIMIT);
+        payload.put("modelStats", modelStats != null ? modelStats.toMap() : Collections.emptyMap());
         payload.put("modelHealth", modelHealthService.snapshot());
+        ReviewHistoryService.CircuitStats circuitStats = historyService.getRecentCircuitStats(CIRCUIT_SAMPLE_LIMIT);
+        payload.put("circuitBreaker", circuitStats != null ? circuitStats.toMap() : Collections.emptyMap());
         payload.put("generatedAt", System.currentTimeMillis());
         return payload;
     }
@@ -114,6 +118,7 @@ public class GuardrailsTelemetryService {
 
     private List<Map<String, Object>> collectMetricPoints(Map<String, Object> runtime) {
         List<Map<String, Object>> metrics = new ArrayList<>();
+        long now = System.currentTimeMillis();
         Map<String, Object> queue = asMap(runtime.get("queue"));
         Map<String, Object> worker = asMap(runtime.get("workerPool"));
         Map<String, Object> limiter = asMap(runtime.get("rateLimiter"));
@@ -121,6 +126,7 @@ public class GuardrailsTelemetryService {
         Map<String, Object> schedule = asMap(retention.get("schedule"));
         Map<String, Object> schedulerState = asMap(runtime.get("schedulerState"));
         Map<String, Object> durations = asMap(runtime.get("reviewDurations"));
+        Map<String, Object> circuit = asMap(runtime.get("circuitBreaker"));
         Map<String, Object> modelStats = asMap(runtime.get("modelStats"));
         GuardrailsAlertDeliveryService.Aggregates deliveryAgg = deliveryService.aggregateRecentDeliveries(200);
 
@@ -171,6 +177,28 @@ public class GuardrailsTelemetryService {
                 "Throttle incidents recorded across sampled projects");
         addMetric(metrics, "ai.rateLimiter.totalThrottles", repoThrottleEvents + projectThrottleEvents, "events",
                 "Total throttle incidents seen across sampled scopes");
+        double repoAvgRetry = averageListField(repoBuckets, "averageRetryAfterMs");
+        double projectAvgRetry = averageListField(projectBuckets, "averageRetryAfterMs");
+        addMetric(metrics, "ai.rateLimiter.repo.avgRetryAfterMs", repoAvgRetry, "ms",
+                "Average retry-after window observed for throttled repositories");
+        addMetric(metrics, "ai.rateLimiter.project.avgRetryAfterMs", projectAvgRetry, "ms",
+                "Average retry-after window observed for throttled projects");
+        long repoMaxRetry = maxListField(repoBuckets, "averageRetryAfterMs");
+        long projectMaxRetry = maxListField(projectBuckets, "averageRetryAfterMs");
+        addMetric(metrics, "ai.rateLimiter.repo.maxRetryAfterMs", repoMaxRetry, "ms",
+                "Longest retry-after window observed for throttled repositories");
+        addMetric(metrics, "ai.rateLimiter.project.maxRetryAfterMs", projectMaxRetry, "ms",
+                "Longest retry-after window observed for throttled projects");
+        long repoThrottleAge = ageSinceMostRecent(repoBuckets, "lastThrottleAt", now);
+        long projectThrottleAge = ageSinceMostRecent(projectBuckets, "lastThrottleAt", now);
+        if (repoThrottleAge >= 0) {
+            addMetric(metrics, "ai.rateLimiter.repo.lastThrottleAgeSeconds", repoThrottleAge, "seconds",
+                    "Seconds since the most recent repository throttle event");
+        }
+        if (projectThrottleAge >= 0) {
+            addMetric(metrics, "ai.rateLimiter.project.lastThrottleAgeSeconds", projectThrottleAge, "seconds",
+                    "Seconds since the most recent project throttle event");
+        }
 
         addMetric(metrics, "ai.retention.windowDays", retention.get("retentionDays"), "days",
                 "Retention window applied to AI review history");
@@ -234,6 +262,35 @@ public class GuardrailsTelemetryService {
             double errorRate = (double) totalErrors / (double) totalInvocations;
             addMetric(metrics, "ai.model.errorRate", errorRate, "ratio",
                     "Error rate derived from sampled model invocations");
+        }
+
+        addMetric(metrics, "ai.breaker.samples", circuit.get("samples"), "samples",
+                "Circuit breaker snapshots aggregated from recent history");
+        addMetric(metrics, "ai.breaker.openEvents", circuit.get("openEvents"), "events",
+                "Number of times the breaker transitioned to OPEN");
+        addMetric(metrics, "ai.breaker.blockedCalls", circuit.get("blockedCalls"), "calls",
+                "Calls blocked while the breaker was OPEN");
+        addMetric(metrics, "ai.breaker.blockedCallsAvgPerSample", circuit.get("avgBlockedCallsPerSample"), "calls/sample",
+                "Average blocked calls per sampled snapshot");
+        addMetric(metrics, "ai.breaker.failureCount", circuit.get("failureCount"), "events",
+                "Recorded failures contributing to breaker state");
+        addMetric(metrics, "ai.breaker.clientBlockedCalls", circuit.getOrDefault("clientBlockedCalls", 0), "calls",
+                "Client-side blocked calls observed by the reviewer");
+        addMetric(metrics, "ai.breaker.clientHardFailures", circuit.getOrDefault("clientHardFailures", 0), "calls",
+                "Client-side hard failures (non-recoverable) reported by the reviewer");
+        Number openRatio = toNumber(circuit.get("openSampleRatio"));
+        if (openRatio != null) {
+            addMetric(metrics, "ai.breaker.openSampleRatio", openRatio, "ratio",
+                    "Fraction of recent samples captured while the breaker was OPEN");
+        }
+        Map<String, Object> breakerStates = asMap(circuit.get("stateCounts"));
+        if (!breakerStates.isEmpty()) {
+            addMetric(metrics, "ai.breaker.state.openSamples", breakerStates.get("OPEN"), "samples",
+                    "Samples captured while circuit was OPEN");
+            addMetric(metrics, "ai.breaker.state.halfOpenSamples", breakerStates.get("HALF_OPEN"), "samples",
+                    "Samples captured while circuit was HALF_OPEN");
+            addMetric(metrics, "ai.breaker.state.closedSamples", breakerStates.get("CLOSED"), "samples",
+                    "Samples captured while circuit was CLOSED");
         }
 
         return metrics;
@@ -592,6 +649,68 @@ public class GuardrailsTelemetryService {
         return sum;
     }
 
+    private double averageListField(List<Map<String, Object>> list, String field) {
+        if (list == null || list.isEmpty()) {
+            return 0d;
+        }
+        double sum = 0d;
+        int count = 0;
+        for (Map<String, Object> entry : list) {
+            if (entry == null) {
+                continue;
+            }
+            Number number = toNumber(entry.get(field));
+            if (number != null) {
+                sum += number.doubleValue();
+                count++;
+            }
+        }
+        return count == 0 ? 0d : sum / count;
+    }
+
+    private long maxListField(List<Map<String, Object>> list, String field) {
+        long max = 0L;
+        if (list == null || list.isEmpty()) {
+            return max;
+        }
+        for (Map<String, Object> entry : list) {
+            if (entry == null) {
+                continue;
+            }
+            Number number = toNumber(entry.get(field));
+            if (number != null) {
+                long value = number.longValue();
+                if (value > max) {
+                    max = value;
+                }
+            }
+        }
+        return max;
+    }
+
+    private long ageSinceMostRecent(List<Map<String, Object>> list, String field, long now) {
+        if (list == null || list.isEmpty()) {
+            return -1L;
+        }
+        long latest = 0L;
+        for (Map<String, Object> entry : list) {
+            if (entry == null) {
+                continue;
+            }
+            Number number = toNumber(entry.get(field));
+            if (number != null) {
+                long value = number.longValue();
+                if (value > latest) {
+                    latest = value;
+                }
+            }
+        }
+        if (latest <= 0L) {
+            return -1L;
+        }
+        return Math.max(0L, (now - latest) / 1000L);
+    }
+
     private Map<String, Object> buildAlertThresholds(Map<String, Object> runtime) {
         Map<String, Object> thresholds = new LinkedHashMap<>();
         thresholds.put("ai.queue.availableSlots",
@@ -609,10 +728,20 @@ public class GuardrailsTelemetryService {
         thresholds.put("ai.retention.cleanup.lastRunAgeSeconds",
                 threshold(TimeUnit.HOURS.toSeconds(24), TimeUnit.HOURS.toSeconds(48),
                         "Cleanup job overdue; history backlog may grow.", "seconds", "gte"));
-        thresholds.put("ai.model.errorRate",
-                threshold(0.05, 0.1, "Model failures/timeouts impacting review quality.", "ratio", "gte"));
         thresholds.put("ai.retention.cleanup.lastErrorFlag",
                 threshold(1, 1, "Last cleanup job failed—manual intervention required.", "flag", "eq"));
+        thresholds.put("ai.model.errorRate",
+                threshold(0.05, 0.1, "Model failures/timeouts impacting review quality.", "ratio", "gte"));
+        thresholds.put("ai.breaker.openSampleRatio",
+                threshold(0.1, 0.25, "Circuit breaker stuck open; AI vendor likely degraded.", "ratio", "gte"));
+        thresholds.put("ai.breaker.blockedCallsAvgPerSample",
+                threshold(1, 5, "Breaker blocking multiple calls per sample.", "calls/sample", "gte"));
+        thresholds.put("ai.rateLimiter.repo.avgRetryAfterMs",
+                threshold(TimeUnit.SECONDS.toMillis(15), TimeUnit.SECONDS.toMillis(30),
+                        "Repositories seeing long retry-after windows.", "ms", "gte"));
+        thresholds.put("ai.rateLimiter.project.avgRetryAfterMs",
+                threshold(TimeUnit.SECONDS.toMillis(20), TimeUnit.SECONDS.toMillis(45),
+                        "Projects seeing long retry-after windows.", "ms", "gte"));
         return thresholds;
     }
 

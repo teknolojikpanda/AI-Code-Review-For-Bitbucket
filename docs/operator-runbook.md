@@ -38,6 +38,10 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `ai.retention.cleanup.lastRunAgeSeconds` | ≥ 86,400s (24h) | ≥ 172,800s (48h) | `gte` | Cleanup job overdue; AO history will bloat. |
 | `ai.retention.cleanup.lastErrorFlag` | 1 | 1 | `eq` | Last cleanup failed; inspect `/history/cleanup/log`. |
 | `ai.model.errorRate` | ≥ 5% | ≥ 10% | `gte` | Vendor/model instability impacting review results. |
+| `ai.breaker.openSampleRatio` | ≥ 10% | ≥ 25% | `gte` | Circuit breaker spending too much time OPEN; vendor likely degraded. |
+| `ai.breaker.blockedCallsAvgPerSample` | ≥ 1 call/sample | ≥ 5 calls/sample | `gte` | Large portions of calls are being blocked by the breaker. |
+| `ai.rateLimiter.repo.avgRetryAfterMs` | ≥ 15,000 ms | ≥ 30,000 ms | `gte` | Repository throttles enforcing long retry-after windows. |
+| `ai.rateLimiter.project.avgRetryAfterMs` | ≥ 20,000 ms | ≥ 45,000 ms | `gte` | Project throttles enforcing long retry-after windows. |
 
 Consumers should treat `direction="lte"` as “alert when value is less than or equal to threshold” and `direction="gte"` as “greater than or equal”. The JSON payload mirrors this table so automation can stay in sync even if we adjust defaults later.
 
@@ -54,7 +58,8 @@ Core metric names emitted via `/metrics`:
 
 * `ai.queue.*` – Active/waiting reviews, slot availability, per-scope queue pressure, scheduler paused flag.
 * `ai.worker.*` – Worker pool utilisation (configured size, active threads, queued tasks).
-* `ai.rateLimiter.*` – Current rate limiter budgets and tracked scopes.
+* `ai.rateLimiter.*` – Current rate limiter budgets, tracked scopes, throttle counts, and retry-after windows (`repo|project.avgRetryAfterMs`, `lastThrottleAgeSeconds`).
+* `ai.breaker.*` – Aggregated circuit-breaker stats (open sample ratio, blocked call counts, client-side hard failures).
 * `ai.retention.*` – History retention window, backlog older than the window, cleanup schedule state (interval, batch size, enabled flag), last run duration/error state.
 * `ai.review.duration.*` – Number of samples available for ETA calculations.
 
