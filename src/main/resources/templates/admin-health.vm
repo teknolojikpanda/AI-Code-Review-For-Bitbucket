@@ -150,6 +150,11 @@
                         </div>
                     </div>
                     <div class="queue-note" id="queue-note">—</div>
+                    <div class="queue-action-bar">
+                        <label for="queue-action-reason">Action reason (optional)</label>
+                        <input type="text" id="queue-action-reason" class="text long-field" placeholder="Recorded with cancel requests"/>
+                        <div class="queue-action-hint">Reason text is persisted with cancel actions for auditing.</div>
+                    </div>
                     <div class="aui-message info queue-admin-message" id="queue-admin-message" style="display:none;"></div>
                     <div class="queue-columns">
                         <div class="queue-panel">
@@ -166,6 +171,7 @@
                                     <th>Requested By</th>
                                     <th>Waiting</th>
                                     <th>Scope Pressure</th>
+                                    <th>Actions</th>
                                 </tr>
                                 </thead>
                                 <tbody></tbody>
@@ -190,6 +196,25 @@
                                 <tbody></tbody>
                             </table>
                         </div>
+                    </div>
+                    <div class="queue-panel" style="margin-top:16px;">
+                        <header>
+                            <h3>Running Reviews</h3>
+                            <span class="queue-panel-count" id="queue-active-count"></span>
+                        </header>
+                        <div class="queue-empty" id="queue-active-empty">Loading running reviews…</div>
+                        <table class="aui aui-table aui-table-rowhover" id="queue-active-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>Repository / PR</th>
+                                <th>Requested By</th>
+                                <th>Runtime</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
                     </div>
                 </section>
 

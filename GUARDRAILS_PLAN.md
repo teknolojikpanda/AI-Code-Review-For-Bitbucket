@@ -42,7 +42,7 @@
 
 ### 5. Admin Controls (Pause/Cancel)
 [X] 1. Extend Progress REST resource with POST endpoints to pause/resume the scheduler and cancel individual queued/running reviews. _(Pause/resume/cancel endpoints implemented, including active-run cancellation hooks + AO-backed audit logging for every override.)_
-[ ] 2. Update admin UI to list queued + running items with buttons for these actions.
+[X] 2. Update admin UI to list queued + running items with buttons for these actions. _(Health dashboard now shows cancel buttons + reason input for queued/active runs, wired to REST endpoints.)_
 [ ] 3. Persist scheduler state (active, paused, draining) plus operator metadata in AO so the setting survives restarts and appears in progress timelines/audit logs.
 [ ] 4. Add permission checks + audit events so only global admins can pause/cancel and every action is traceable (who, when, which PR/repository, reason). _(Backend now records actor + reason; UI surfacing + Bitbucket audit feed pending)_
 [ ] 5. Provide bulk cancellation (per repo/project or entire queue) with confirmation prompts and progress feedback.

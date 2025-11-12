@@ -8,6 +8,8 @@
 
     var runtimeUrl = baseUrl + '/rest/ai-reviewer/1.0/monitoring/runtime';
     var queueAdminUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/queue';
+    var queueCancelUrl = queueAdminUrl + '/cancel';
+    var runningCancelUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/running/cancel';
     var cleanupUrl = baseUrl + '/rest/ai-reviewer/1.0/history/cleanup';
     var alertsUrl = baseUrl + '/rest/ai-reviewer/1.0/alerts';
     var automationBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/automation';
@@ -61,6 +63,20 @@
         $('#deliveries-table').on('click', '.delivery-ack', function(event) {
             event.preventDefault();
             acknowledgeDelivery($(this).data('id'));
+        });
+        $('#queue-entries-table').on('click', '.queue-cancel-btn', function(event) {
+            event.preventDefault();
+            var runId = $(this).data('runId') || $(this).data('run-id');
+            if (runId) {
+                cancelQueuedRun(runId);
+            }
+        });
+        $('#queue-active-table').on('click', '.active-cancel-btn', function(event) {
+            event.preventDefault();
+            var runId = $(this).data('runId') || $(this).data('run-id');
+            if (runId) {
+                cancelActiveRun(runId);
+            }
         });
         loadHealth();
         loadAutomationData();
@@ -262,7 +278,9 @@
         $('#queue-note').text(waiting > 0 ? 'Waiting ' + waiting + ' review' + (waiting === 1 ? '' : 's') : 'Queue is empty');
 
         var entries = convertQueueEntries(data.entries || []);
+        var activeRuns = convertActiveRuns(data.activeRuns || (stats.activeRuns || []));
         renderQueueEntries(entries);
+        renderActiveRuns(activeRuns);
         renderQueueActions(convertQueueActions(data.actions || []));
     }
 
@@ -290,6 +308,33 @@
                 projectWaiting: entry.projectWaiting,
                 backpressureReason: entry.backpressureReason
             };
+        });
+    }
+
+    function convertActiveRuns(runs) {
+        if (!runs || !runs.length) {
+            return [];
+        }
+        var now = Date.now();
+        return runs.map(function(run) {
+            var runningMs = run.runningMs != null
+                ? Math.max(0, run.runningMs)
+                : (run.startedAt ? Math.max(0, now - run.startedAt) : 0);
+            return {
+                runId: run.runId,
+                projectKey: run.projectKey,
+                repositorySlug: run.repositorySlug,
+                pullRequestId: run.pullRequestId,
+                manual: run.manual,
+                update: run.update,
+                force: run.force,
+                requestedBy: run.requestedBy || '—',
+                startedAt: run.startedAt,
+                runningMs: runningMs,
+                cancelRequested: !!run.cancelRequested
+            };
+        }).sort(function(a, b) {
+            return (a.startedAt || 0) - (b.startedAt || 0);
         });
     }
 
@@ -330,18 +375,73 @@
             if (entry.backpressureReason) {
                 scope += ' (' + entry.backpressureReason + ')';
             }
+            var repoHtml = escapeHtml(formatRepo(entry));
+            var badges = runBadgesHtml(entry);
+            if (badges) {
+                repoHtml += '<div class="queue-meta">' + badges + '</div>';
+            }
+            if (entry.runId) {
+                repoHtml += '<div class="queue-meta"><code>' + escapeHtml(entry.runId) + '</code></div>';
+            }
+            var actionHtml = entry.runId
+                ? '<button type="button" class="aui-button aui-button-link queue-cancel-btn" data-run-id="' + escapeHtml(entry.runId) + '">Cancel</button>'
+                : '—';
             return '<tr>' +
                 '<td>' + entry.position + '</td>' +
-                '<td>' + escapeHtml(formatRepo(entry)) + '</td>' +
+                '<td>' + repoHtml + '</td>' +
                 '<td>' + escapeHtml(entry.requestedBy) + '</td>' +
                 '<td>' + escapeHtml(formatDurationMs(entry.waitingMs)) + '</td>' +
                 '<td>' + escapeHtml(scope) + '</td>' +
+                '<td class="queue-actions-cell">' + actionHtml + '</td>' +
                 '</tr>';
         }).join('');
         $table.find('tbody').html(rows);
         $table.show();
         $empty.hide();
         $count.text(entries.length + (entries.length === 1 ? ' queued item' : ' queued items'));
+    }
+
+    function renderActiveRuns(runs) {
+        var $table = $('#queue-active-table');
+        var $empty = $('#queue-active-empty');
+        var $count = $('#queue-active-count');
+        if (!runs.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No active reviews.').show();
+            $count.text('');
+            return;
+        }
+        var rows = runs.map(function(run) {
+            var repoHtml = escapeHtml(formatRepo(run));
+            var badges = runBadgesHtml(run);
+            if (badges) {
+                repoHtml += '<div class="queue-meta">' + badges + '</div>';
+            }
+            if (run.runId) {
+                repoHtml += '<div class="queue-meta"><code>' + escapeHtml(run.runId) + '</code></div>';
+            }
+            var status = run.cancelRequested ? 'Cancel pending' : 'Running';
+            var actionHtml;
+            if (!run.runId) {
+                actionHtml = '—';
+            } else if (run.cancelRequested) {
+                actionHtml = '<span class="aui-lozenge aui-lozenge-moved">Canceling…</span>';
+            } else {
+                actionHtml = '<button type="button" class="aui-button aui-button-link active-cancel-btn" data-run-id="' + escapeHtml(run.runId) + '">Cancel</button>';
+            }
+            return '<tr>' +
+                '<td>' + repoHtml + '</td>' +
+                '<td>' + escapeHtml(run.requestedBy) + '</td>' +
+                '<td>' + escapeHtml(formatDurationMs(run.runningMs)) + '</td>' +
+                '<td>' + escapeHtml(status) + '</td>' +
+                '<td class="queue-actions-cell">' + actionHtml + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
+        $count.text(runs.length + (runs.length === 1 ? ' running review' : ' running reviews'));
     }
 
     function renderQueueActions(actions) {
@@ -379,6 +479,111 @@
         $table.show();
         $empty.hide();
         $count.text(actions.length + (actions.length === 1 ? ' action' : ' actions'));
+    }
+
+    function cancelQueuedRun(runId) {
+        if (!runId) {
+            return;
+        }
+        if (!confirm('Cancel queued review ' + runId + '?')) {
+            return;
+        }
+        var payload = { runId: runId };
+        var reason = getQueueActionReason();
+        if (reason) {
+            payload.reason = reason;
+        }
+        performQueueAction(queueCancelUrl, payload,
+                'Canceling queued review…',
+                'Queued review canceled.',
+                'Failed to cancel queued review');
+    }
+
+    function cancelActiveRun(runId) {
+        if (!runId) {
+            return;
+        }
+        if (!confirm('Request cancellation for active review ' + runId + '?')) {
+            return;
+        }
+        var payload = { runId: runId };
+        var reason = getQueueActionReason();
+        if (reason) {
+            payload.reason = reason;
+        }
+        performQueueAction(runningCancelUrl, payload,
+                'Canceling active review…',
+                'Cancel request sent to worker.',
+                'Failed to cancel active review');
+    }
+
+    function performQueueAction(url, payload, pendingMessage, successMessage, errorMessage) {
+        setQueueAdminMessage('info', pendingMessage);
+        $.ajax({
+            url: url,
+            type: 'POST',
+            contentType: 'application/json',
+            dataType: 'json',
+            data: JSON.stringify(payload)
+        }).done(function() {
+            setQueueAdminMessage('success', successMessage);
+            refreshQueueOnly();
+        }).fail(function(xhr) {
+            setQueueAdminMessage('error', describeError(xhr, errorMessage));
+        });
+    }
+
+    function refreshQueueOnly() {
+        $.ajax({
+            url: queueAdminUrl,
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            renderQueue(resp || {});
+        }).fail(function(xhr) {
+            setQueueAdminMessage('error', describeError(xhr, 'Failed to refresh queue state'));
+        });
+    }
+
+    function setQueueAdminMessage(type, message) {
+        var $message = $('#queue-admin-message');
+        if (!message) {
+            $message.hide().text('').removeClass('info error success');
+            return;
+        }
+        var css = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+        $message.removeClass('info error success').addClass(css).html(escapeHtml(message)).show();
+    }
+
+    function getQueueActionReason() {
+        var value = $('#queue-action-reason').val();
+        if (!value) {
+            return null;
+        }
+        var trimmed = value.trim();
+        return trimmed.length ? trimmed : null;
+    }
+
+    function runBadgesHtml(run) {
+        if (!run) {
+            return '';
+        }
+        var labels = [];
+        if (run.manual) {
+            labels.push('Manual');
+        }
+        if (run.update) {
+            labels.push('Update');
+        }
+        if (run.force) {
+            labels.push('Forced');
+        }
+        if (!labels.length) {
+            return '';
+        }
+        return labels.map(function(label) {
+            return '<span class="aui-lozenge aui-lozenge-subtle">' + escapeHtml(label) + '</span>';
+        }).join(' ');
     }
 
     function renderCleanup(status, recentRuns, latestResult) {
