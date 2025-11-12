@@ -44,7 +44,8 @@ public class GuardrailsAlertingServiceTest {
                         ),
                         "recentRuns", Collections.emptyList()
                 ),
-                "rateLimiter", Collections.emptyMap()
+                "rateLimiter", Collections.emptyMap(),
+                "circuitBreaker", Collections.emptyMap()
         );
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
@@ -66,7 +67,8 @@ public class GuardrailsAlertingServiceTest {
                         ),
                         "recentRuns", Collections.emptyList()
                 ),
-                "rateLimiter", Collections.emptyMap()
+                "rateLimiter", Collections.emptyMap(),
+                "circuitBreaker", Collections.emptyMap()
         );
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
@@ -93,6 +95,7 @@ public class GuardrailsAlertingServiceTest {
         ));
         runtime.put("retention", retention);
         runtime.put("rateLimiter", Collections.emptyMap());
+        runtime.put("circuitBreaker", Collections.emptyMap());
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
         GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAlerts();
@@ -106,7 +109,8 @@ public class GuardrailsAlertingServiceTest {
                 "queue", Map.of("maxConcurrent", 1, "active", 1, "waiting", 1),
                 "retention", Map.of("schedule", Map.of("enabled", true, "lastRun", System.currentTimeMillis()),
                         "recentRuns", Collections.emptyList()),
-                "rateLimiter", Collections.emptyMap()
+                "rateLimiter", Collections.emptyMap(),
+                "circuitBreaker", Collections.emptyMap()
         );
         when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
 
@@ -139,5 +143,28 @@ public class GuardrailsAlertingServiceTest {
 
         assertTrue(alerts.stream()
                 .anyMatch(alert -> alert.get("summary").toString().contains("Repository rate limit")));
+    }
+
+    @Test
+    public void breakerOpenRatioTriggersCriticalAlert() {
+        Map<String, Object> runtime = Map.of(
+                "queue", Collections.emptyMap(),
+                "retention", Map.of(
+                        "schedule", Map.of("enabled", true, "lastRun", System.currentTimeMillis()),
+                        "recentRuns", Collections.emptyList()
+                ),
+                "rateLimiter", Collections.emptyMap(),
+                "circuitBreaker", Map.of(
+                        "openSampleRatio", 0.3d,
+                        "avgBlockedCallsPerSample", 6d
+                )
+        );
+        when(telemetryService.collectRuntimeSnapshot()).thenReturn(runtime);
+
+        GuardrailsAlertingService.AlertSnapshot snapshot = alertingService.evaluateAlerts();
+
+        assertTrue(snapshot.getAlerts().stream()
+                .anyMatch(alert -> "critical".equals(alert.get("severity"))
+                        && alert.get("summary").toString().contains("circuit breaker")));
     }
 }
