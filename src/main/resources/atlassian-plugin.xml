@@ -223,6 +223,11 @@
         <description>Tracks model probe health and config overrides when providers degrade.</description>
     </component>
 
+    <component key="httpClientUtil"
+               class="com.teknolojikpanda.bitbucket.aireviewer.util.HttpClientUtil">
+        <description>Shared HTTP utility for Ollama integration.</description>
+    </component>
+
     <component key="modelHealthProbeScheduler"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.ModelHealthProbeScheduler">
         <description>Probes AI models periodically so degraded providers are detected before user traffic fails.</description>
