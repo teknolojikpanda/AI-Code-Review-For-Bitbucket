@@ -199,6 +199,27 @@
     align-items: stretch;
 }
 
+.metrics-grid .metric-card {
+    min-height: 110px;
+}
+
+.metric-card .health-subtext {
+    margin-top: 6px;
+    display: inline-block;
+}
+
+.metric-status-warning {
+    border: 1px solid #ffab00;
+}
+
+.metric-status-critical {
+    border: 1px solid #de350b;
+}
+
+.metric-status-normal {
+    border: 1px solid #36b37e;
+}
+
 .automation-section .rollout-panel {
     display: flex;
     flex-wrap: wrap;

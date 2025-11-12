@@ -9,12 +9,15 @@
     var runtimeUrl = baseUrl + '/rest/ai-reviewer/1.0/monitoring/runtime';
     var alertsUrl = baseUrl + '/rest/ai-reviewer/1.0/alerts';
     var deliveriesUrl = baseUrl + '/rest/ai-reviewer/1.0/automation/alerts/deliveries';
+    var metricsUrl = baseUrl + '/rest/ai-reviewer/1.0/metrics';
 
     function init() {
         $('#refresh-health-btn').on('click', function() {
             loadHealth();
+            loadMetricsSummary();
         });
         loadHealth();
+        loadMetricsSummary();
     }
 
     function loadHealth() {
@@ -31,6 +34,21 @@
             clearHealthMessage();
         }).fail(function(xhr, status, error) {
             setHealthMessage('error', describeError(xhr, error || status), false);
+        });
+    }
+
+    function loadMetricsSummary() {
+        $('#metrics-summary-note').text('Loading metrics summary…');
+        $.ajax({
+            url: metricsUrl,
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            renderMetricsSummary(resp || {});
+            $('#metrics-summary-note').text('');
+        }).fail(function(xhr, status, error) {
+            $('#metrics-summary-note').text('Failed to load metrics summary: ' + describeError(xhr, error || status));
+            clearMetricCards();
         });
     }
 
@@ -197,6 +215,119 @@
         $('#alerts-note').text(count + (count === 1 ? ' alert loaded.' : ' alerts loaded.'));
     }
 
+    function renderMetricsSummary(payload) {
+        var metrics = Array.isArray(payload.metrics) ? payload.metrics : [];
+        var thresholds = payload.alertThresholds || {};
+        var generatedAt = payload.generatedAt || (payload.runtime && payload.runtime.generatedAt);
+        $('#metrics-summary-updated').text(generatedAt ? formatTimestamp(generatedAt) : new Date().toLocaleString());
+
+        setMetricCard('queue-waiting', metricValue(metrics, 'ai.queue.waiting'), 'count', thresholds['ai.queue.waiting']);
+        setMetricCard('queue-slots', metricValue(metrics, 'ai.queue.availableSlots'), 'count', thresholds['ai.queue.availableSlots']);
+        setMetricCard('worker-queued', metricValue(metrics, 'ai.worker.queuedTasks'), 'count', thresholds['ai.worker.queuedTasks']);
+        setMetricCard('limiter-throttles', metricValue(metrics, 'ai.rateLimiter.totalThrottles'), 'events', thresholds['ai.rateLimiter.totalThrottles']);
+        setMetricCard('breaker-open', metricValue(metrics, 'ai.breaker.openSampleRatio'), 'ratio', thresholds['ai.breaker.openSampleRatio']);
+        setMetricCard('cleanup-age', metricValue(metrics, 'ai.retention.cleanup.lastRunAgeSeconds'), 'seconds', thresholds['ai.retention.cleanup.lastRunAgeSeconds']);
+    }
+
+    function metricValue(metrics, name) {
+        for (var i = 0; i < metrics.length; i++) {
+            if (metrics[i] && metrics[i].name === name) {
+                return metrics[i].value;
+            }
+        }
+        return null;
+    }
+
+    function setMetricCard(key, value, unit, threshold) {
+        var $value = $('#metric-' + key + '-value');
+        var $status = $('#metric-' + key + '-status');
+        var $card = $('#metric-' + key + '-card');
+        var displayValue = formatMetricValue(value, unit);
+        $value.text(displayValue);
+        var status = determineThresholdStatus(value, threshold);
+        applyMetricStatus($card, $status, status, threshold);
+    }
+
+    function formatMetricValue(value, unit) {
+        if (value === null || value === undefined || value !== value) {
+            return '—';
+        }
+        if (unit === 'ratio') {
+            return Math.round(value * 1000) / 10 + '%';
+        }
+        if (unit === 'seconds') {
+            return formatDurationSeconds(value);
+        }
+        return value;
+    }
+
+    function determineThresholdStatus(value, threshold) {
+        if (!threshold || value === null || value === undefined || value !== value) {
+            return 'normal';
+        }
+        var warning = threshold.warning;
+        var critical = threshold.critical;
+        var direction = (threshold.direction || 'gte').toLowerCase();
+        if (compareAgainstThreshold(value, critical, direction)) {
+            return 'critical';
+        }
+        if (compareAgainstThreshold(value, warning, direction)) {
+            return 'warning';
+        }
+        return 'normal';
+    }
+
+    function compareAgainstThreshold(value, target, direction) {
+        if (target == null) {
+            return false;
+        }
+        if (direction === 'lte') {
+            return value <= target;
+        }
+        if (direction === 'eq') {
+            return value === target;
+        }
+        return value >= target;
+    }
+
+    function applyMetricStatus($card, $status, status, threshold) {
+        var label;
+        var css;
+        if (status === 'critical') {
+            label = 'Critical';
+            css = 'aui-lozenge aui-lozenge-error';
+        } else if (status === 'warning') {
+            label = 'Warning';
+            css = 'aui-lozenge';
+        } else {
+            label = 'Normal';
+            css = 'aui-lozenge aui-lozenge-success';
+        }
+        if ($status.length) {
+            $status.empty().append('<span class=\"' + css + '\">' + label + '</span>');
+            if (threshold && threshold.description) {
+                $status.attr('title', threshold.description);
+            } else {
+                $status.removeAttr('title');
+            }
+        }
+        if ($card.length) {
+            $card.removeClass('metric-status-warning metric-status-critical metric-status-normal');
+            $card.addClass('metric-status-' + status);
+        }
+    }
+
+    function clearMetricCards() {
+        var keys = ['queue-waiting', 'queue-slots', 'worker-queued', 'limiter-throttles', 'breaker-open', 'cleanup-age'];
+        keys.forEach(function(key) {
+            $('#metric-' + key + '-value').text('—');
+            $('#metric-' + key + '-status').text('—');
+            $('#metric-' + key + '-card')
+                .removeClass('metric-status-warning metric-status-critical metric-status-normal')
+                .addClass('metric-status-normal');
+        });
+    }
+
     function setHealthMessage(type, message, showSpinner) {
         var $message = $('#health-message');
         if (!message) {
@@ -230,6 +361,29 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
+    }
+
+    function formatDurationSeconds(seconds) {
+        if (seconds === null || seconds === undefined || seconds !== seconds) {
+            return '—';
+        }
+        var value = Math.max(0, seconds);
+        if (value < 60) {
+            return value + 's';
+        }
+        var minutes = Math.floor(value / 60);
+        var remSeconds = Math.floor(value % 60);
+        if (minutes < 60) {
+            return minutes + 'm ' + remSeconds + 's';
+        }
+        var hours = Math.floor(minutes / 60);
+        var remMinutes = minutes % 60;
+        if (hours < 24) {
+            return hours + 'h ' + remMinutes + 'm';
+        }
+        var days = Math.floor(hours / 24);
+        var remHours = hours % 24;
+        return days + 'd ' + remHours + 'h';
     }
 
     function formatTimestamp(epochMillis) {

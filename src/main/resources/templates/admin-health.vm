@@ -62,6 +62,46 @@
                     </div>
                 </section>
 
+                <section class="health-section" style="margin-top: 24px;">
+                    <header class="health-header">
+                        <h2>Metrics Summary</h2>
+                        <span id="metrics-summary-updated" class="health-updated">—</span>
+                    </header>
+                    <div class="health-grid metrics-grid">
+                        <div class="health-card metric-card metric-status-normal" id="metric-queue-waiting-card">
+                            <span class="health-label">Queue Waiting</span>
+                            <span class="health-value" id="metric-queue-waiting-value">—</span>
+                            <span class="health-subtext" id="metric-queue-waiting-status">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="metric-queue-slots-card">
+                            <span class="health-label">Available Slots</span>
+                            <span class="health-value" id="metric-queue-slots-value">—</span>
+                            <span class="health-subtext" id="metric-queue-slots-status">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="metric-worker-queued-card">
+                            <span class="health-label">Worker Backlog</span>
+                            <span class="health-value" id="metric-worker-queued-value">—</span>
+                            <span class="health-subtext" id="metric-worker-queued-status">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="metric-limiter-throttles-card">
+                            <span class="health-label">Throttle Events</span>
+                            <span class="health-value" id="metric-limiter-throttles-value">—</span>
+                            <span class="health-subtext" id="metric-limiter-throttles-status">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="metric-breaker-open-card">
+                            <span class="health-label">Breaker Open %</span>
+                            <span class="health-value" id="metric-breaker-open-value">—</span>
+                            <span class="health-subtext" id="metric-breaker-open-status">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="metric-cleanup-age-card">
+                            <span class="health-label">Cleanup Lag</span>
+                            <span class="health-value" id="metric-cleanup-age-value">—</span>
+                            <span class="health-subtext" id="metric-cleanup-age-status">Loading…</span>
+                        </div>
+                    </div>
+                    <div class="queue-note" id="metrics-summary-note">Metrics summary refreshes independently of the telemetry snapshot.</div>
+                </section>
+
                 <section class="queue-section" style="margin-top: 24px;">
                     <header class="queue-header">
                         <h2>Worker Pools by Node</h2>

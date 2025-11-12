@@ -45,6 +45,8 @@ This playbook explains how to monitor and operate the Guardrails features that g
 
 Consumers should treat `direction="lte"` as “alert when value is less than or equal to threshold” and `direction="gte"` as “greater than or equal”. The JSON payload mirrors this table so automation can stay in sync even if we adjust defaults later.
 
+> **In-product view:** the Health dashboard now includes a **Metrics Summary** card deck that renders the key metrics above with their current status (Normal/Warning/Critical) so operators can see throttle, breaker, and cleanup health without leaving Bitbucket.
+
 ### Webhook Security & Retries
 
 - **Signing:** Enable “Sign requests” on a channel to append `X-Guardrails-Signed-At` and `X-Guardrails-Signature` headers (HMAC-SHA256). Share the secret displayed on the health page with the receiver. Rotate secrets regularly via the UI or `rotateSecret=true` on `PUT`.
