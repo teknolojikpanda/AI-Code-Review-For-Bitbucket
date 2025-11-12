@@ -62,7 +62,8 @@ public class GuardrailsTelemetryServiceTest {
                         3,
                         6,
                         Collections.singletonList(new ReviewConcurrencyController.QueueStats.ScopeQueueStats("proj/repo", 2, 3)),
-                        Collections.singletonList(new ReviewConcurrencyController.QueueStats.ScopeQueueStats("proj", 4, 6)));
+                        Collections.singletonList(new ReviewConcurrencyController.QueueStats.ScopeQueueStats("proj", 4, 6)),
+                        Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         when(workerPool.snapshot()).thenReturn(createWorkerSnapshot());
         when(rateLimiter.snapshot()).thenReturn(createRateSnapshot());
@@ -123,6 +124,9 @@ public class GuardrailsTelemetryServiceTest {
         Map<String, Object> snapshot = telemetryService.collectRuntimeSnapshot();
 
         assertTrue(snapshot.containsKey("queue"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> queue = (Map<String, Object>) snapshot.get("queue");
+        assertTrue(queue.containsKey("activeRuns"));
         assertTrue(snapshot.containsKey("workerPool"));
         assertTrue(snapshot.containsKey("workerPoolNodes"));
         assertEquals(1, ((List<?>) snapshot.get("workerPoolNodes")).size());

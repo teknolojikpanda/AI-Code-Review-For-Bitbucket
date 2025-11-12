@@ -208,6 +208,7 @@ public class GuardrailsTelemetryService {
         map.put("maxQueuedPerProject", stats.getMaxQueuedPerProject());
         map.put("repoWaiters", scopeStatsToList(stats.getTopRepoWaiters()));
         map.put("projectWaiters", scopeStatsToList(stats.getTopProjectWaiters()));
+        map.put("activeRuns", activeRunsToList(stats.getActiveRuns()));
         return map;
     }
 
@@ -330,6 +331,30 @@ public class GuardrailsTelemetryService {
             map.put("scope", scope.getScope());
             map.put("waiting", scope.getWaiting());
             map.put("limit", scope.getLimit());
+            list.add(map);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> activeRunsToList(List<QueueStats.ActiveRunEntry> runs) {
+        if (runs == null || runs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(runs.size());
+        long now = System.currentTimeMillis();
+        for (QueueStats.ActiveRunEntry entry : runs) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("runId", entry.getRunId());
+            map.put("projectKey", entry.getProjectKey());
+            map.put("repositorySlug", entry.getRepositorySlug());
+            map.put("pullRequestId", entry.getPullRequestId());
+            map.put("manual", entry.isManual());
+            map.put("update", entry.isUpdate());
+            map.put("force", entry.isForce());
+            map.put("startedAt", entry.getStartedAt());
+            map.put("runningMs", Math.max(0, now - entry.getStartedAt()));
+            map.put("cancelRequested", entry.isCancelRequested());
+            map.put("requestedBy", entry.getRequestedBy());
             list.add(map);
         }
         return list;

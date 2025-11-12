@@ -166,6 +166,7 @@ public class HistoryResourceTest {
                         5,
                         15,
                         Collections.emptyList(),
+                        Collections.emptyList(),
                         Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         ReviewRateLimiter.RateLimitSnapshot rateSnapshot = createRateLimitSnapshot();

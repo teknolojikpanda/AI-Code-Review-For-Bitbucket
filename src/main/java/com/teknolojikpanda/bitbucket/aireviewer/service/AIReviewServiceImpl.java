@@ -38,6 +38,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.util.*;
 import com.teknolojikpanda.bitbucket.aicode.api.ChunkPlanner;
 import com.teknolojikpanda.bitbucket.aicode.api.ChunkProgressListener;
 import com.teknolojikpanda.bitbucket.aicode.api.DiffProvider;
+import com.teknolojikpanda.bitbucket.aicode.api.ReviewCanceledException;
 import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.core.DiffPositionResolver;
 import com.teknolojikpanda.bitbucket.aicode.core.IssueFingerprintUtil;
@@ -65,8 +66,10 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -259,17 +262,18 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {
-        try (ReviewConcurrencyController.Slot ignored = concurrencyController.acquire(run.toExecutionRequest())) {
-            return workerPool.execute(() -> {
+        ReviewConcurrencyController.ReviewExecutionRequest request = run.toExecutionRequest();
+        try (ReviewConcurrencyController.Slot ignored = concurrencyController.acquire(request)) {
+            Future<ReviewResult> future = workerPool.submit(() -> {
                 ReviewRun previous = REVIEW_RUN_CONTEXT.get();
                 ProgressTracker previousTracker = PROGRESS_TRACKER.get();
                 ProgressTracker tracker = new ProgressTracker();
                 REVIEW_RUN_CONTEXT.set(run);
                 PROGRESS_TRACKER.set(tracker);
-            ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
-            if (metadata != null) {
-                progressRegistry.start(metadata);
-            }
+                ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
+                if (metadata != null) {
+                    progressRegistry.start(metadata);
+                }
                 try {
                     return action.get();
                 } finally {
@@ -285,7 +289,31 @@ public class AIReviewServiceImpl implements AIReviewService {
                     }
                 }
             });
+            concurrencyController.registerActiveRun(request, future);
+            try {
+                return workerPool.join(future);
+            } catch (ReviewCanceledException ex) {
+                return handleRunCanceled(run, ex.getMessage());
+            } catch (CancellationException ex) {
+                return handleRunCanceled(run, null);
+            } finally {
+                concurrencyController.completeActiveRun(request.getRunId());
+            }
         }
+    }
+
+    private ReviewResult handleRunCanceled(@Nullable ReviewRun run, @Nullable String reason) {
+        long pullRequestId = run != null ? run.pullRequestId : -1L;
+        String message = (reason == null || reason.isBlank())
+                ? "Review canceled by administrator."
+                : reason;
+        recordProgress("review.canceled", 100, progressDetails(
+                "runId", run != null ? run.runId : null,
+                "reason", message));
+        completeCurrentRun(ReviewResult.Status.CANCELED);
+        Map<String, Object> metrics = instantReviewMetrics("canceled");
+        metrics.put("review.canceled.reason", message);
+        return buildCanceledResult(pullRequestId, message, metrics);
     }
 
     private ReviewResult runReReview(@Nonnull PullRequest pullRequest, boolean force, boolean manual) {
@@ -953,6 +981,17 @@ public class AIReviewServiceImpl implements AIReviewService {
         return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(ReviewResult.Status.FAILED)
+                .message(message)
+                .filesReviewed(0)
+                .filesSkipped(0)
+                .metrics(metricsSnapshot))
+                .build();
+    }
+
+    private ReviewResult buildCanceledResult(long pullRequestId, @Nonnull String message, @Nonnull Map<String, Object> metricsSnapshot) {
+        return applyProgress(ReviewResult.builder()
+                .pullRequestId(pullRequestId)
+                .status(ReviewResult.Status.CANCELED)
                 .message(message)
                 .filesReviewed(0)
                 .filesSkipped(0)

@@ -237,6 +237,7 @@ public class ProgressResource {
         payload.put("queue", queueSnapshotToMap(stats));
         payload.put("entries", entries);
         payload.put("count", entries.size());
+        payload.put("activeRuns", convertActiveRuns(stats.getActiveRuns()));
         payload.put("actions", convertQueueActions(concurrencyController.getQueueActions()));
         return Response.ok(payload).build();
     }
@@ -314,6 +315,37 @@ public class ProgressResource {
         if (!cancelled) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(error("No queued review found for the provided runId."))
+                    .build();
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("canceled", true);
+        payload.put("runId", body.runId.trim());
+        payload.put("queue", queueSnapshotToMap(concurrencyController.snapshot()));
+        return Response.ok(payload).build();
+    }
+
+    @POST
+    @Path("/admin/running/cancel")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response cancelRunningRun(@Context HttpServletRequest request,
+                                     QueueCancelRequest body) {
+        Access admin = requireSystemAdmin(request);
+        if (!admin.allowed) {
+            return admin.response;
+        }
+        if (body == null || body.runId == null || body.runId.trim().isEmpty()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("runId is required to cancel an active review."))
+                    .build();
+        }
+        String actor = admin.profile != null && admin.profile.getUserKey() != null
+                ? admin.profile.getUserKey().getStringValue()
+                : "admin";
+        String note = normalizeReason(body);
+        boolean cancelled = concurrencyController.cancelActiveRun(body.runId.trim(), actor, note);
+        if (!cancelled) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(error("No active review found for the provided runId."))
                     .build();
         }
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -546,6 +578,30 @@ public class ProgressResource {
         return list;
     }
 
+    private List<Map<String, Object>> convertActiveRuns(List<ReviewConcurrencyController.QueueStats.ActiveRunEntry> runs) {
+        if (runs == null || runs.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>();
+        long now = System.currentTimeMillis();
+        for (ReviewConcurrencyController.QueueStats.ActiveRunEntry entry : runs) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("runId", entry.getRunId());
+            map.put("projectKey", entry.getProjectKey());
+            map.put("repositorySlug", entry.getRepositorySlug());
+            map.put("pullRequestId", entry.getPullRequestId());
+            map.put("manual", entry.isManual());
+            map.put("update", entry.isUpdate());
+            map.put("force", entry.isForce());
+            map.put("startedAt", entry.getStartedAt());
+            map.put("runningMs", Math.max(0, now - entry.getStartedAt()));
+            map.put("cancelRequested", entry.isCancelRequested());
+            map.put("requestedBy", entry.getRequestedBy());
+            list.add(map);
+        }
+        return list;
+    }
+
     private Map<String, Object> queueSnapshotToMap(ReviewConcurrencyController.QueueStats stats) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("maxConcurrent", stats.getMaxConcurrent());
@@ -558,6 +614,7 @@ public class ProgressResource {
         map.put("maxQueuedPerProject", stats.getMaxQueuedPerProject());
         map.put("repoWaiters", scopeStatsToList(stats.getTopRepoWaiters()));
         map.put("projectWaiters", scopeStatsToList(stats.getTopProjectWaiters()));
+        map.put("activeRuns", convertActiveRuns(stats.getActiveRuns()));
         return map;
     }
 

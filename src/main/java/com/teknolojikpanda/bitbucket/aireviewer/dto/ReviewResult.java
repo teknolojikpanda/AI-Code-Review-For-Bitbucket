@@ -24,6 +24,7 @@ public class ReviewResult {
         SUCCESS("success"),
         PARTIAL("partial"),
         FAILED("failed"),
+        CANCELED("canceled"),
         SKIPPED("skipped");
 
         private final String value;

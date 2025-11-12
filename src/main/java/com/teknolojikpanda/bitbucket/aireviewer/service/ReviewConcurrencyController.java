@@ -19,8 +19,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -46,6 +48,7 @@ public class ReviewConcurrencyController {
     private final ConcurrentHashMap<String, AtomicInteger> waitingByRepo = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicInteger> waitingByProject = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, QueuedPermit> waitingByRunId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ActiveRun> activeRuns = new ConcurrentHashMap<>();
     private final ConcurrentLinkedDeque<QueueStats.QueueAction> queueActions = new ConcurrentLinkedDeque<>();
     private static final int MAX_QUEUE_ACTIONS = 200;
     private final ReviewQueueAuditService queueAuditService;
@@ -131,6 +134,7 @@ public class ReviewConcurrencyController {
         ReviewSchedulerStateService.SchedulerState state = schedulerStateService.getState();
         List<QueueStats.ScopeQueueStats> repoWaiters = topScopes(waitingByRepo, TOP_SCOPE_SAMPLE_LIMIT, maxQueuedPerRepo);
         List<QueueStats.ScopeQueueStats> projectWaiters = topScopes(waitingByProject, TOP_SCOPE_SAMPLE_LIMIT, maxQueuedPerProject);
+        List<QueueStats.ActiveRunEntry> activeRunEntries = listActiveRuns();
         return new QueueStats(
                 maxConcurrent,
                 maxQueueSize,
@@ -141,7 +145,8 @@ public class ReviewConcurrencyController {
                 maxQueuedPerRepo,
                 maxQueuedPerProject,
                 repoWaiters,
-                projectWaiters);
+                projectWaiters,
+                activeRunEntries);
     }
 
     public List<QueueStats.QueueEntry> getQueuedRequests() {
@@ -179,6 +184,16 @@ public class ReviewConcurrencyController {
         return new ArrayList<>(queueActions);
     }
 
+    private List<QueueStats.ActiveRunEntry> listActiveRuns() {
+        if (activeRuns.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<QueueStats.ActiveRunEntry> entries = new ArrayList<>();
+        activeRuns.forEach((runId, active) -> entries.add(active.toEntry()));
+        entries.sort(Comparator.comparingLong(QueueStats.ActiveRunEntry::getStartedAt));
+        return entries;
+    }
+
     public boolean cancelQueuedRun(@Nonnull String runId,
                                    @Nullable String actor,
                                    @Nullable String note) {
@@ -193,6 +208,47 @@ public class ReviewConcurrencyController {
                 permit.getRequest().getRepositorySlug(),
                 permit.getRequest().getPullRequestId());
         recordQueueAction("canceled", runId, permit.getRequest(), actor, note);
+        return true;
+    }
+
+    public void registerActiveRun(@Nonnull ReviewExecutionRequest request, @Nonnull Future<?> future) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(future, "future");
+        String runId = Objects.requireNonNull(request.getRunId(), "runId");
+        ActiveRun activeRun = new ActiveRun(request, future);
+        ActiveRun previous = activeRuns.put(runId, activeRun);
+        if (previous != null) {
+            log.warn("Replacing dangling active run {} while registering new execution", runId);
+            previous.cancel();
+        }
+    }
+
+    public void completeActiveRun(@Nonnull String runId) {
+        Objects.requireNonNull(runId, "runId");
+        ActiveRun active = activeRuns.remove(runId);
+        if (active != null) {
+            active.markCompleted();
+        }
+    }
+
+    public boolean cancelActiveRun(@Nonnull String runId,
+                                   @Nullable String actor,
+                                   @Nullable String note) {
+        Objects.requireNonNull(runId, "runId");
+        ActiveRun active = activeRuns.get(runId);
+        if (active == null) {
+            return false;
+        }
+        boolean cancelled = active.cancel();
+        if (!cancelled) {
+            return false;
+        }
+        ReviewExecutionRequest request = active.getRequest();
+        log.info("Canceled active AI review run {} for {}/{} PR #{}", runId,
+                request.getProjectKey(),
+                request.getRepositorySlug(),
+                request.getPullRequestId());
+        recordQueueAction("terminated", runId, request, actor, note);
         return true;
     }
 
@@ -490,6 +546,7 @@ public class ReviewConcurrencyController {
         private final int maxQueuedPerProject;
         private final List<ScopeQueueStats> topRepoWaiters;
         private final List<ScopeQueueStats> topProjectWaiters;
+        private final List<ActiveRunEntry> activeRuns;
 
         public QueueStats(int maxConcurrent,
                           int maxQueued,
@@ -500,7 +557,8 @@ public class ReviewConcurrencyController {
                           int maxQueuedPerRepo,
                           int maxQueuedPerProject,
                           List<ScopeQueueStats> topRepoWaiters,
-                          List<ScopeQueueStats> topProjectWaiters) {
+                          List<ScopeQueueStats> topProjectWaiters,
+                          List<ActiveRunEntry> activeRuns) {
             this.maxConcurrent = maxConcurrent;
             this.maxQueued = maxQueued;
             this.active = active;
@@ -511,6 +569,7 @@ public class ReviewConcurrencyController {
             this.maxQueuedPerProject = maxQueuedPerProject;
             this.topRepoWaiters = topRepoWaiters != null ? topRepoWaiters : Collections.emptyList();
             this.topProjectWaiters = topProjectWaiters != null ? topProjectWaiters : Collections.emptyList();
+            this.activeRuns = activeRuns != null ? activeRuns : Collections.emptyList();
         }
 
         public int getMaxConcurrent() {
@@ -551,6 +610,10 @@ public class ReviewConcurrencyController {
 
         public List<ScopeQueueStats> getTopProjectWaiters() {
             return topProjectWaiters;
+        }
+
+        public List<ActiveRunEntry> getActiveRuns() {
+            return activeRuns;
         }
 
         public static final class QueueAction {
@@ -748,6 +811,83 @@ public class ReviewConcurrencyController {
                 return limit;
             }
         }
+
+        public static final class ActiveRunEntry {
+            private final String runId;
+            private final String projectKey;
+            private final String repositorySlug;
+            private final long pullRequestId;
+            private final boolean manual;
+            private final boolean update;
+            private final boolean force;
+            private final long startedAt;
+            private final boolean cancelRequested;
+            @Nullable
+            private final String requestedBy;
+
+            public ActiveRunEntry(String runId,
+                                  String projectKey,
+                                  String repositorySlug,
+                                  long pullRequestId,
+                                  boolean manual,
+                                  boolean update,
+                                  boolean force,
+                                  long startedAt,
+                                  boolean cancelRequested,
+                                  @Nullable String requestedBy) {
+                this.runId = runId;
+                this.projectKey = projectKey;
+                this.repositorySlug = repositorySlug;
+                this.pullRequestId = pullRequestId;
+                this.manual = manual;
+                this.update = update;
+                this.force = force;
+                this.startedAt = startedAt;
+                this.cancelRequested = cancelRequested;
+                this.requestedBy = requestedBy;
+            }
+
+            public String getRunId() {
+                return runId;
+            }
+
+            public String getProjectKey() {
+                return projectKey;
+            }
+
+            public String getRepositorySlug() {
+                return repositorySlug;
+            }
+
+            public long getPullRequestId() {
+                return pullRequestId;
+            }
+
+            public boolean isManual() {
+                return manual;
+            }
+
+            public boolean isUpdate() {
+                return update;
+            }
+
+            public boolean isForce() {
+                return force;
+            }
+
+            public long getStartedAt() {
+                return startedAt;
+            }
+
+            public boolean isCancelRequested() {
+                return cancelRequested;
+            }
+
+            @Nullable
+            public String getRequestedBy() {
+                return requestedBy;
+            }
+        }
     }
 
     private final class QueuedPermit {
@@ -805,6 +945,50 @@ public class ReviewConcurrencyController {
 
         AtomicInteger getProjectCounter() {
             return projectCounter;
+        }
+    }
+
+    private static final class ActiveRun {
+        private final ReviewExecutionRequest request;
+        private final Future<?> future;
+        private final long startedAt;
+        private final AtomicBoolean cancelRequested = new AtomicBoolean();
+
+        private ActiveRun(ReviewExecutionRequest request, Future<?> future) {
+            this.request = request;
+            this.future = future;
+            this.startedAt = System.currentTimeMillis();
+        }
+
+        boolean cancel() {
+            cancelRequested.set(true);
+            Future<?> future = this.future;
+            if (future == null) {
+                return false;
+            }
+            return future.cancel(true);
+        }
+
+        void markCompleted() {
+            // No-op for now; removal from activeRuns signals completion.
+        }
+
+        QueueStats.ActiveRunEntry toEntry() {
+            return new QueueStats.ActiveRunEntry(
+                    request.getRunId(),
+                    request.getProjectKey(),
+                    request.getRepositorySlug(),
+                    request.getPullRequestId(),
+                    request.isManual(),
+                    request.isUpdate(),
+                    request.isForce(),
+                    startedAt,
+                    cancelRequested.get(),
+                    request.getRequestedBy());
+        }
+
+        ReviewExecutionRequest getRequest() {
+            return request;
         }
     }
 }

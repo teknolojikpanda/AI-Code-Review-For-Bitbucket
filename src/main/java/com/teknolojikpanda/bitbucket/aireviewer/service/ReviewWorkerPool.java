@@ -10,7 +10,9 @@ import javax.inject.Singleton;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -50,13 +52,24 @@ public class ReviewWorkerPool {
     }
 
     public <T> T execute(Callable<T> task) {
+        return join(submit(task));
+    }
+
+    public <T> Future<T> submit(Callable<T> task) {
         Objects.requireNonNull(task, "task");
         refreshPoolSizeIfNeeded();
+        return executor.submit(task);
+    }
+
+    public <T> T join(Future<T> future) {
+        Objects.requireNonNull(future, "future");
         try {
-            return executor.submit(task).get();
+            return future.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ReviewSchedulingInterruptedException("Interrupted while waiting for review worker", e);
+        } catch (CancellationException e) {
+            throw e;
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof RuntimeException) {

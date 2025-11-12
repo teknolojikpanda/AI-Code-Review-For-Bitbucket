@@ -33,6 +33,7 @@ public class GuardrailsScalingAdvisorTest {
                         0,
                         0,
                         Collections.emptyList(),
+                        Collections.emptyList(),
                         Collections.emptyList());
 
         List<GuardrailsScalingAdvisor.ScalingHint> hints =

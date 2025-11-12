@@ -80,6 +80,7 @@ public class ProgressResourceTest {
                         5,
                         15,
                         Collections.emptyList(),
+                        Collections.emptyList(),
                         Collections.emptyList());
         when(concurrencyController.snapshot()).thenReturn(stats);
         when(concurrencyController.getQueuedRequests()).thenReturn(Collections.emptyList());
@@ -251,6 +252,45 @@ public class ProgressResourceTest {
         ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
         body.runId = "run-2";
         Response response = resource.cancelQueuedRun(request, body);
+
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals(true, payload.get("canceled"));
+    }
+
+    @Test
+    public void adminRunningCancelRequiresRunId() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+
+        Response response = resource.cancelRunningRun(request, new ProgressResource.QueueCancelRequest());
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void adminRunningCancelReturnsNotFound() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        when(concurrencyController.cancelActiveRun(eq("run-active"), any(), any())).thenReturn(false);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        body.runId = "run-active";
+        Response response = resource.cancelRunningRun(request, body);
+
+        assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
+    }
+
+    @Test
+    public void adminRunningCancelSucceeds() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
+        when(concurrencyController.cancelActiveRun(eq("run-active"), any(), any())).thenReturn(true);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        body.runId = "run-active";
+        Response response = resource.cancelRunningRun(request, body);
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         @SuppressWarnings("unchecked")
