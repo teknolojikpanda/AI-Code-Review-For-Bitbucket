@@ -4,6 +4,7 @@ import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.teknolojikpanda.bitbucket.aicode.api.AiReviewClient;
 import com.teknolojikpanda.bitbucket.aicode.api.ChunkProgressListener;
 import com.teknolojikpanda.bitbucket.aicode.api.MetricsRecorder;
+import com.teknolojikpanda.bitbucket.aicode.api.ReviewCanceledException;
 import com.teknolojikpanda.bitbucket.aicode.api.ReviewOrchestrator;
 import com.teknolojikpanda.bitbucket.aicode.model.ChunkReviewResult;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewFinding;
@@ -86,6 +87,9 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 ChunkReviewResult result;
                 try {
                     result = future.get();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new ReviewCanceledException(null, "Review execution interrupted");
                 } catch (Exception e) {
                     log.error("Chunk execution failed: {}", e.getMessage(), e);
                     continue;
@@ -136,6 +140,9 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
 
         @Override
         public ChunkReviewResult call() {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new ReviewCanceledException(null, "Review execution interrupted");
+            }
             ReviewChunk chunk = preparation.getChunks().get(index);
             if (log.isInfoEnabled()) {
                 log.info("Chunk {}/{} [{}] started (files={}, chars={})",
@@ -176,6 +183,10 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 }
                 return result;
             } catch (Exception ex) {
+                if (ex instanceof InterruptedException || ex.getCause() instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw new ReviewCanceledException(null, "Review execution interrupted");
+                }
                 metrics.recordEnd("ai.chunk." + index, start);
                 metrics.increment("chunks.failed");
                 log.error("Chunk {}/{} [{}] failed: {}",
