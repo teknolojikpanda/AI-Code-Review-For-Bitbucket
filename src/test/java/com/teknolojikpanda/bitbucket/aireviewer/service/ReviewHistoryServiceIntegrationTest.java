@@ -7,6 +7,7 @@ import com.atlassian.activeobjects.spi.DatabaseType;
 import com.atlassian.sal.api.transaction.TransactionCallback;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LargeFieldCompression;
 import net.java.ao.DBParam;
 import net.java.ao.EntityManager;
 import net.java.ao.test.jdbc.H2Memory;
@@ -194,7 +195,7 @@ public class ReviewHistoryServiceIntegrationTest {
                 new DBParam("REVIEW_START_TIME", startTime),
                 new DBParam("REVIEW_STATUS", "COMPLETED"));
         history.setModelUsed("llama3");
-        history.setMetricsJson(metricsJson);
+        history.setMetricsJson(LargeFieldCompression.compress(metricsJson));
         history.save();
         return history;
     }

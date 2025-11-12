@@ -5,6 +5,7 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.teknolojikpanda.bitbucket.aireviewer.util.ChunkTelemetryUtil;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LargeFieldCompression;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -673,17 +674,22 @@ public class ReviewHistoryService {
         if (metricsJson == null) {
             return "";
         }
-        return metricsJson.length() > 10_000
-                ? metricsJson.substring(0, 10_000)
-                : metricsJson;
+        String payload = LargeFieldCompression.decompress(metricsJson);
+        if (payload == null) {
+            return "";
+        }
+        return payload.length() > 10_000
+                ? payload.substring(0, 10_000)
+                : payload;
     }
 
     private List<Map<String, Object>> safeProgress(String progressJson) {
-        if (progressJson == null || progressJson.trim().isEmpty()) {
+        String payload = LargeFieldCompression.decompress(progressJson);
+        if (payload == null || payload.trim().isEmpty()) {
             return Collections.emptyList();
         }
         try {
-            return PROGRESS_MAPPER.readValue(progressJson, PROGRESS_TYPE);
+            return PROGRESS_MAPPER.readValue(payload, PROGRESS_TYPE);
         } catch (Exception ex) {
             log.debug("Failed to parse progress JSON: {}", ex.getMessage());
             return Collections.emptyList();
@@ -1466,7 +1472,11 @@ public class ReviewHistoryService {
         if (payload == null) {
             return JsonStatus.valid();
         }
-        String trimmed = payload.trim();
+        String decoded = LargeFieldCompression.decompress(payload);
+        if (decoded == null) {
+            return JsonStatus.valid();
+        }
+        String trimmed = decoded.trim();
         if (trimmed.isEmpty()) {
             return JsonStatus.valid();
         }

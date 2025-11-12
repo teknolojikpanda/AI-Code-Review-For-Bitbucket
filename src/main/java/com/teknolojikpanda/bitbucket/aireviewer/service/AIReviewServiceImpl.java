@@ -2649,13 +2649,13 @@ public class AIReviewServiceImpl implements AIReviewService {
     private String serializeMetrics(Map<String, Object> metrics) {
         StringBuilder sb = new StringBuilder();
         appendJsonValue(sb, metrics);
-        return sb.toString();
+        return LargeFieldCompression.compress(sb.toString());
     }
 
     private String serializeProgress(List<Map<String, Object>> events) {
         StringBuilder sb = new StringBuilder();
         appendJsonValue(sb, events);
-        return sb.toString();
+        return LargeFieldCompression.compress(sb.toString());
     }
 
     private List<Map<String, Object>> convertProgressEvents(List<ProgressEvent> events) {

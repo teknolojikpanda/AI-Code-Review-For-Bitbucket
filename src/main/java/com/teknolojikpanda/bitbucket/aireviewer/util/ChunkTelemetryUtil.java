@@ -49,11 +49,12 @@ public final class ChunkTelemetryUtil {
 
     @Nonnull
     public static Map<String, Object> readMetricsMap(String metricsJson) {
-        if (metricsJson == null || metricsJson.trim().isEmpty()) {
+        String payload = LargeFieldCompression.decompress(metricsJson);
+        if (payload == null || payload.trim().isEmpty()) {
             return Collections.emptyMap();
         }
         try {
-            Map<String, Object> parsed = OBJECT_MAPPER.readValue(metricsJson, MAP_TYPE);
+            Map<String, Object> parsed = OBJECT_MAPPER.readValue(payload, MAP_TYPE);
             return parsed != null ? parsed : Collections.emptyMap();
         } catch (Exception ex) {
             return Collections.emptyMap();

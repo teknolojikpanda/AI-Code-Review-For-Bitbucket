@@ -7,6 +7,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class ChunkTelemetryUtilTest {
 
@@ -51,5 +52,25 @@ public class ChunkTelemetryUtilTest {
         Map<String, Object> second = entries.get(1);
         assertEquals("chunk-2", second.get("chunkId"));
         assertNotNull(second.get("statusCode"));
+    }
+
+    @Test
+    public void extractEntriesSupportsCompressedPayloads() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("{\"ai.chunk.invocations\":[");
+        for (int i = 0; i < 40; i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append("{\"chunkId\":\"chunk-").append(i).append("\",\"attempts\":1}");
+        }
+        builder.append("]}");
+        String payload = builder.toString();
+        String compressed = LargeFieldCompression.compress(payload);
+        assertTrue("payload should be compressed", LargeFieldCompression.isCompressed(compressed));
+
+        List<Map<String, Object>> entries = ChunkTelemetryUtil.extractEntriesFromJson(compressed);
+        assertEquals(40, entries.size());
+        assertEquals("chunk-0", entries.get(0).get("chunkId"));
     }
 }
