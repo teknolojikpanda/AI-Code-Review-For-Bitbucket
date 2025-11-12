@@ -57,6 +57,9 @@ public class AutomationResourceTest {
                 true, false, 200, "{}", null, false, null, null, 0L, null);
         Page<Delivery> deliveryPage = new Page<>(List.of(delivery), 1, 50, 0);
         when(deliveryService.listDeliveries(anyInt(), anyInt())).thenReturn(deliveryPage);
+        GuardrailsAlertDeliveryService.AcknowledgementStats ackStats =
+                new GuardrailsAlertDeliveryService.AcknowledgementStats(2, 60_000L, 30_000d, 1);
+        when(deliveryService.computeAcknowledgementStats(anyInt())).thenReturn(ackStats);
         when(deliveryService.acknowledge(anyInt(), any(), any(), any())).thenReturn(delivery);
     }
 
@@ -194,6 +197,9 @@ public class AutomationResourceTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         verify(deliveryService).listDeliveries(10, 25);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals(2, ((Map<?, ?>) payload.get("ackStats")).get("pendingCount"));
     }
 
     @Test

@@ -55,8 +55,8 @@
 [X] 3. Include aggregated circuit-breaker + rate-limiter stats (open duration, blocked call deltas, retry counts) in the `/metrics` response so platform monitoring can alert on sustained degradation. _(Metrics payload now carries `circuitBreaker` aggregates plus `ai.breaker.*` counters and rate-limiter retry windows exposed via `ai.rateLimiter.repo|project.avgRetryAfterMs`.)_
 [X] 4. Add lightweight REST/ADF panels inside Bitbucket admin that summarize these metrics for quick diagnosis without leaving the product. _(Health dashboard now renders a Metrics Summary card deck fed by `/rest/ai-reviewer/1.0/metrics`, showing queue/worker/limiter/breaker health with threshold badges.)_
 [X] 5. Provide outbound alert hooks (webhook/email/Atlassian Alerts) that trigger when breaker openness, queue depth, or throttle rate crosses operator-defined thresholds. _(A clustered alerting scheduler now evaluates the thresholds every minute, pushes snapshots to configured webhook channels, and the CLI gained an `alerts` command for manual triggering.)_
-[ ] 6. Build a “Guardrails Health” dashboard that correlates queue, limiter, breaker, and worker pool metrics over time.
-[ ] 7. Store alert history + operator acknowledgements so we can audit response times and improve playbooks.
+[X] 6. Build a “Guardrails Health” dashboard that correlates queue, limiter, breaker, and worker pool metrics over time.
+[X] 7. Store alert history + operator acknowledgements so we can audit response times and improve playbooks. _(Alert deliveries now persist ack actor/timestamp/notes, `/automation/alerts/deliveries` exposes `ackStats`, and `/metrics` publishes acknowledgement latency + pending counts.)_
 
 ### 7. History & Storage Hygiene
 [ ] 1. Implement configurable retention (e.g., keep last N days) and periodic cleanup job for `AIReviewHistory` plus chunk telemetry. _(Automated job + AO-backed status + admin controls implemented.)_

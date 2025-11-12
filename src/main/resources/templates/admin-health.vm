@@ -184,6 +184,27 @@
                         <div class="queue-note" id="alerts-note">Alerts refresh whenever telemetry loads.</div>
                     </div>
                 </section>
+
+                <section class="queue-section" style="margin-top: 24px;">
+                    <header class="queue-header">
+                        <h2>Guardrails Health Timeline</h2>
+                        <span id="health-timeline-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-panel">
+                        <div class="queue-empty" id="health-timeline-empty">Loading timeline…</div>
+                        <table class="aui aui-table aui-table-rowhover" id="health-timeline-table" style="display:none;">
+                            <thead>
+                            <tr>
+                                <th>When</th>
+                                <th>Type</th>
+                                <th>Summary</th>
+                                <th>Details</th>
+                            </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </section>
     </div>

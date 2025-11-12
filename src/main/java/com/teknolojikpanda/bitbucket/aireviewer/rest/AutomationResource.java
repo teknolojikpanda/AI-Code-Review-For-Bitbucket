@@ -214,11 +214,14 @@ public class AutomationResource {
         int limit = limitParam == null ? 50 : Math.max(1, Math.min(limitParam, 200));
         int offset = offsetParam == null ? 0 : Math.max(0, offsetParam);
         Page<Delivery> page = deliveryService.listDeliveries(offset, limit);
+        GuardrailsAlertDeliveryService.AcknowledgementStats ackStats =
+                deliveryService.computeAcknowledgementStats(200);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("deliveries", page.getValues());
         payload.put("total", page.getTotal());
         payload.put("limit", page.getLimit());
         payload.put("offset", page.getOffset());
+        payload.put("ackStats", ackStats.toMap());
         return Response.ok(payload).build();
     }
 

@@ -6,6 +6,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLi
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot.BucketState;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewQueueAuditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitOverrideService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -43,6 +44,7 @@ public class GuardrailsTelemetryService {
     private final ModelHealthService modelHealthService;
     private final ReviewQueueAuditService queueAuditService;
     private final GuardrailsRateLimitOverrideService overrideService;
+    private final GuardrailsRateLimitStore rateLimitStore;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -57,7 +59,8 @@ public class GuardrailsTelemetryService {
                                       GuardrailsScalingAdvisor scalingAdvisor,
                                       ModelHealthService modelHealthService,
                                       ReviewQueueAuditService queueAuditService,
-                                      GuardrailsRateLimitOverrideService overrideService) {
+                                      GuardrailsRateLimitOverrideService overrideService,
+                                      GuardrailsRateLimitStore rateLimitStore) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -71,6 +74,7 @@ public class GuardrailsTelemetryService {
         this.modelHealthService = Objects.requireNonNull(modelHealthService, "modelHealthService");
         this.queueAuditService = Objects.requireNonNull(queueAuditService, "queueAuditService");
         this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
+        this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
     }
 
     /**
@@ -80,15 +84,17 @@ public class GuardrailsTelemetryService {
         Map<String, Object> payload = new LinkedHashMap<>();
         QueueStats queueStats = concurrencyController.snapshot();
         payload.put("queue", queueSnapshotToMap(queueStats));
-        payload.put("queueActions", queueActionsToList(queueAuditService.listRecentActions(25)));
+        List<Map<String, Object>> queueActions = queueActionsToList(queueAuditService.listRecentActions(25));
+        payload.put("queueActions", queueActions);
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 queueStats != null ? queueStats.getSchedulerState() : schedulerStateService.getState();
         payload.put("schedulerState", schedulerStateToMap(schedulerState));
         ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = workerPool.snapshot();
         workerNodeService.recordLocalSnapshot(workerSnapshot);
         List<GuardrailsWorkerNodeService.WorkerNodeRecord> workerNodes = workerNodeService.listSnapshots();
+        List<Map<String, Object>> workerNodeTimeline = workerNodeSnapshotsToList(workerNodes);
         payload.put("workerPool", workerPoolStatsToMap(workerSnapshot));
-        payload.put("workerPoolNodes", workerNodeSnapshotsToList(workerNodes));
+        payload.put("workerPoolNodes", workerNodeTimeline);
         payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
         payload.put("rateLimitOverrides", overridesToList(overrideService.listOverrides(false)));
         payload.put("scalingHints", scalingHintsToList(scalingAdvisor.evaluate(queueStats, workerNodes)));
@@ -99,6 +105,7 @@ public class GuardrailsTelemetryService {
         payload.put("modelHealth", modelHealthService.snapshot());
         ReviewHistoryService.CircuitStats circuitStats = historyService.getRecentCircuitStats(CIRCUIT_SAMPLE_LIMIT);
         payload.put("circuitBreaker", circuitStats != null ? circuitStats.toMap() : Collections.emptyMap());
+        payload.put("healthTimeline", buildHealthTimeline(queueActions, workerNodeTimeline));
         payload.put("generatedAt", System.currentTimeMillis());
         return payload;
     }
@@ -129,6 +136,7 @@ public class GuardrailsTelemetryService {
         Map<String, Object> circuit = asMap(runtime.get("circuitBreaker"));
         Map<String, Object> modelStats = asMap(runtime.get("modelStats"));
         GuardrailsAlertDeliveryService.Aggregates deliveryAgg = deliveryService.aggregateRecentDeliveries(200);
+        GuardrailsAlertDeliveryService.AcknowledgementStats ackStats = deliveryService.computeAcknowledgementStats(200);
 
         Number maxConcurrent = toNumber(queue.get("maxConcurrent"));
         Number active = toNumber(queue.get("active"));
@@ -242,6 +250,16 @@ public class GuardrailsTelemetryService {
                 "Failed deliveries in recent sample");
         addMetric(metrics, "ai.alerts.deliveries.failureRate", deliveryAgg.getFailureRate(), "ratio",
                 "Fraction of failed deliveries in recent sample");
+        addMetric(metrics, "ai.alerts.pendingAcknowledgements", ackStats.getPendingCount(), "deliveries",
+                "Alert deliveries awaiting acknowledgement");
+        long oldestPendingSeconds = ackStats.getOldestPendingMillis() > 0
+                ? ackStats.getOldestPendingMillis() / 1000L
+                : 0L;
+        addMetric(metrics, "ai.alerts.pendingOldestSeconds", oldestPendingSeconds, "seconds",
+                "Age of the oldest unacknowledged alert delivery");
+        double avgAckSeconds = ackStats.getAverageAckMillis() / 1000d;
+        addMetric(metrics, "ai.alerts.ack.latencySecondsAvg", avgAckSeconds, "seconds",
+                "Average acknowledgement latency across recent alerts");
 
         List<Map<String, Object>> modelEntries = asList(modelStats.get("entries"));
         long totalInvocations = sumListField(modelEntries, "totalInvocations");
@@ -294,6 +312,16 @@ public class GuardrailsTelemetryService {
         }
 
         return metrics;
+    }
+
+    private Map<String, Object> buildHealthTimeline(List<Map<String, Object>> queueActions,
+                                                    List<Map<String, Object>> workerSnapshots) {
+        Map<String, Object> timeline = new LinkedHashMap<>();
+        timeline.put("queueActions", queueActions != null ? queueActions : Collections.emptyList());
+        timeline.put("workerSnapshots", workerSnapshots != null ? workerSnapshots : Collections.emptyList());
+        timeline.put("rateLimitIncidents", throttleIncidentsToList(rateLimitStore.fetchRecentIncidents(15)));
+        timeline.put("alertDeliveries", alertDeliveriesToList(deliveryService.listDeliveries(0, 10).getValues()));
+        return timeline;
     }
 
     private Map<String, Object> queueSnapshotToMap(QueueStats stats) {
@@ -528,6 +556,48 @@ public class GuardrailsTelemetryService {
         return list;
     }
 
+    private List<Map<String, Object>> throttleIncidentsToList(List<GuardrailsRateLimitStore.ThrottleIncident> incidents) {
+        if (incidents == null || incidents.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(incidents.size());
+        for (GuardrailsRateLimitStore.ThrottleIncident incident : incidents) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("scope", incident.getScope().name());
+            map.put("identifier", incident.getIdentifier());
+            map.put("projectKey", incident.getProjectKey());
+            map.put("repositorySlug", incident.getRepositorySlug());
+            map.put("occurredAt", incident.getOccurredAt());
+            map.put("limitPerHour", incident.getLimitPerHour());
+            map.put("retryAfterMs", incident.getRetryAfterMs());
+            map.put("reason", incident.getReason());
+            list.add(map);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> alertDeliveriesToList(List<GuardrailsAlertDeliveryService.Delivery> deliveries) {
+        if (deliveries == null || deliveries.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(deliveries.size());
+        for (GuardrailsAlertDeliveryService.Delivery delivery : deliveries) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", delivery.getId());
+            map.put("channelDescription", delivery.getChannelDescription());
+            map.put("channelUrl", delivery.getChannelUrl());
+            map.put("deliveredAt", delivery.getDeliveredAt());
+            map.put("success", delivery.isSuccess());
+            map.put("httpStatus", delivery.getHttpStatus());
+            map.put("acknowledged", delivery.isAcknowledged());
+            map.put("ackTimestamp", delivery.getAckTimestamp());
+            map.put("ackUserDisplayName", delivery.getAckUserDisplayName());
+            map.put("test", delivery.isTest());
+            list.add(map);
+        }
+        return list;
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> asMap(Object value) {
         if (value instanceof Map) {
@@ -742,6 +812,14 @@ public class GuardrailsTelemetryService {
         thresholds.put("ai.rateLimiter.project.avgRetryAfterMs",
                 threshold(TimeUnit.SECONDS.toMillis(20), TimeUnit.SECONDS.toMillis(45),
                         "Projects seeing long retry-after windows.", "ms", "gte"));
+        thresholds.put("ai.alerts.pendingAcknowledgements",
+                threshold(1, 5, "Outstanding alerts require acknowledgement.", "deliveries", "gte"));
+        thresholds.put("ai.alerts.pendingOldestSeconds",
+                threshold(TimeUnit.MINUTES.toSeconds(15), TimeUnit.MINUTES.toSeconds(60),
+                        "Oldest unacknowledged alert is stale.", "seconds", "gte"));
+        thresholds.put("ai.alerts.ack.latencySecondsAvg",
+                threshold(TimeUnit.MINUTES.toSeconds(5), TimeUnit.MINUTES.toSeconds(15),
+                        "Average acknowledgement latency exceeding target.", "seconds", "gte"));
         return thresholds;
     }
 

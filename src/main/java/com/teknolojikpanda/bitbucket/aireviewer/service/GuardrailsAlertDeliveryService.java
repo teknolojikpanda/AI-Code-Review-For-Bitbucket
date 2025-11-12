@@ -11,7 +11,9 @@ import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 @Named
@@ -109,6 +111,41 @@ public class GuardrailsAlertDeliveryService {
             entity.setAckNote(truncate(note, MAX_ACK_NOTE_LENGTH));
             entity.save();
             return toValue(entity);
+        });
+    }
+
+    public AcknowledgementStats computeAcknowledgementStats(int sampleLimit) {
+        final int limit = Math.min(Math.max(sampleLimit, 1), 500);
+        return ao.executeInTransaction(() -> {
+            int pending = ao.count(GuardrailsAlertDelivery.class,
+                    net.java.ao.Query.select().where("ACKNOWLEDGED = ?", false));
+            long oldestPendingMs = 0L;
+            if (pending > 0) {
+                GuardrailsAlertDelivery[] oldest = ao.find(GuardrailsAlertDelivery.class,
+                        net.java.ao.Query.select()
+                                .where("ACKNOWLEDGED = ?", false)
+                                .order("DELIVERED_AT ASC")
+                                .limit(1));
+                if (oldest.length > 0) {
+                    oldestPendingMs = Math.max(0L, System.currentTimeMillis() - oldest[0].getDeliveredAt());
+                }
+            }
+            GuardrailsAlertDelivery[] ackedRows = ao.find(GuardrailsAlertDelivery.class,
+                    net.java.ao.Query.select()
+                            .where("ACKNOWLEDGED = ? AND ACK_TIMESTAMP > 0", true)
+                            .order("ACK_TIMESTAMP DESC, ID DESC")
+                            .limit(limit));
+            long totalLatency = 0L;
+            int samples = 0;
+            for (GuardrailsAlertDelivery row : ackedRows) {
+                long latency = row.getAckTimestamp() - row.getDeliveredAt();
+                if (latency >= 0) {
+                    totalLatency += latency;
+                    samples++;
+                }
+            }
+            double averageLatencyMs = samples == 0 ? 0d : (double) totalLatency / samples;
+            return new AcknowledgementStats(pending, oldestPendingMs, averageLatencyMs, samples);
         });
     }
 
@@ -288,6 +325,48 @@ public class GuardrailsAlertDeliveryService {
 
         public String getAckNote() {
             return ackNote;
+        }
+    }
+
+    public static final class AcknowledgementStats {
+        private final int pendingCount;
+        private final long oldestPendingMillis;
+        private final double averageAckMillis;
+        private final int ackSamples;
+
+        public AcknowledgementStats(int pendingCount,
+                                    long oldestPendingMillis,
+                                    double averageAckMillis,
+                                    int ackSamples) {
+            this.pendingCount = pendingCount;
+            this.oldestPendingMillis = Math.max(0L, oldestPendingMillis);
+            this.averageAckMillis = averageAckMillis < 0 ? 0d : averageAckMillis;
+            this.ackSamples = ackSamples;
+        }
+
+        public int getPendingCount() {
+            return pendingCount;
+        }
+
+        public long getOldestPendingMillis() {
+            return oldestPendingMillis;
+        }
+
+        public double getAverageAckMillis() {
+            return averageAckMillis;
+        }
+
+        public int getAckSamples() {
+            return ackSamples;
+        }
+
+        public Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("pendingCount", pendingCount);
+            map.put("oldestPendingMillis", oldestPendingMillis);
+            map.put("averageAckMillis", averageAckMillis);
+            map.put("ackSamples", ackSamples);
+            return map;
         }
     }
 

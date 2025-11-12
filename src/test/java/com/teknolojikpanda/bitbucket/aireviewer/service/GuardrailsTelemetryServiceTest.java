@@ -30,6 +30,7 @@ public class GuardrailsTelemetryServiceTest {
     private ModelHealthService modelHealthService;
     private ReviewQueueAuditService queueAuditService;
     private GuardrailsRateLimitOverrideService overrideService;
+    private GuardrailsRateLimitStore rateLimitStore;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -46,6 +47,7 @@ public class GuardrailsTelemetryServiceTest {
         scalingAdvisor = mock(GuardrailsScalingAdvisor.class);
         queueAuditService = mock(ReviewQueueAuditService.class);
         overrideService = mock(GuardrailsRateLimitOverrideService.class);
+        rateLimitStore = mock(GuardrailsRateLimitStore.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -84,6 +86,18 @@ public class GuardrailsTelemetryServiceTest {
 
         when(deliveryService.aggregateRecentDeliveries(anyInt())).thenReturn(
                 new GuardrailsAlertDeliveryService.Aggregates(10, 9, 1, 2, 0.1));
+        when(deliveryService.computeAcknowledgementStats(anyInt()))
+                .thenReturn(new GuardrailsAlertDeliveryService.AcknowledgementStats(1, 30_000L, 10_000d, 1));
+        when(rateLimitStore.fetchRecentIncidents(anyInt())).thenReturn(Collections.emptyList());
+        GuardrailsAlertDeliveryService.Delivery delivery =
+                new GuardrailsAlertDeliveryService.Delivery(1, 1, "https://example", "Ops Pager",
+                        System.currentTimeMillis(), true, false, 200, "{}", null,
+                        false, null, null, 0L, null);
+        Page<GuardrailsAlertDeliveryService.Delivery> deliveryPage =
+                new Page<>(Collections.singletonList(delivery), 1, 10, 0);
+        when(deliveryService.listDeliveries(anyInt(), anyInt())).thenReturn(deliveryPage);
+        when(deliveryService.computeAcknowledgementStats(anyInt())).thenReturn(
+                new GuardrailsAlertDeliveryService.AcknowledgementStats(3, 90_000L, 45_000d, 2));
 
         when(workerNodeService.listSnapshots()).thenReturn(Collections.singletonList(
                 new GuardrailsWorkerNodeService.WorkerNodeRecord(
@@ -147,7 +161,8 @@ public class GuardrailsTelemetryServiceTest {
                 scalingAdvisor,
                 modelHealthService,
                 queueAuditService,
-                overrideService);
+                overrideService,
+                rateLimitStore);
     }
 
     @Test
@@ -185,6 +200,8 @@ public class GuardrailsTelemetryServiceTest {
         assertTrue(metrics.stream().anyMatch(m -> "ai.queue.active".equals(m.get("name"))));
         assertTrue(metrics.stream().anyMatch(m -> "ai.retention.totalEntries".equals(m.get("name"))));
         assertTrue(metrics.stream().anyMatch(m -> "ai.worker.activeThreads".equals(m.get("name"))));
+        assertTrue(metrics.stream().anyMatch(m -> "ai.alerts.pendingAcknowledgements".equals(m.get("name"))));
+        assertTrue(metrics.stream().anyMatch(m -> "ai.alerts.ack.latencySecondsAvg".equals(m.get("name"))));
     }
 
     private ReviewWorkerPool.WorkerPoolSnapshot createWorkerSnapshot() throws Exception {

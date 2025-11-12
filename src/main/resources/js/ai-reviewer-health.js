@@ -85,6 +85,7 @@
 
         renderWorkerNodes(data.workerPoolNodes || []);
         renderScalingHints(data.scalingHints || [], data.generatedAt);
+        renderHealthTimeline(data.healthTimeline || {});
     }
 
     function renderWorkerNodes(nodes) {
@@ -213,6 +214,105 @@
         $table.show();
         $empty.hide();
         $('#alerts-note').text(count + (count === 1 ? ' alert loaded.' : ' alerts loaded.'));
+    }
+
+    function renderHealthTimeline(timeline) {
+        timeline = timeline || {};
+        var events = [];
+        (timeline.queueActions || []).forEach(function(action) {
+            events.push({
+                type: 'Queue',
+                severity: action.action || 'event',
+                summary: describeQueueAction(action),
+                detail: action.note || '',
+                timestamp: action.timestamp || 0
+            });
+        });
+        (timeline.rateLimitIncidents || []).forEach(function(incident) {
+            events.push({
+                type: 'Limiter',
+                severity: 'warning',
+                summary: describeRateIncident(incident),
+                detail: incident.reason || '',
+                timestamp: incident.occurredAt || 0
+            });
+        });
+        (timeline.alertDeliveries || []).forEach(function(delivery) {
+            events.push({
+                type: delivery.test ? 'Alert (test)' : 'Alert',
+                severity: delivery.success ? (delivery.acknowledged ? 'info' : 'warning') : 'critical',
+                summary: describeAlertDelivery(delivery),
+                detail: delivery.ackUserDisplayName ? 'Ack by ' + escapeHtml(delivery.ackUserDisplayName) : '',
+                timestamp: delivery.deliveredAt || 0
+            });
+        });
+        events.sort(function(a, b) {
+            return (b.timestamp || 0) - (a.timestamp || 0);
+        });
+        var $table = $('#health-timeline-table');
+        var $empty = $('#health-timeline-empty');
+        if (!events.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No recent health events.').show();
+            $('#health-timeline-updated').text(new Date().toLocaleString());
+            return;
+        }
+        var rows = events.slice(0, 30).map(function(event) {
+            var badge = '<span class="timeline-type">' + escapeHtml(event.type) + '</span>';
+            var summary = escapeHtml(event.summary || '—');
+            var detail = escapeHtml(event.detail || '—');
+            return '<tr>' +
+                '<td>' + escapeHtml(formatTimestamp(event.timestamp)) + '</td>' +
+                '<td>' + badge + '</td>' +
+                '<td>' + summary + '</td>' +
+                '<td>' + detail + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
+        $('#health-timeline-updated').text(new Date().toLocaleString());
+    }
+
+    function describeQueueAction(action) {
+        var summary = action.action ? action.action.replace(/[_-]/g, ' ') : 'Queue action';
+        var scope = [];
+        if (action.projectKey) {
+            scope.push(action.projectKey);
+        }
+        if (action.repositorySlug) {
+            scope.push(action.repositorySlug);
+        }
+        if (action.pullRequestId != null) {
+            scope.push('#' + action.pullRequestId);
+        }
+        if (scope.length) {
+            summary += ' · ' + scope.join('/');
+        }
+        return summary;
+    }
+
+    function describeRateIncident(incident) {
+        var scope = incident.scope || 'REPOSITORY';
+        var id = incident.identifier || incident.projectKey || incident.repositorySlug || 'unknown';
+        var summary = 'Throttle (' + scope.toLowerCase() + ') for ' + id;
+        if (incident.retryAfterMs != null) {
+            summary += ' · retry ' + formatDurationSeconds(Math.round((incident.retryAfterMs || 0) / 1000));
+        }
+        return summary;
+    }
+
+    function describeAlertDelivery(delivery) {
+        var summary = delivery.channelDescription || delivery.channelUrl || 'Channel ' + delivery.id;
+        if (!delivery.success) {
+            summary += ' · delivery failed';
+        } else if (!delivery.acknowledged) {
+            summary += ' · awaiting ack';
+        } else {
+            summary += ' · acknowledged';
+        }
+        return summary;
     }
 
     function renderMetricsSummary(payload) {

@@ -38,6 +38,9 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `ai.retention.cleanup.lastRunAgeSeconds` | ≥ 86,400s (24h) | ≥ 172,800s (48h) | `gte` | Cleanup job overdue; AO history will bloat. |
 | `ai.retention.cleanup.lastErrorFlag` | 1 | 1 | `eq` | Last cleanup failed; inspect `/history/cleanup/log`. |
 | `ai.model.errorRate` | ≥ 5% | ≥ 10% | `gte` | Vendor/model instability impacting review results. |
+| `ai.alerts.pendingAcknowledgements` | ≥ 1 delivery | ≥ 5 deliveries | `gte` | Outstanding alerts that haven't been acknowledged. |
+| `ai.alerts.pendingOldestSeconds` | ≥ 900s (15m) | ≥ 3,600s (60m) | `gte` | Oldest unacknowledged alert is getting stale. |
+| `ai.alerts.ack.latencySecondsAvg` | ≥ 300s (5m) | ≥ 900s (15m) | `gte` | Average acknowledgement latency exceeding the runbook target. |
 | `ai.breaker.openSampleRatio` | ≥ 10% | ≥ 25% | `gte` | Circuit breaker spending too much time OPEN; vendor likely degraded. |
 | `ai.breaker.blockedCallsAvgPerSample` | ≥ 1 call/sample | ≥ 5 calls/sample | `gte` | Large portions of calls are being blocked by the breaker. |
 | `ai.rateLimiter.repo.avgRetryAfterMs` | ≥ 15,000 ms | ≥ 30,000 ms | `gte` | Repository throttles enforcing long retry-after windows. |
@@ -45,7 +48,7 @@ This playbook explains how to monitor and operate the Guardrails features that g
 
 Consumers should treat `direction="lte"` as “alert when value is less than or equal to threshold” and `direction="gte"` as “greater than or equal”. The JSON payload mirrors this table so automation can stay in sync even if we adjust defaults later. A clustered alerting job polls these metrics every minute and automatically pushes any warning/critical transitions to the configured webhook channels (and logs each delivery). You can also trigger an on-demand run with `./scripts/guardrails-cli.sh alerts` if you need to force a notification outside the regular cadence.
 
-> **In-product view:** the Health dashboard now includes a **Metrics Summary** card deck that renders the key metrics above with their current status (Normal/Warning/Critical) so operators can see throttle, breaker, and cleanup health without leaving Bitbucket.
+> **In-product view:** the Health dashboard now includes a **Metrics Summary** card deck along with a **Guardrails Health Timeline** that shows the latest queue actions, throttle incidents, worker snapshots, and alert deliveries (with ack state) so operators can correlate events without leaving Bitbucket.
 
 ### Webhook Security & Retries
 
@@ -92,6 +95,12 @@ export GUARDRAILS_AUTH=admin:api-token
 ```
 
 The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.
+
+### Alert History & Acknowledgements
+
+- `GET /rest/ai-reviewer/1.0/automation/alerts/deliveries` now returns every webhook delivery plus an `ackStats` block summarising pending count, oldest pending age, and the average acknowledgement latency. Use this feed to prove that incidents were acknowledged in time.
+- `POST /rest/ai-reviewer/1.0/automation/alerts/deliveries/{id}/ack` stores the actor, timestamp, and optional note directly in the AO table so you can audit response hand-offs later. The Health metrics `ai.alerts.pendingAcknowledgements`, `ai.alerts.pendingOldestSeconds`, and `ai.alerts.ack.latencySecondsAvg` track the same data for dashboards.
+- Infrastructure teams should keep the pending count at zero during business hours; if a webhook fails repeatedly, the auto-disable mechanism will trip and you will see the pending metrics climb until a human re-enables the channel and acknowledges the alert.
 
 ### Worker Pool Degradation
 
