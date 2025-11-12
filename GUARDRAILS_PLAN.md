@@ -46,7 +46,7 @@
 [X] 3. Persist scheduler state (active, paused, draining) plus operator metadata in AO so the setting survives restarts and appears in progress timelines/audit logs. _(Scheduler changes now stored in AO with actor/reason and emitted as queue audit events so admin history + UI reflect pauses/drains.)_
 [X] 4. Add permission checks + audit events so only global admins can pause/cancel and every action is traceable (who, when, which PR/repository, reason). _(Admin endpoints now enforce system-admin auth and both queue cancels + scheduler toggles emit audit rows with actor + reason.)_
 [X] 5. Provide bulk cancellation (per repo/project or entire queue) with confirmation prompts and progress feedback. _(Admin UI now offers scoped cancel controls plus REST endpoints that nuke queued/running reviews with audit+reason logging.)_
-[ ] 6. Integrate pause/cancel actions with the fairness + rate-limit subsystems so overrides are reflected consistently across telemetry.
+[X] 6. Integrate pause/cancel actions with the fairness + rate-limit subsystems so overrides are reflected consistently across telemetry. _(Queue audit + rate-limit override feeds now flow into telemetry/health APIs so fairness + limiter views stay in sync with admin actions.)_
 [ ] 7. Offer REST + CLI tooling so automation can pause/resume during maintenance windows.
 
 ### 6. Monitoring & Alerting

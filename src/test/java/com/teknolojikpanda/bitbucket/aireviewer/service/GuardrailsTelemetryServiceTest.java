@@ -28,6 +28,8 @@ public class GuardrailsTelemetryServiceTest {
     private GuardrailsWorkerNodeService workerNodeService;
     private GuardrailsScalingAdvisor scalingAdvisor;
     private ModelHealthService modelHealthService;
+    private ReviewQueueAuditService queueAuditService;
+    private GuardrailsRateLimitOverrideService overrideService;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -42,6 +44,8 @@ public class GuardrailsTelemetryServiceTest {
         deliveryService = mock(GuardrailsAlertDeliveryService.class);
         workerNodeService = mock(GuardrailsWorkerNodeService.class);
         scalingAdvisor = mock(GuardrailsScalingAdvisor.class);
+        queueAuditService = mock(ReviewQueueAuditService.class);
+        overrideService = mock(GuardrailsRateLimitOverrideService.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -104,6 +108,31 @@ public class GuardrailsTelemetryServiceTest {
                                 "Add nodes")));
         modelHealthService = mock(ModelHealthService.class);
         when(modelHealthService.snapshot()).thenReturn(Collections.emptyMap());
+        when(queueAuditService.listRecentActions(org.mockito.Mockito.anyInt())).thenReturn(Collections.singletonList(
+                new ReviewConcurrencyController.QueueStats.QueueAction(
+                        "canceled",
+                        System.currentTimeMillis(),
+                        "run-1",
+                        "PRJ",
+                        "repo",
+                        42L,
+                        false,
+                        false,
+                        false,
+                        "admin",
+                        "manual cancel",
+                        "user")));
+        GuardrailsRateLimitOverrideService.OverrideRecord overrideRecord =
+                new GuardrailsRateLimitOverrideService.OverrideRecord(1,
+                        GuardrailsRateLimitScope.PROJECT,
+                        "PRJ",
+                        30,
+                        System.currentTimeMillis(),
+                        0L,
+                        "admin",
+                        "Admin",
+                        "reason");
+        when(overrideService.listOverrides(false)).thenReturn(Collections.singletonList(overrideRecord));
 
         telemetryService = new GuardrailsTelemetryService(
                 concurrencyController,
@@ -116,7 +145,9 @@ public class GuardrailsTelemetryServiceTest {
                 deliveryService,
                 workerNodeService,
                 scalingAdvisor,
-                modelHealthService);
+                modelHealthService,
+                queueAuditService,
+                overrideService);
     }
 
     @Test
@@ -131,6 +162,8 @@ public class GuardrailsTelemetryServiceTest {
         assertTrue(snapshot.containsKey("workerPoolNodes"));
         assertEquals(1, ((List<?>) snapshot.get("workerPoolNodes")).size());
         assertTrue(snapshot.containsKey("rateLimiter"));
+        assertTrue(snapshot.containsKey("queueActions"));
+        assertTrue(snapshot.containsKey("rateLimitOverrides"));
         assertTrue(snapshot.containsKey("scalingHints"));
         assertTrue(snapshot.containsKey("retention"));
         assertTrue(snapshot.containsKey("modelStats"));

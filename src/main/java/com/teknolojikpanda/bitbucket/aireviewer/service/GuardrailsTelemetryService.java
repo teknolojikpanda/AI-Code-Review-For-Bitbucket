@@ -37,6 +37,8 @@ public class GuardrailsTelemetryService {
     private final GuardrailsWorkerNodeService workerNodeService;
     private final GuardrailsScalingAdvisor scalingAdvisor;
     private final ModelHealthService modelHealthService;
+    private final ReviewQueueAuditService queueAuditService;
+    private final GuardrailsRateLimitOverrideService overrideService;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -49,7 +51,9 @@ public class GuardrailsTelemetryService {
                                       GuardrailsAlertDeliveryService deliveryService,
                                       GuardrailsWorkerNodeService workerNodeService,
                                       GuardrailsScalingAdvisor scalingAdvisor,
-                                      ModelHealthService modelHealthService) {
+                                      ModelHealthService modelHealthService,
+                                      ReviewQueueAuditService queueAuditService,
+                                      GuardrailsRateLimitOverrideService overrideService) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -61,6 +65,8 @@ public class GuardrailsTelemetryService {
         this.workerNodeService = Objects.requireNonNull(workerNodeService, "workerNodeService");
         this.scalingAdvisor = Objects.requireNonNull(scalingAdvisor, "scalingAdvisor");
         this.modelHealthService = Objects.requireNonNull(modelHealthService, "modelHealthService");
+        this.queueAuditService = Objects.requireNonNull(queueAuditService, "queueAuditService");
+        this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
     }
 
     /**
@@ -70,6 +76,7 @@ public class GuardrailsTelemetryService {
         Map<String, Object> payload = new LinkedHashMap<>();
         QueueStats queueStats = concurrencyController.snapshot();
         payload.put("queue", queueSnapshotToMap(queueStats));
+        payload.put("queueActions", queueActionsToList(queueAuditService.listRecentActions(25)));
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 queueStats != null ? queueStats.getSchedulerState() : schedulerStateService.getState();
         payload.put("schedulerState", schedulerStateToMap(schedulerState));
@@ -79,6 +86,7 @@ public class GuardrailsTelemetryService {
         payload.put("workerPool", workerPoolStatsToMap(workerSnapshot));
         payload.put("workerPoolNodes", workerNodeSnapshotsToList(workerNodes));
         payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
+        payload.put("rateLimitOverrides", overridesToList(overrideService.listOverrides(false)));
         payload.put("scalingHints", scalingHintsToList(scalingAdvisor.evaluate(queueStats, workerNodes)));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
@@ -259,6 +267,51 @@ public class GuardrailsTelemetryService {
         List<Map<String, Object>> list = new ArrayList<>(hints.size());
         for (GuardrailsScalingAdvisor.ScalingHint hint : hints) {
             list.add(hint.toMap());
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> queueActionsToList(List<ReviewConcurrencyController.QueueStats.QueueAction> actions) {
+        if (actions == null || actions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(actions.size());
+        for (ReviewConcurrencyController.QueueStats.QueueAction action : actions) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("timestamp", action.getTimestamp());
+            map.put("action", action.getAction());
+            map.put("actor", action.getActor());
+            map.put("runId", action.getRunId());
+            map.put("projectKey", action.getProjectKey());
+            map.put("repositorySlug", action.getRepositorySlug());
+            map.put("pullRequestId", action.getPullRequestId());
+            map.put("manual", action.isManual());
+            map.put("update", action.isUpdate());
+            map.put("force", action.isForce());
+            map.put("requestedBy", action.getRequestedBy());
+            map.put("note", action.getNote());
+            list.add(map);
+        }
+        return list;
+    }
+
+    private List<Map<String, Object>> overridesToList(List<GuardrailsRateLimitOverrideService.OverrideRecord> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> list = new ArrayList<>(overrides.size());
+        for (GuardrailsRateLimitOverrideService.OverrideRecord override : overrides) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", override.getId());
+            map.put("scope", override.getScope().name());
+            map.put("identifier", override.getIdentifier());
+            map.put("limitPerHour", override.getLimitPerHour());
+            map.put("expiresAt", override.getExpiresAt());
+            map.put("createdAt", override.getCreatedAt());
+            map.put("createdBy", override.getCreatedBy());
+            map.put("createdByDisplayName", override.getCreatedByDisplayName());
+            map.put("reason", override.getReason());
+            list.add(map);
         }
         return list;
     }
