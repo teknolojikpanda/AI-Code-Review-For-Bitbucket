@@ -33,46 +33,53 @@
 
                 <div id="ops-message" class="aui-message info" style="display:none;"></div>
 
-                <section class="queue-section" style="margin-top: 24px;">
-                    <header class="queue-header">
-                        <h2>Review Queue</h2>
+                <section class="ops-section ops-section--queue">
+                    <header class="ops-section__header">
+                        <div>
+                            <h2>Review Queue</h2>
+                            <p class="ops-section__subtitle">Monitor saturation, act on backlog, and capture the operational audit trail.</p>
+                        </div>
                         <span id="queue-updated" class="queue-updated">—</span>
                     </header>
-                    <div class="queue-grid">
-                        <div class="queue-card">
+                    <div class="ops-card-grid ops-card-grid--metrics">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Active</span>
                             <span class="queue-value" id="queue-active">—</span>
                         </div>
-                        <div class="queue-card">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Available Slots</span>
                             <span class="queue-value" id="queue-available">—</span>
                         </div>
-                        <div class="queue-card">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Waiting</span>
                             <span class="queue-value" id="queue-waiting">—</span>
                         </div>
-                        <div class="queue-card">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Max Concurrent</span>
                             <span class="queue-value" id="queue-max-concurrent">—</span>
                         </div>
-                        <div class="queue-card">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Max Queued</span>
                             <span class="queue-value" id="queue-max-queued">—</span>
                         </div>
                     </div>
                     <div class="queue-note" id="queue-note">—</div>
-                    <div class="queue-action-bar">
-                        <label for="queue-action-reason">Action reason (optional)</label>
-                        <input type="text" id="queue-action-reason" class="text long-field" placeholder="Recorded with cancel requests"/>
-                        <div class="queue-action-hint">Reason text is persisted with cancel actions for auditing.</div>
+                    <div class="ops-card ops-card--form queue-action-card">
+                        <div class="ops-form-field">
+                            <label for="queue-action-reason">Action reason (optional)</label>
+                            <input type="text" id="queue-action-reason" class="text long-field" placeholder="Recorded with cancel requests"/>
+                            <span class="ops-field-hint">Reason text is persisted with queue or active cancels for auditing.</span>
+                        </div>
+                        <div class="aui-message info queue-admin-message" id="queue-admin-message" style="display:none;"></div>
                     </div>
-                    <div class="aui-message info queue-admin-message" id="queue-admin-message" style="display:none;"></div>
-                    <div class="queue-columns">
-                        <div class="queue-panel">
-                            <header>
-                                <h3>Queued Reviews</h3>
-                                <span class="queue-panel-count" id="queue-entries-count"></span>
-                                <div class="queue-panel-actions">
+                    <div class="ops-panel-grid">
+                        <div class="ops-panel">
+                            <div class="ops-panel__header">
+                                <div>
+                                    <h3>Queued Reviews</h3>
+                                    <span class="ops-panel__hint">Oldest PRs appear first. Use scoped bulk cancels to clear runaway repositories.</span>
+                                </div>
+                                <div class="queue-panel-controls">
                                     <label for="queue-bulk-scope" class="bulk-label">Scope</label>
                                     <select id="queue-bulk-scope" class="select">
                                         <option value="ALL">All</option>
@@ -80,82 +87,101 @@
                                         <option value="repository">Repository…</option>
                                     </select>
                                     <input type="text" id="queue-bulk-value" class="text medium-field" placeholder="PROJECT or PROJECT/repo"/>
-                                    <button type="button" class="aui-button queue-bulk-btn" data-action="cancel-all">Cancel Queue</button>
+                                    <button type="button" class="aui-button queue-bulk-btn" data-action="cancel-all">
+                                        <span class="aui-icon aui-icon-small aui-iconfont-warning"></span> Cancel Queue
+                                    </button>
                                 </div>
-                            </header>
+                                <span class="queue-panel-count" id="queue-entries-count"></span>
+                            </div>
                             <div class="queue-empty" id="queue-entries-empty">Loading queued reviews…</div>
-                            <table class="aui aui-table aui-table-rowhover" id="queue-entries-table" style="display:none;">
-                                <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Repository / PR</th>
-                                    <th>Requested By</th>
-                                    <th>Waiting</th>
-                                    <th>Scope Pressure</th>
-                                    <th>Actions</th>
-                                </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
+                            <div class="ops-table-wrapper">
+                                <table class="aui aui-table aui-table-rowhover" id="queue-entries-table" style="display:none;">
+                                    <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Repository / PR</th>
+                                        <th>Requested By</th>
+                                        <th>Waiting</th>
+                                        <th>Scope Pressure</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
                         </div>
-                        <div class="queue-panel">
-                            <header>
-                                <h3>Recent Queue Actions</h3>
+                        <div class="ops-panel">
+                            <div class="ops-panel__header">
+                                <div>
+                                    <h3>Running Reviews</h3>
+                                    <span class="ops-panel__hint">Track active work and request cancellations when a PR needs immediate attention.</span>
+                                </div>
+                                <div class="queue-panel-actions">
+                                    <button type="button" class="aui-button queue-bulk-btn" data-action="cancel-running">
+                                        Cancel All Active
+                                    </button>
+                                </div>
+                                <span class="queue-panel-count" id="queue-active-count"></span>
+                            </div>
+                            <div class="queue-empty" id="queue-active-empty">Loading running reviews…</div>
+                            <div class="ops-table-wrapper">
+                                <table class="aui aui-table aui-table-rowhover" id="queue-active-table" style="display:none;">
+                                    <thead>
+                                    <tr>
+                                        <th>Repository / PR</th>
+                                        <th>Requested By</th>
+                                        <th>Runtime</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="ops-panel">
+                            <div class="ops-panel__header">
+                                <div>
+                                    <h3>Recent Queue Actions</h3>
+                                    <span class="ops-panel__hint">Live audit log of pauses, cancels, and forced dispatches.</span>
+                                </div>
                                 <span class="queue-panel-count" id="queue-actions-count"></span>
-                            </header>
+                            </div>
                             <div class="queue-empty" id="queue-actions-empty">Loading audit log…</div>
-                            <table class="aui aui-table aui-table-rowhover" id="queue-actions-table" style="display:none;">
-                                <thead>
-                                <tr>
-                                    <th>When</th>
-                                    <th>Action</th>
-                                    <th>Actor</th>
-                                    <th>Target</th>
-                                    <th>Note</th>
-                                </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
+                            <div class="ops-table-wrapper">
+                                <table class="aui aui-table aui-table-rowhover" id="queue-actions-table" style="display:none;">
+                                    <thead>
+                                    <tr>
+                                        <th>When</th>
+                                        <th>Action</th>
+                                        <th>Actor</th>
+                                        <th>Target</th>
+                                        <th>Note</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
-                    <header class="queue-header">
-                        <h2>Running Reviews</h2>
-                        <span class="queue-panel-count" id="queue-active-count"></span>
-                        <div class="queue-panel-actions">
-                            <button type="button" class="aui-button queue-bulk-btn" data-action="cancel-running">Cancel All Active</button>
+                <section class="ops-section">
+                    <header class="ops-section__header">
+                        <div>
+                            <h2>Rollout Controls</h2>
+                            <p class="ops-section__subtitle">Coordinate pause/drain/resume windows with change management.</p>
                         </div>
-                    </header>
-                    <div class="queue-empty" id="queue-active-empty">Loading running reviews…</div>
-                    <table class="aui aui-table aui-table-rowhover" id="queue-active-table" style="display:none;">
-                        <thead>
-                        <tr>
-                            <th>Repository / PR</th>
-                            <th>Requested By</th>
-                            <th>Runtime</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </section>
-
-                <section class="automation-section" style="margin-top: 24px;">
-                    <header class="queue-header">
-                        <h2>Rollout Controls</h2>
                         <span id="rollout-updated" class="queue-updated">—</span>
                     </header>
-                    <div class="rollout-panel">
+                    <div class="rollout-panel ops-card">
                         <div class="rollout-state">
                             <div class="rollout-mode" id="rollout-mode">—</div>
                             <div class="rollout-meta" id="rollout-meta">Scheduler state loading…</div>
                         </div>
                         <div class="rollout-actions">
                             <label for="rollout-reason" class="rollout-label">Reason (optional)</label>
-                            <input type="text" id="rollout-reason" class="text medium-field" placeholder="e.g., Maintenance window"/>
+                            <input type="text" id="rollout-reason" class="text long-field" placeholder="e.g., Maintenance window"/>
                             <div class="rollout-buttons">
                                 <button type="button" class="aui-button rollout-btn" data-mode="active">Resume</button>
                                 <button type="button" class="aui-button rollout-btn" data-mode="pause">Pause</button>
@@ -166,150 +192,177 @@
                     <div class="aui-message" id="rollout-message" style="display:none;"></div>
                 </section>
 
-                <section class="automation-section" style="margin-top: 24px;">
-                    <header class="queue-header">
-                        <h2>Alert Channels</h2>
+                <section class="ops-section">
+                    <header class="ops-section__header">
+                        <div>
+                            <h2>Alert Channels</h2>
+                            <p class="ops-section__subtitle">Manage webhook destinations that receive guardrail alerts and status updates.</p>
+                        </div>
                         <span id="channels-count" class="queue-updated">—</span>
                     </header>
-                    <div class="queue-panel">
+                    <div class="ops-panel">
                         <div class="aui-message" id="channel-message" style="display:none;"></div>
                         <div class="queue-empty" id="channels-empty">No alert channels configured.</div>
-                        <table class="aui aui-table aui-table-rowhover" id="channels-table" style="display:none;">
-                            <thead>
-                            <tr>
-                                <th>Description</th>
-                                <th>URL</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
+                        <div class="ops-table-wrapper">
+                            <table class="aui aui-table aui-table-rowhover" id="channels-table" style="display:none;">
+                                <thead>
+                                <tr>
+                                    <th>Description</th>
+                                    <th>URL</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
-                    <form id="channel-create-form" class="channels-form">
-                        <h3>Add Channel</h3>
-                        <div class="field-group">
-                            <label for="channel-url">Webhook URL *</label>
-                            <input type="url" id="channel-url" class="text long-field" placeholder="https://hooks.example.com/guardrails" required/>
+                    <div class="ops-card ops-card--form channels-form-card">
+                        <div class="ops-card__header">
+                            <h3>Add Channel</h3>
+                            <p>Send alerts to chat rooms, paging systems, or ticketing tools.</p>
                         </div>
-                        <div class="field-group">
-                            <label for="channel-description">Description</label>
-                            <input type="text" id="channel-description" class="text medium-field" placeholder="Ops Pager"/>
-                        </div>
-                        <div class="field-group checkbox">
-                            <input type="checkbox" class="checkbox" id="channel-enabled" checked="checked"/>
-                            <label for="channel-enabled">Enabled</label>
-                        </div>
-                        <div class="field-group checkbox">
-                            <input type="checkbox" class="checkbox" id="channel-signing" checked="checked"/>
-                            <label for="channel-signing">Sign requests (HMAC-SHA256)</label>
-                            <div class="description">If enabled, every alert includes `X-Guardrails-Signature` + timestamp headers computed with the secret below.</div>
-                        </div>
-                        <div class="field-group">
-                            <label for="channel-secret">Signing secret</label>
-                            <input type="text" id="channel-secret" class="text medium-field" placeholder="Leave blank to auto-generate"/>
-                        </div>
-                        <div class="field-group">
-                            <label for="channel-max-retries">Max retries</label>
-                            <input type="number" id="channel-max-retries" class="text" min="0" max="5" value="3"/>
-                        </div>
-                        <div class="field-group">
-                            <label for="channel-backoff">Retry backoff (seconds)</label>
-                            <input type="number" id="channel-backoff" class="text" min="1" max="60" value="10"/>
-                        </div>
-                        <button type="submit" class="aui-button aui-button-primary">Add Channel</button>
-                    </form>
+                        <form id="channel-create-form" class="channels-form">
+                            <div class="ops-form-grid ops-form-grid--two-column">
+                                <div class="ops-form-field">
+                                    <label for="channel-url">Webhook URL *</label>
+                                    <input type="url" id="channel-url" class="text long-field" placeholder="https://hooks.example.com/guardrails" required/>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="channel-description">Description</label>
+                                    <input type="text" id="channel-description" class="text medium-field" placeholder="Ops Pager"/>
+                                </div>
+                                <div class="ops-form-field ops-form-field--checkbox">
+                                    <input type="checkbox" class="checkbox" id="channel-enabled" checked="checked"/>
+                                    <label for="channel-enabled">Enabled</label>
+                                </div>
+                                <div class="ops-form-field ops-form-field--checkbox">
+                                    <input type="checkbox" class="checkbox" id="channel-signing" checked="checked"/>
+                                    <label for="channel-signing">Sign requests (HMAC-SHA256)</label>
+                                    <span class="ops-field-hint">Adds `X-Guardrails-Signed-At` and `X-Guardrails-Signature` headers for verification.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="channel-secret">Signing secret</label>
+                                    <input type="text" id="channel-secret" class="text medium-field" placeholder="Leave blank to auto-generate"/>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="channel-max-retries">Max retries</label>
+                                    <input type="number" id="channel-max-retries" class="text" min="0" max="5" value="3"/>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="channel-backoff">Retry backoff (seconds)</label>
+                                    <input type="number" id="channel-backoff" class="text" min="1" max="60" value="10"/>
+                                </div>
+                            </div>
+                            <div class="ops-form-actions">
+                                <button type="submit" class="aui-button aui-button-primary">Add Channel</button>
+                            </div>
+                        </form>
+                    </div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
-                    <header class="queue-header">
-                        <h2>Alert Deliveries</h2>
+                <section class="ops-section">
+                    <header class="ops-section__header">
+                        <div>
+                            <h2>Alert Deliveries</h2>
+                            <p class="ops-section__subtitle">Audit every outbound alert, acknowledgement, and failure.</p>
+                        </div>
                         <span id="deliveries-count" class="queue-updated">—</span>
                     </header>
-                    <div class="queue-panel">
-                        <div class="queue-empty" id="deliveries-empty">No alert deliveries recorded yet.</div>
-                        <table class="aui aui-table aui-table-rowhover" id="deliveries-table" style="display:none;">
-                            <thead>
-                            <tr>
-                                <th>When</th>
-                                <th>Channel</th>
-                                <th>Status</th>
-                                <th>HTTP</th>
-                                <th>Error</th>
-                                <th>Actions</th>
-                            </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
+                        <div class="ops-panel">
+                            <div class="queue-empty" id="deliveries-empty">No alert deliveries recorded yet.</div>
+                            <div class="ops-table-wrapper">
+                                <table class="aui aui-table aui-table-rowhover" id="deliveries-table" style="display:none;">
+                                    <thead>
+                                    <tr>
+                                        <th>When</th>
+                                        <th>Channel</th>
+                                        <th>Status</th>
+                                        <th>HTTP</th>
+                                        <th>Error</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
-                    <header class="queue-header">
-                        <h2>History Cleanup</h2>
+                <section class="ops-section">
+                    <header class="ops-section__header">
+                        <div>
+                            <h2>History Cleanup</h2>
+                            <p class="ops-section__subtitle">Configure retention and monitor recent cleanup jobs.</p>
+                        </div>
                         <span id="cleanup-updated" class="queue-updated">—</span>
                     </header>
-                    <div class="queue-grid cleanup-summary">
-                        <div class="queue-card">
+                    <div class="ops-card-grid cleanup-summary">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Last Run</span>
                             <span class="queue-value" id="cleanup-last-run">—</span>
                             <span class="queue-note" id="cleanup-last-run-note">—</span>
                         </div>
-                        <div class="queue-card">
+                        <div class="ops-card ops-card--metric">
                             <span class="queue-label">Last Outcome</span>
                             <span class="queue-value" id="cleanup-last-outcome">—</span>
                             <span class="queue-note" id="cleanup-last-outcome-note">—</span>
                         </div>
                     </div>
-                    <form id="cleanup-form" class="cleanup-form">
-                        <div class="field-group">
-                            <label for="cleanup-enabled">Enable scheduled cleanup</label>
-                            <input class="checkbox" type="checkbox" id="cleanup-enabled">
-                            <label for="cleanup-enabled">Enable scheduled cleanup of entries older than the retention window.</label>
-                            <div class="description">When disabled you can still trigger manual runs with the button below.</div>
-                        </div>
-                        <div class="field-group">
-                            <label for="cleanup-retention-days">Retention window (days)</label>
-                            <input class="text" type="number" id="cleanup-retention-days" min="1">
-                            <div class="description">History older than this window will be removed.</div>
-                        </div>
-                        <div class="field-group">
-                            <label for="cleanup-batch-size">Batch size</label>
-                            <input class="text" type="number" id="cleanup-batch-size" min="1">
-                            <div class="description">Maximum entries deleted per job execution.</div>
-                        </div>
-                        <div class="field-group">
-                            <label for="cleanup-interval-minutes">Interval (minutes)</label>
-                            <input class="text" type="number" id="cleanup-interval-minutes" min="5">
-                            <div class="description">How frequently the automatic job runs per node.</div>
-                        </div>
-                        <div class="field-group">
-                            <div class="buttons">
+                    <div class="ops-card ops-card--form">
+                        <form id="cleanup-form" class="cleanup-form">
+                            <div class="ops-form-grid ops-form-grid--two-column">
+                                <div class="ops-form-field ops-form-field--checkbox">
+                                    <input class="checkbox" type="checkbox" id="cleanup-enabled">
+                                    <label for="cleanup-enabled">Enable scheduled cleanup</label>
+                                    <span class="ops-field-hint">When disabled you can still trigger manual runs below.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-retention-days">Retention window (days)</label>
+                                    <input class="text" type="number" id="cleanup-retention-days" min="1">
+                                    <span class="ops-field-hint">History older than this window will be removed.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-batch-size">Batch size</label>
+                                    <input class="text" type="number" id="cleanup-batch-size" min="1">
+                                    <span class="ops-field-hint">Maximum entries deleted per execution.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-interval-minutes">Interval (minutes)</label>
+                                    <input class="text" type="number" id="cleanup-interval-minutes" min="5">
+                                    <span class="ops-field-hint">How frequently the automatic job runs.</span>
+                                </div>
+                            </div>
+                            <div class="ops-form-actions">
                                 <button type="submit" class="aui-button aui-button-primary" id="cleanup-save-btn">Save Schedule</button>
                                 <button type="button" class="aui-button" id="cleanup-run-btn">Run Once</button>
                             </div>
-                            <div class="description">Manual runs respect the current settings above but ignore the schedule.</div>
-                        </div>
-                        <div class="aui-message info" id="cleanup-message" style="display:none;"></div>
-                    </form>
-                    <div class="queue-panel" style="margin-top: 16px;">
-                        <header>
-                            <h3>Recent Cleanup Runs</h3>
+                            <div class="aui-message info" id="cleanup-message" style="display:none;"></div>
+                        </form>
+                    </div>
+                    <div class="ops-panel">
+                        <div class="ops-panel__header">
+                            <div>
+                                <h3>Recent Cleanup Runs</h3>
+                                <span class="ops-panel__hint">Audit log of automated and manual deletions.</span>
+                            </div>
                             <span class="queue-panel-count" id="cleanup-log-count"></span>
-                        </header>
+                        </div>
                         <div class="queue-empty" id="cleanup-log-empty">No cleanup runs recorded yet.</div>
-                        <table class="aui aui-table aui-table-rowhover" id="cleanup-log-table" style="display:none;">
-                            <thead>
-                            <tr>
-                                <th>When</th>
-                                <th>Duration</th>
-                                <th>Deleted</th>
-                                <th>Actor</th>
-                                <th>Status</th>
-                            </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
+                        <div class="ops-table-wrapper">
+                            <table class="aui aui-table aui-table-rowhover" id="cleanup-log-table" style="display:none;">
+                                <thead>
+                                <tr>
+                                    <th>When</th>
+                                    <th>Duration</th>
+                                    <th>Deleted</th>
+                                    <th>Actor</th>
+                                    <th>Status</th>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
                     </div>
                 </section>
             </div>
