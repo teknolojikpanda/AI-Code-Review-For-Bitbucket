@@ -73,7 +73,7 @@
 [X] 4. Stage rollout via dark feature toggles per customer cohort, with telemetry hooks to validate performance before default-on. _(Operations UI + REST APIs now manage rollout cohorts, runtime telemetry exposes per-cohort metrics, and guardrails enforce only when cohorts/dark-features are active.)_
 [X] 5. Ship CLI helpers that wrap the burst-credit REST endpoints so CI/CD systems can grant/list/revoke credits without bespoke scripting. _(guardrails-cli now offers `burst-list`, `burst-grant`, and `burst-revoke` commands that call the automation REST API.)_
 [X] 6. Create a regression checklist (manual + automated) to run before enabling guardrails cluster-wide. _(See `docs/regression-checklist.md` and the runbook cross-link.)_
-[ ] 7. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly.
+[X] 7. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly. _(Runbook now documents telemetry panels plus queue/rate-limit/alert incident playbooks.)_
 [ ] 8. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents. _(Automation REST endpoints + webhook channel manager implemented; UI shortcuts + scripting docs next.)_
 [ ] 9. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
 [ ] 10. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.

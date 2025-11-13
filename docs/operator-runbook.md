@@ -315,3 +315,48 @@ Before turning guardrails on for the full cluster (or after shipping a sizable c
 - Telemetry/alert sanity checks and worker/rate-limiter smoke tests.
 
 Keep evidence (logs/screenshots) with the rollout ticket for auditability.
+
+## Telemetry Panels
+
+### Health Dashboard (`/plugins/servlet/ai-reviewer/health`)
+- **Queue & Worker cards**: monitor `active`, `waiting`, worker utilization, and any fairness violations. If the queue plateaus, confirm whether the scheduler is paused or degraded.
+- **Model Health & Scaling Advisor**: shows primary vs fallback status plus recommended actions (add nodes, lower chunk size, etc.).
+- **Cleanup & History cards**: last run timestamps, deleted rows, integrity errors. A “Failed” badge means run `guardrails-cli.sh cleanup-status` before the next retention window.
+
+### Operations Dashboard (`/plugins/servlet/ai-reviewer/operations`)
+- **Review Queue**: live list of queued/running runs with bulk cancel buttons, estimated wait, and rollout badges (enforced/shadow/fallback).
+- **Rollout Controls & Cohorts**: current scheduler mode, default rollout, and per-cohort metrics (enforced/shadow/fallback counts). Use these during staged rollouts or incidents.
+- **Alert Channels & Deliveries**: webhook status, retry counters, and acknowledgement workflow for incident response.
+- **Automation Panels**: cleanup schedule, retention exports, integrity check/repair, and alert delivery history.
+
+### Metrics/Alerts API Quick Checks
+- `curl .../metrics | jq '.runtime.queue, .runtime.rateLimiter'` whenever the UI seems stale.
+- `curl .../alerts` supplies synthesized advisories suitable for paging/on-call routing.
+
+## Incident Playbooks
+
+### Queue Saturation / Backlog Growth
+1. Check Operations → Review Queue (`waiting`, `scope pressure`, `bulk-cancel` availability).
+2. Verify scheduler mode (Rollout Controls). If unintended pause/drain, resume with justification.
+3. Inspect telemetry via `/metrics` to confirm worker utilization (`ai.worker.queuedTasks`) vs queue depth.
+4. Optional mitigations:
+   - Drain low-priority repos using bulk cancel (`queue-bulk-btn` or CLI pause scope).
+   - Grant burst credits (`guardrails-cli.sh burst-grant --repo PRJ/repo --tokens 10 --duration 30`) if the backlog is due to throttling.
+5. Attach screenshots/CLI output to the incident ticket and update stakeholders.
+
+### Rate-Limiter Throttling Storm
+1. Look at Health Dashboard → Rate Limiter card (`recent throttles`, per-scope wait).
+2. Use `guardrails-cli.sh alerts` to confirm whether limiter alerts fired.
+3. If a handful of repos are impacted, grant temporary burst credits; for broader incidents, increase project limits via config or auto-snooze.
+4. After the window ends, run `burst-list --include-expired` to verify credits consumed and revoke any stragglers.
+
+### Alert Delivery Failures
+1. Operations → Alert Deliveries table: filter for failure rate > warning threshold.
+2. Re-test the channel (`channel-test` button or REST POST) and check outbound firewall/webhook host.
+3. Rotate signing secrets (UI toggle) if the failure is due to auth changes.
+4. Acknowledge the failing deliveries with context (`delivery-ack`) so audit logs reflect who handled the incident.
+
+### Retention/Integrity Errors
+1. Health Dashboard cleanup card shows `lastErrorFlag=1`. Fetch detailed status via `guardrails-cli.sh cleanup-status`.
+2. Run `cleanup-integrity --repair` to fix orphaned metrics if the error references corrupt history rows.
+3. If AO jobs keep failing, pause cleanup and file an ActiveObjects ticket with log excerpts.
