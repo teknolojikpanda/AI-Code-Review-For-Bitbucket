@@ -7,16 +7,16 @@ This document explains how the Guardrails plugin is wired inside Bitbucket Data 
 ```mermaid
 flowchart TD
     subgraph UI
-        AdminConfig[Admin Config (Velocity + JS)]
-        AdminOps[Operations Dashboard]
-        RESTClients[guardrails-cli.sh / rollout.sh]
+        AdminConfig["Admin Config<br/>(Velocity + JS)"]
+        AdminOps["Operations Dashboard"]
+        RESTClients["guardrails-cli.sh / rollout.sh"]
     end
 
     subgraph Bitbucket Plugin
-        REST[REST Resources (ConfigResource, AutomationResource, ProgressResource)]
-        Services[Service Layer (AIReviewServiceImpl, ReviewConcurrencyController, RateLimiter, GuardrailsRolloutService)]
-        Core[aicode Core (ChunkPlanner, Orchestrator, Ollama client)]
-        Background[Schedulers (ModelHealthProbe, HistoryCleanup, ReviewSchedulerState)]
+        REST["REST Resources<br/>(ConfigResource, AutomationResource, ProgressResource)"]
+        Services["Service Layer<br/>(AIReviewServiceImpl, ReviewConcurrencyController, RateLimiter, GuardrailsRolloutService)"]
+        Core["aicode Core<br/>(ChunkPlanner, Orchestrator, Ollama client)"]
+        Background["Schedulers<br/>(ModelHealthProbe, HistoryCleanup, ReviewSchedulerState)"]
     end
 
     subgraph DataStores
