@@ -263,3 +263,44 @@ All endpoints require Bitbucket system-administrator permissions and return `400
 ```
 
 Use these counters to validate performance before promoting guardrails to all repositories. The Operations UI renders the same information and the CLI/automation endpoints can ingest the telemetry for custom dashboards.
+
+## Burst Credit Automation (CLI)
+
+The `scripts/guardrails-cli.sh` helper now exposes burst-credit operations so CI systems can request temporary guardrail capacity without crafting REST calls manually.
+
+### Listing Credits
+
+```bash
+GUARDRAILS_BASE_URL=https://bitbucket.example.com \
+GUARDRAILS_AUTH=admin:token \
+  ./scripts/guardrails-cli.sh burst-list --include-expired
+```
+
+`--include-expired` is optional; by default only active credits are returned. Output is JSON (pretty-printed when `jq` is available).
+
+### Granting Credits
+
+```bash
+./scripts/guardrails-cli.sh burst-grant \
+  --scope repository \
+  --repo PRJ/service-api \
+  --tokens 10 \
+  --duration 120 \
+  --reason "Nightly load test" \
+  --note "Triggered from Jenkins job #581"
+```
+
+- `--scope repository|project` (default repository)
+- `--repo PROJECT/slug` for repository scope
+- `--project KEY` for project scope
+- `--tokens` extra executions (default 5)
+- `--duration` validity in minutes (default 60)
+- `--reason`/`--note` stored with the record for auditing
+
+### Revoking Credits
+
+```bash
+./scripts/guardrails-cli.sh burst-revoke 42 --note "Cancelled canary"
+```
+
+The revoke command accepts the credit id (as reported by `burst-list`) and an optional note. All commands honour the same `GUARDRAILS_BASE_URL`/`GUARDRAILS_AUTH` environment variables used by the other CLI features.

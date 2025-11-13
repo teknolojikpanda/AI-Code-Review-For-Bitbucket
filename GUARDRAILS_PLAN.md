@@ -71,13 +71,13 @@
 [X] 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config). _(Scope API/CLI docs now explain how to switch between allow-list vs all repos, ensuring operators can gate rollout per repository.)_
 [ ] 3. Update documentation: admin guide for new settings + troubleshooting playbook.
 [X] 4. Stage rollout via dark feature toggles per customer cohort, with telemetry hooks to validate performance before default-on. _(Operations UI + REST APIs now manage rollout cohorts, runtime telemetry exposes per-cohort metrics, and guardrails enforce only when cohorts/dark-features are active.)_
-[ ] 5. Create a regression checklist (manual + automated) to run before enabling guardrails cluster-wide.
-[ ] 6. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly.
-[ ] 7. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents. _(Automation REST endpoints + webhook channel manager implemented; UI shortcuts + scripting docs next.)_
-[ ] 8. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
-[ ] 9. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
+[X] 5. Ship CLI helpers that wrap the burst-credit REST endpoints so CI/CD systems can grant/list/revoke credits without bespoke scripting. _(guardrails-cli now offers `burst-list`, `burst-grant`, and `burst-revoke` commands that call the automation REST API.)_
+[ ] 6. Create a regression checklist (manual + automated) to run before enabling guardrails cluster-wide.
+[ ] 7. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly.
+[ ] 8. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents. _(Automation REST endpoints + webhook channel manager implemented; UI shortcuts + scripting docs next.)_
+[ ] 9. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
+[ ] 10. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**
-> 1. Wire limiter warning telemetry into outbound alert channels + CLI helpers (Sections 6.5/8.5) so ops teams can subscribe/automate responses.
-> 2. Ship CLI/SDK utilities that wrap the burst-credit REST endpoints for CI systems (Section 8.5).
-> 3. Add usage analytics for burst credits/alerts (Section 6.6) to tune defaults and catch abuse.
+> 1. Wire limiter warning telemetry into outbound alert channels (Section 6.5) so ops teams can subscribe/automate responses.
+> 2. Add usage analytics for burst credits/alerts (Section 6.6) to tune defaults and catch abuse.

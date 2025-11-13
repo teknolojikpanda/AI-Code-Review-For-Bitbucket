@@ -19,6 +19,9 @@ Commands:
   cleanup-run      Trigger an immediate cleanup run using saved schedule.
   cleanup-export   Download retention export (`--format`, `--days`, `--limit`, `--chunks`, `--output`, `--preview`).
   cleanup-integrity Run or repair retention integrity (`--days`, `--sample`, `--repair`).
+  burst-list       List burst credits (`--include-expired`).
+  burst-grant      Grant a burst credit (`--scope`, `--project`, `--repo`, `--tokens`, `--duration`, `--reason`, `--note`).
+  burst-revoke     Revoke a burst credit by id (`--note` optional).
 
 Environment:
   GUARDRAILS_BASE_URL   Base Bitbucket URL (e.g. https://bitbucket.example.com).
@@ -39,6 +42,19 @@ require_env() {
         usage
         exit 1
     fi
+}
+
+print_json() {
+    local payload="$1"
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s\n' "${payload}" | jq '.'
+    else
+        printf '%s\n' "${payload}"
+    fi
+}
+
+json_escape() {
+    printf '%s' "${1:-}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
 cleanup_export() {
@@ -271,6 +287,268 @@ EOHELP
     fi
 }
 
+burst_list() {
+    local base_url="$1"
+    local auth="$2"
+    shift 2 || true
+
+    local include_expired="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --include-expired|--all)
+                include_expired="true"
+                ;;
+            --help|-h)
+                cat <<'EOHELP'
+burst-list options:
+  --include-expired   Display consumed/expired burst credits as well as active ones.
+EOHELP
+                return 0
+                ;;
+            *)
+                echo "Unknown burst-list option: $1" >&2
+                usage
+                exit 1
+                ;;
+        esac
+        shift || true
+    done
+
+    local url="${base_url}/rest/ai-reviewer/1.0/automation/burst-credits"
+    if [[ "${include_expired}" == "true" ]]; then
+        url="${url}?includeExpired=true"
+    fi
+    local response
+    response=$(curl --fail -sS -u "${auth}" -H "Accept: application/json" "${url}")
+    print_json "${response}"
+}
+
+burst_grant() {
+    local base_url="$1"
+    local auth="$2"
+    shift 2 || true
+
+    local scope="repository"
+    local project=""
+    local repo=""
+    local tokens="5"
+    local duration="60"
+    local reason=""
+    local note=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --scope=*)
+                scope="${1#*=}"
+                ;;
+            --scope)
+                scope="${2:-}"
+                shift || true
+                ;;
+            --project=*)
+                project="${1#*=}"
+                ;;
+            --project)
+                project="${2:-}"
+                shift || true
+                ;;
+            --repo=*|--repository=*)
+                repo="${1#*=}"
+                ;;
+            --repo|--repository)
+                repo="${2:-}"
+                shift || true
+                ;;
+            --tokens=*)
+                tokens="${1#*=}"
+                ;;
+            --tokens)
+                tokens="${2:-}"
+                shift || true
+                ;;
+            --duration=*|--duration-minutes=*)
+                duration="${1#*=}"
+                ;;
+            --duration|--duration-minutes)
+                duration="${2:-}"
+                shift || true
+                ;;
+            --reason=*)
+                reason="${1#*=}"
+                ;;
+            --reason)
+                reason="${2:-}"
+                shift || true
+                ;;
+            --note=*)
+                note="${1#*=}"
+                ;;
+            --note)
+                note="${2:-}"
+                shift || true
+                ;;
+            --help|-h)
+                cat <<'EOHELP'
+burst-grant options:
+  --scope repository|project   Scope for the credit (default repository).
+  --repo PROJECT/slug          Target repository (required for repository scope).
+  --project KEY                Target project key (required for project scope).
+  --tokens N                   Extra review tokens granted (default 5).
+  --duration minutes           Validity duration in minutes (default 60).
+  --reason text                Short reason stored with the credit.
+  --note text                  Optional operator note.
+EOHELP
+                return 0
+                ;;
+            *)
+                echo "Unknown burst-grant option: $1" >&2
+                usage
+                exit 1
+                ;;
+        esac
+        shift || true
+    done
+
+    local normalized_scope
+    case "${scope,,}" in
+        project)
+            normalized_scope="project"
+            ;;
+        repo|repository|"")
+            normalized_scope="repository"
+            ;;
+        *)
+            echo "Invalid scope '${scope}'. Use 'project' or 'repository'." >&2
+            exit 1
+            ;;
+    esac
+
+    local project_key="${project}"
+    local repo_slug=""
+    if [[ "${normalized_scope}" == "repository" ]]; then
+        if [[ -z "${repo}" ]]; then
+            echo "--repo PROJECT/slug is required for repository scope." >&2
+            exit 1
+        fi
+        if [[ "${repo}" == */* ]]; then
+            local repo_project="${repo%%/*}"
+            repo_slug="${repo##*/}"
+            if [[ -z "${project_key}" ]]; then
+                project_key="${repo_project}"
+            fi
+        else
+            repo_slug="${repo}"
+        fi
+        repo_slug=$(printf '%s' "${repo_slug}" | tr '[:upper:]' '[:lower:]')
+    else
+        if [[ -z "${project_key}" ]]; then
+            echo "--project KEY is required for project scope burst credits." >&2
+            exit 1
+        fi
+    fi
+    if [[ -n "${project_key}" ]]; then
+        project_key=$(printf '%s' "${project_key}" | tr '[:lower:]' '[:upper:]')
+    fi
+
+    if ! [[ "${tokens}" =~ ^[0-9]+$ ]]; then
+        echo "--tokens must be a positive integer." >&2
+        exit 1
+    fi
+    if ! [[ "${duration}" =~ ^[0-9]+$ ]]; then
+        echo "--duration must be a positive integer (minutes)." >&2
+        exit 1
+    fi
+
+    local payload_parts=()
+    payload_parts+=("\"scope\":\"${normalized_scope}\"")
+    payload_parts+=("\"tokens\":${tokens}")
+    payload_parts+=("\"durationMinutes\":${duration}")
+    if [[ -n "${project_key}" ]]; then
+        payload_parts+=("\"projectKey\":\"$(json_escape "${project_key}")\"")
+    fi
+    if [[ -n "${repo_slug}" ]]; then
+        payload_parts+=("\"repositorySlug\":\"$(json_escape "${repo_slug}")\"")
+    fi
+    if [[ -n "${reason}" ]]; then
+        payload_parts+=("\"reason\":\"$(json_escape "${reason}")\"")
+    fi
+    if [[ -n "${note}" ]]; then
+        payload_parts+=("\"note\":\"$(json_escape "${note}")\"")
+    fi
+    local IFS=','
+    local payload="{${payload_parts[*]}}"
+
+    local response
+    response=$(curl --fail -sS -u "${auth}" \
+        -H "Content-Type: application/json" \
+        -X POST \
+        -d "${payload}" \
+        "${base_url}/rest/ai-reviewer/1.0/automation/burst-credits")
+    print_json "${response}"
+}
+
+burst_revoke() {
+    local base_url="$1"
+    local auth="$2"
+    shift 2 || true
+
+    local note=""
+    local id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --note=*)
+                note="${1#*=}"
+                ;;
+            --note)
+                note="${2:-}"
+                shift || true
+                ;;
+            --help|-h)
+                cat <<'EOHELP'
+burst-revoke usage:
+  guardrails-cli.sh burst-revoke <id> [--note "reason"]
+EOHELP
+                return 0
+                ;;
+            --*)
+                echo "Unknown burst-revoke option: $1" >&2
+                usage
+                exit 1
+                ;;
+            *)
+                id="$1"
+                shift || true
+                break
+                ;;
+        esac
+        shift || true
+    done
+
+    if [[ -z "${id}" ]]; then
+        echo "burst-revoke requires a burst credit id." >&2
+        usage
+        exit 1
+    fi
+    if ! [[ "${id}" =~ ^[0-9]+$ ]]; then
+        echo "Burst credit id must be numeric." >&2
+        exit 1
+    fi
+
+    local payload="{}"
+    if [[ -n "${note}" ]]; then
+        payload=$(printf '{"note":"%s"}' "$(json_escape "${note}")")
+    fi
+
+    curl --fail -sS -u "${auth}" \
+        -H "Content-Type: application/json" \
+        -X DELETE \
+        -d "${payload}" \
+        "${base_url}/rest/ai-reviewer/1.0/automation/burst-credits/${id}"
+    echo "Burst credit ${id} revoked."
+}
+
 scope_command() {
     local base_url="$1"
     local auth="$2"
@@ -411,6 +689,18 @@ main() {
             ;;
         cleanup-integrity)
             cleanup_integrity "${base_url}" "${auth}" "$@"
+            return 0
+            ;;
+        burst-list)
+            burst_list "${base_url}" "${auth}" "$@"
+            return 0
+            ;;
+        burst-grant)
+            burst_grant "${base_url}" "${auth}" "$@"
+            return 0
+            ;;
+        burst-revoke)
+            burst_revoke "${base_url}" "${auth}" "$@"
             return 0
             ;;
         *)
