@@ -75,7 +75,7 @@
 [X] 6. Create a regression checklist (manual + automated) to run before enabling guardrails cluster-wide. _(See `docs/regression-checklist.md` and the runbook cross-link.)_
 [X] 7. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly. _(Runbook now documents telemetry panels plus queue/rate-limit/alert incident playbooks.)_
 [X] 8. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents. _(Added `scripts/guardrails-rollout.sh` + runbook docs so SREs can apply/pause guardrails with one command.)_
-[ ] 9. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA.
+[X] 9. Run load/perf tests that simulate worst-case PR volumes to validate scheduler + limiter behavior before GA. _(Added `perf/load-test.py` + perf-test plan to drive scheduler/telemetry under load.)_
 [ ] 10. Collect beta-customer feedback via in-product surveys and iterate on defaults before expanding rollout.
 
 > **Next Steps:**

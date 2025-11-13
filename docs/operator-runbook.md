@@ -391,3 +391,12 @@ The script simply shells out to `guardrails-cli.sh`, so the same environment var
 1. Health Dashboard cleanup card shows `lastErrorFlag=1`. Fetch detailed status via `guardrails-cli.sh cleanup-status`.
 2. Run `cleanup-integrity --repair` to fix orphaned metrics if the error references corrupt history rows.
 3. If AO jobs keep failing, pause cleanup and file an ActiveObjects ticket with log excerpts.
+
+## Performance Test Checklist
+
+Before GA, run the load/perf plan in `docs/perf-test-plan.md`. At a high level:
+
+1. Use `perf/load-test.py` to hammer runtime/queue/alert APIs while toggling scheduler state.
+2. Fire manual PR reviews mid-load to ensure queue/worker pools drain correctly.
+3. Exercise burst credits + alert deliveries to confirm audit/automation tables hold up.
+4. Capture metrics/logs + the load-test summary and attach them to the rollout ticket.
