@@ -20,8 +20,8 @@ flowchart TD
     end
 
     subgraph DataStores
-        AO[(Active Objects Tables)]
-        Runtime[In-memory state (worker pool, queues, caches)]
+        AO["Active Objects Tables"]
+        Runtime["In-memory state<br/>(worker pool, queues, caches)"]
     end
 
     AdminConfig --> REST
