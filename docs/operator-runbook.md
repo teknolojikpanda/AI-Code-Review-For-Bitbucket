@@ -316,6 +316,37 @@ Before turning guardrails on for the full cluster (or after shipping a sizable c
 
 Keep evidence (logs/screenshots) with the rollout ticket for auditability.
 
+## Rollout Automation Script
+
+`scripts/guardrails-rollout.sh` wraps the core CLI commands so SREs can flip guardrails on/off quickly during incidents:
+
+### Enable Example
+
+```bash
+GUARDRAILS_BASE_URL=https://bitbucket.example.com \
+GUARDRAILS_AUTH=admin:token \
+  ./scripts/guardrails-rollout.sh enable \
+    --scope repositories \
+    --repo PRJ/service-api \
+    --repo PRJ/mobile-app \
+    --reason "Pilot cohort rollout"
+```
+
+- `--scope all|repositories` defaults to `all`.
+- Repeat `--repo PROJECT/slug` for allow-listed repos when scope=`repositories`.
+- `--reason` is persisted in the scheduler audit log.
+
+### Disable Example
+
+```bash
+./scripts/guardrails-rollout.sh disable --drain --reason "Rollback during incident INC-1234"
+```
+
+- `--drain` drains in-flight reviews before pausing; omit to pause immediately.
+- Script always prints the after-state so change management tickets can capture the outcome.
+
+The script simply shells out to `guardrails-cli.sh`, so the same environment variables (`GUARDRAILS_BASE_URL`/`GUARDRAILS_AUTH`) apply.
+
 ## Telemetry Panels
 
 ### Health Dashboard (`/plugins/servlet/ai-reviewer/health`)
