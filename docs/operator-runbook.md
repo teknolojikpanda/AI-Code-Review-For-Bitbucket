@@ -304,3 +304,14 @@ GUARDRAILS_AUTH=admin:token \
 ```
 
 The revoke command accepts the credit id (as reported by `burst-list`) and an optional note. All commands honour the same `GUARDRAILS_BASE_URL`/`GUARDRAILS_AUTH` environment variables used by the other CLI features.
+
+## Regression Checklist
+
+Before turning guardrails on for the full cluster (or after shipping a sizable change), follow the [Regression Checklist](regression-checklist.md). It captures:
+
+- Automated suites to run (`mvn -q -DskipITs test`, packaging).
+- Manual UI validation across queue/rollout/alerting/retention panels.
+- CLI smoke tests (scope, scheduler, burst credits).
+- Telemetry/alert sanity checks and worker/rate-limiter smoke tests.
+
+Keep evidence (logs/screenshots) with the rollout ticket for auditability.
