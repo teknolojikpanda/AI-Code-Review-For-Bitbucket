@@ -1404,6 +1404,7 @@
     margin-top: 12px;
 }
 
+.ops-panel,
 .ops-panel + .ops-panel {
     margin-top: 16px;
 }
