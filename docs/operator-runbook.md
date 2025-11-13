@@ -133,6 +133,7 @@ The script prints the scheduler JSON response (requires `jq` for pretty output).
 
 1. **Watch retention backlog:** `ai.retention.entriesOlderThanWindow` shows how many history rows exceed the retention window.
 2. **Validate scheduler health:** `ai.retention.cleanup.enabled` (should be 1) and `ai.retention.cleanup.lastErrorFlag` (should be 0). A high `ai.retention.cleanup.lastRunAgeSeconds` means the job has not run recently. Use the “Recent Cleanup Runs” table on the Health dashboard to inspect the last few executions (duration, actor, manual/system, error text).
+   - The Health page Runtime Snapshot now includes a **Cleanup** card that mirrors these values (enabled flag, last run timestamp, duration, deleted histories/chunks, batches, and the configured window) so you can confirm hygiene at a glance without drilling into the Operations page.
 3. **Pre-cleanup export/integrity:**
    - `GET /history/cleanup/export` for a quick JSON snapshot, or `/history/cleanup/export/download?format=csv&includeChunks=true` to capture a spreadsheet-friendly attachment with per-chunk telemetry.
    - `GET /history/cleanup/integrity` to ensure chunk counts match what will be deleted. If the report flags mismatches, pause cleanup and run `POST /history/cleanup/integrity` with `{"repair": true}` to clear corrupt progress/metrics blobs and resync chunk counts automatically.

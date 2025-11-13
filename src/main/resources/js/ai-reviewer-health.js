@@ -58,6 +58,7 @@
         var worker = data.workerPool || {};
         var limiter = data.rateLimiter || {};
         var retention = data.retention || {};
+        var cleanup = data.cleanupSchedule || {};
 
         $('#health-queue-active').text(valueOrDash(queue.active));
         var waiting = valueOrDash(queue.waiting);
@@ -83,9 +84,37 @@
         var cutoff = retention.cutoffEpochMs ? formatTimestamp(retention.cutoffEpochMs) : '—';
         $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
 
+        renderCleanupCard(cleanup);
+
         renderWorkerNodes(data.workerPoolNodes || []);
         renderScalingHints(data.scalingHints || [], data.generatedAt);
         renderHealthTimeline(data.healthTimeline || {});
+    }
+
+    function renderCleanupCard(cleanup) {
+        cleanup = cleanup || {};
+        var statusText = cleanup.enabled === false ? 'Disabled' : 'Enabled';
+        $('#health-cleanup-status').text(statusText);
+        var lastRun = cleanup.lastRun ? formatTimestamp(cleanup.lastRun) : 'Never';
+        var duration = cleanup.lastDurationMs ? formatDurationMs(cleanup.lastDurationMs) : '—';
+        var deletedHistories = valueOrDash(cleanup.lastDeletedHistories);
+        var deletedChunks = valueOrDash(cleanup.lastDeletedChunks);
+        var batches = valueOrDash(cleanup.lastBatchesExecuted);
+        var windowStart = cleanup.windowStartHour != null ? formatWindowHour(cleanup.windowStartHour) : '—';
+        var windowDuration = cleanup.windowDurationMinutes != null ? cleanup.windowDurationMinutes + ' min' : '—';
+        var noteParts = [
+            'Last run ' + lastRun,
+            'Duration ' + duration,
+            'Deleted ' + deletedHistories + '/' + deletedChunks
+        ];
+        if (batches !== '—') {
+            noteParts.push('Batches ' + batches);
+        }
+        noteParts.push('Window ' + windowStart + ' • ' + windowDuration);
+        if (cleanup.lastError) {
+            noteParts.push('Error ' + cleanup.lastError);
+        }
+        $('#health-cleanup-note').text(noteParts.join(' • '));
     }
 
     function renderWorkerNodes(nodes) {
@@ -463,6 +492,13 @@
             .replace(/'/g, '&#039;');
     }
 
+    function formatDurationMs(ms) {
+        if (ms === null || ms === undefined || ms !== ms) {
+            return '—';
+        }
+        return formatDurationSeconds(Math.max(0, Math.round(ms / 1000)));
+    }
+
     function formatDurationSeconds(seconds) {
         if (seconds === null || seconds === undefined || seconds !== seconds) {
             return '—';
@@ -484,6 +520,21 @@
         var days = Math.floor(hours / 24);
         var remHours = hours % 24;
         return days + 'd ' + remHours + 'h';
+    }
+
+    function formatWindowHour(hour) {
+        if (hour === null || hour === undefined || hour !== hour) {
+            return '—';
+        }
+        var normalized = parseInt(hour, 10);
+        if (isNaN(normalized)) {
+            return '—';
+        }
+        if (normalized < 0) {
+            normalized = 0;
+        }
+        normalized = normalized % 24;
+        return (normalized < 10 ? '0' + normalized : normalized) + ':00';
     }
 
     function formatTimestamp(epochMillis) {

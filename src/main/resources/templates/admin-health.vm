@@ -59,6 +59,11 @@
                             <span class="health-value" id="health-retention-total">—</span>
                             <span class="health-subtext" id="health-retention-note">—</span>
                         </div>
+                        <div class="health-card">
+                            <span class="health-label">Cleanup</span>
+                            <span class="health-value" id="health-cleanup-status">—</span>
+                            <span class="health-subtext" id="health-cleanup-note">—</span>
+                        </div>
                     </div>
                 </section>
 
