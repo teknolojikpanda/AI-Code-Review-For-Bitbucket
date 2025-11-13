@@ -6,6 +6,7 @@ import com.atlassian.bitbucket.repository.Repository;
 import com.atlassian.bitbucket.repository.RepositoryService;
 import com.atlassian.bitbucket.user.ApplicationUser;
 import com.atlassian.bitbucket.user.UserService;
+import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory;
@@ -280,6 +281,20 @@ public class ProgressResourceTest {
         ArgumentCaptor<ReviewConcurrencyController.BulkCancelRequest> captor = ArgumentCaptor.forClass(ReviewConcurrencyController.BulkCancelRequest.class);
         verify(concurrencyController).cancelQueuedRuns(captor.capture(), any(), any());
         assertEquals(ReviewConcurrencyController.BulkCancelRequest.Scope.PROJECT, captor.getValue().getScope());
+    }
+
+    @Test
+    public void adminQueueCancelRequiresSystemAdmin() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("user");
+        when(profile.getUserKey()).thenReturn(key);
+        when(userManager.isSystemAdmin(key)).thenReturn(false);
+
+        ProgressResource.QueueCancelRequest body = new ProgressResource.QueueCancelRequest();
+        body.runId = "run-3";
+        Response response = resource.cancelQueuedRun(request, body);
+
+        assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
     }
 
     @Test

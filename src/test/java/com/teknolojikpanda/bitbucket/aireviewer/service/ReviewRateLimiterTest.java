@@ -113,4 +113,22 @@ public class ReviewRateLimiterTest {
         limiter.acquire("PRJ", "repo"); // first call uses burst credit
         assertThrows(RateLimitExceededException.class, () -> limiter.acquire("PRJ", "repo"));
     }
+
+    @Test
+    public void projectLimitExceededPropagatesWhenNoCredits() {
+        when(configService.getConfigurationAsMap()).thenReturn(
+                Map.of("repoRateLimitPerHour", 0, "projectRateLimitPerHour", 1));
+        doAnswer(invocation -> {
+            throw RateLimitExceededException.project("PRJ", 1, 500L);
+        }).when(rateLimitStore).acquireToken(
+                eq(GuardrailsRateLimitScope.PROJECT),
+                eq("PRJ"),
+                anyInt(),
+                anyLong(),
+                anyLong(),
+                anyLong());
+
+        ReviewRateLimiter limiter = new ReviewRateLimiter(configService, rateLimitStore, overrideService, burstCreditService);
+        assertThrows(RateLimitExceededException.class, () -> limiter.acquire("PRJ", null));
+    }
 }

@@ -67,7 +67,7 @@
 [X] 6. Introduce integrity checks that ensure orphaned progress/metrics records are detected and repaired automatically. _(Operations UI now includes an Integrity Check/Repair panel and `guardrails-cli.sh cleanup-integrity` wraps the GET/POST endpoints for sampling + auto-repair.)_
 
 ### 8. Testing & Rollout
-[ ] 1. Unit + integration tests covering scheduler limits, rate limiting, circuit breaker fallback, and admin controls.
+[X] 1. Unit + integration tests covering scheduler limits, rate limiting, circuit breaker fallback, and admin controls. _(New tests cover ReviewConcurrencyController queue enforcement, ReviewRateLimiter project limits, CircuitBreaker transitions, and admin queue cancellation authorization.)_
 [ ] 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config).
 [ ] 3. Update documentation: admin guide for new settings + troubleshooting playbook.
 [ ] 4. Stage rollout via dark feature toggles per customer cohort, with telemetry hooks to validate performance before default-on.
