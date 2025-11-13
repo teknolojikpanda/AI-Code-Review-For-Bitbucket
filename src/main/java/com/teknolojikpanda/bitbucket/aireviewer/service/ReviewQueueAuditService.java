@@ -9,6 +9,7 @@ import com.atlassian.audit.entity.CoverageArea;
 import com.atlassian.audit.entity.CoverageLevel;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewQueueAudit;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService.RolloutMode;
 import net.java.ao.DBParam;
 import net.java.ao.Query;
 import java.util.Locale;
@@ -69,6 +70,10 @@ public class ReviewQueueAuditService {
                 entity.setActor(sanitize(action.getActor(), 255));
                 entity.setNote(sanitize(action.getNote(), 2000));
                 entity.setRequestedBy(sanitize(action.getRequestedBy(), 255));
+                entity.setCohortKey(sanitize(action.getCohortKey(), 64));
+                entity.setRolloutMode(action.getRolloutMode() != null
+                        ? action.getRolloutMode().name()
+                        : null);
                 entity.save();
                 trimExcessRows(MAX_ROWS);
                 emitAuditEntry(action);
@@ -100,7 +105,9 @@ public class ReviewQueueAuditService {
                         false,
                         actor,
                         note,
-                        requestedBy);
+                        requestedBy,
+                        null,
+                        null);
         recordAction(queueAction);
     }
 
@@ -153,7 +160,9 @@ public class ReviewQueueAuditService {
                 entity.isForce(),
                 entity.getActor(),
                 entity.getNote(),
-                entity.getRequestedBy());
+                entity.getRequestedBy(),
+                entity.getCohortKey(),
+                parseRolloutMode(entity.getRolloutMode()));
     }
 
     private String firstNonBlank(String... values) {
@@ -244,6 +253,18 @@ public class ReviewQueueAuditService {
         }
         if (!resources.isEmpty()) {
             builder.appendAffectedObjects(resources);
+        }
+    }
+
+    @Nullable
+    private RolloutMode parseRolloutMode(@Nullable String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return RolloutMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception ex) {
+            return null;
         }
     }
 

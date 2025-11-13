@@ -19,7 +19,9 @@
     var rolloutStateUrl = automationBaseUrl + '/rollout/state';
     var channelsUrl = automationBaseUrl + '/channels';
     var deliveriesUrl = automationBaseUrl + '/alerts/deliveries';
+    var rolloutCohortsUrl = automationBaseUrl + '/rollout/cohorts';
     var channelListLimit = 200;
+    var rolloutCohortsCache = [];
 
     function init() {
         $('#refresh-ops-btn').on('click', function() {
@@ -86,6 +88,27 @@
             event.preventDefault();
             acknowledgeDelivery($(this).data('id'));
         });
+        $('#rollout-cohort-form').on('submit', function(event) {
+            event.preventDefault();
+            submitRolloutCohort();
+        });
+        $('#rollout-cohort-cancel').on('click', function(event) {
+            event.preventDefault();
+            resetRolloutCohortForm();
+        });
+        $('#rollout-cohort-scope').on('change', function() {
+            adjustRolloutScopeFields();
+        });
+        $('#rollout-cohorts-table').on('click', '.cohort-edit', function(event) {
+            event.preventDefault();
+            var id = $(this).data('id');
+            editRolloutCohort(id);
+        });
+        $('#rollout-cohorts-table').on('click', '.cohort-delete', function(event) {
+            event.preventDefault();
+            var id = $(this).data('id');
+            deleteRolloutCohort(id);
+        });
         $('#queue-entries-table').on('click', '.queue-cancel-btn', function(event) {
             event.preventDefault();
             var runId = $(this).data('runId') || $(this).data('run-id');
@@ -110,6 +133,7 @@
             }
         });
         adjustCleanupExportControls();
+        adjustRolloutScopeFields();
         refreshOperations();
         loadAutomationData();
     }
@@ -137,6 +161,7 @@
 
     function loadAutomationData() {
         loadRolloutState();
+        loadRolloutCohorts();
         loadChannels();
         loadDeliveries();
     }
@@ -180,6 +205,208 @@
         });
     }
 
+    function loadRolloutCohorts() {
+        $.ajax({
+            url: rolloutCohortsUrl,
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            renderRolloutCohorts(resp || {});
+            setRolloutCohortMessage();
+        }).fail(function(xhr) {
+            setRolloutCohortMessage('error', describeError(xhr, 'Failed to load rollout cohorts'));
+        });
+    }
+
+    function renderRolloutCohorts(resp) {
+        resp = resp || {};
+        rolloutCohortsCache = Array.isArray(resp.cohorts) ? resp.cohorts : [];
+        var defaultMode = (resp.defaultMode || 'enforced').toString().toUpperCase();
+        $('#rollout-cohort-default-mode').text('Default rollout: ' + defaultMode);
+        var $table = $('#rollout-cohorts-table');
+        var $empty = $('#rollout-cohorts-empty');
+        if (!rolloutCohortsCache.length) {
+            $table.hide();
+            $table.find('tbody').empty();
+            $empty.text('No cohorts defined. Guardrails ' + (defaultMode === 'ENFORCED' ? 'apply globally.' : 'are shadowing except where cohorts are enforced.')).show();
+            return;
+        }
+        var rows = rolloutCohortsCache.map(function(cohort) {
+            var keyHtml = '<strong>' + escapeHtml(cohort.key) + '</strong>';
+            if (cohort.displayName) {
+                keyHtml += '<div class="queue-meta">' + escapeHtml(cohort.displayName) + '</div>';
+            }
+            var scope = formatCohortScope(cohort);
+            var metrics = formatCohortMetrics(cohort.metrics);
+            var status = cohort.enabled
+                ? '<span class="aui-lozenge aui-lozenge-success">Enabled</span>'
+                : '<span class="aui-lozenge">Disabled</span>';
+            var rollout = (cohort.rolloutPercent != null ? cohort.rolloutPercent + '%' : '—');
+            var darkFeature = cohort.darkFeatureKey ? '<code>' + escapeHtml(cohort.darkFeatureKey) + '</code>' : '—';
+            var actions = '<div class="ops-table-actions">' +
+                '<button type="button" class="aui-button aui-button-link cohort-edit" data-id="' + cohort.id + '">Edit</button>' +
+                '<button type="button" class="aui-button aui-button-link cohort-delete" data-id="' + cohort.id + '">Delete</button>' +
+                '</div>';
+            return '<tr>' +
+                '<td>' + keyHtml + '</td>' +
+                '<td>' + escapeHtml(scope) + '</td>' +
+                '<td>' + darkFeature + '</td>' +
+                '<td>' + escapeHtml(rollout) + '</td>' +
+                '<td>' + escapeHtml(metrics) + '</td>' +
+                '<td>' + status + '</td>' +
+                '<td>' + actions + '</td>' +
+                '</tr>';
+        }).join('');
+        $table.find('tbody').html(rows);
+        $table.show();
+        $empty.hide();
+    }
+
+    function submitRolloutCohort() {
+        var id = $('#rollout-cohort-id').val();
+        var payload = {
+            key: cleanText($('#rollout-cohort-key').val()),
+            displayName: cleanText($('#rollout-cohort-name').val()),
+            description: cleanText($('#rollout-cohort-description').val()),
+            scopeMode: ($('#rollout-cohort-scope').val() || 'GLOBAL').toUpperCase(),
+            projectKey: cleanText($('#rollout-cohort-project').val()),
+            repositorySlug: cleanText($('#rollout-cohort-repo').val()),
+            rolloutPercent: parseInt($('#rollout-cohort-percent').val(), 10),
+            darkFeatureKey: cleanText($('#rollout-cohort-dark').val()),
+            enabled: $('#rollout-cohort-enabled').is(':checked')
+        };
+        if (isNaN(payload.rolloutPercent)) {
+            payload.rolloutPercent = 100;
+        }
+        setRolloutCohortMessage('info', id ? 'Updating cohort…' : 'Creating cohort…');
+        $.ajax({
+            url: id ? (rolloutCohortsUrl + '/' + id) : rolloutCohortsUrl,
+            type: id ? 'PUT' : 'POST',
+            dataType: 'json',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        }).done(function() {
+            setRolloutCohortMessage('success', 'Cohort saved.');
+            resetRolloutCohortForm();
+            loadRolloutCohorts();
+        }).fail(function(xhr) {
+            setRolloutCohortMessage('error', describeError(xhr, 'Failed to save cohort'));
+        });
+    }
+
+    function editRolloutCohort(id) {
+        var cohort = findRolloutCohort(id);
+        if (!cohort) {
+            return;
+        }
+        $('#rollout-cohort-id').val(cohort.id);
+        $('#rollout-cohort-key').val(cohort.key || '');
+        $('#rollout-cohort-name').val(cohort.displayName || '');
+        $('#rollout-cohort-description').val(cohort.description || '');
+        $('#rollout-cohort-scope').val((cohort.scopeMode || 'GLOBAL').toUpperCase());
+        $('#rollout-cohort-project').val(cohort.projectKey || '');
+        $('#rollout-cohort-repo').val(cohort.repositorySlug || '');
+        $('#rollout-cohort-percent').val(cohort.rolloutPercent != null ? cohort.rolloutPercent : 100);
+        $('#rollout-cohort-dark').val(cohort.darkFeatureKey || '');
+        $('#rollout-cohort-enabled').prop('checked', cohort.enabled !== false);
+        $('#rollout-cohort-form-title').text('Edit Cohort');
+        $('#rollout-cohort-submit').text('Update Cohort');
+        $('#rollout-cohort-cancel').show();
+        adjustRolloutScopeFields();
+        $('html, body').animate({ scrollTop: $('#rollout-cohort-form-card').offset().top - 40 }, 200);
+    }
+
+    function deleteRolloutCohort(id) {
+        var cohort = findRolloutCohort(id);
+        var label = cohort ? cohort.key : id;
+        if (!confirm('Delete cohort ' + label + '? Guardrails will fall back to the default rollout.')) {
+            return;
+        }
+        setRolloutCohortMessage('info', 'Deleting cohort…');
+        $.ajax({
+            url: rolloutCohortsUrl + '/' + id,
+            type: 'DELETE'
+        }).done(function() {
+            setRolloutCohortMessage('success', 'Cohort deleted.');
+            if ($('#rollout-cohort-id').val() === String(id)) {
+                resetRolloutCohortForm();
+            }
+            loadRolloutCohorts();
+        }).fail(function(xhr) {
+            setRolloutCohortMessage('error', describeError(xhr, 'Failed to delete cohort'));
+        });
+    }
+
+    function resetRolloutCohortForm() {
+        $('#rollout-cohort-id').val('');
+        $('#rollout-cohort-key').val('');
+        $('#rollout-cohort-name').val('');
+        $('#rollout-cohort-description').val('');
+        $('#rollout-cohort-scope').val('GLOBAL');
+        $('#rollout-cohort-project').val('');
+        $('#rollout-cohort-repo').val('');
+        $('#rollout-cohort-percent').val('100');
+        $('#rollout-cohort-dark').val('');
+        $('#rollout-cohort-enabled').prop('checked', true);
+        $('#rollout-cohort-form-title').text('Add Cohort');
+        $('#rollout-cohort-submit').text('Save Cohort');
+        $('#rollout-cohort-cancel').hide();
+        adjustRolloutScopeFields();
+    }
+
+    function adjustRolloutScopeFields() {
+        var scope = ($('#rollout-cohort-scope').val() || 'GLOBAL').toUpperCase();
+        var projectDisabled = scope === 'GLOBAL';
+        var repoDisabled = scope !== 'REPOSITORY';
+        $('#rollout-cohort-project').prop('disabled', projectDisabled)
+            .attr('placeholder', projectDisabled ? 'N/A' : 'PRJ');
+        $('#rollout-cohort-repo').prop('disabled', repoDisabled)
+            .attr('placeholder', repoDisabled ? 'N/A' : 'repo');
+    }
+
+    function setRolloutCohortMessage(type, message) {
+        var $message = $('#rollout-cohort-message');
+        if (!message) {
+            $message.hide().removeClass('info error success').text('');
+            return;
+        }
+        var css = type === 'error' ? 'error' : (type === 'success' ? 'success' : 'info');
+        $message.removeClass('info error success').addClass(css).html(escapeHtml(message)).show();
+    }
+
+    function formatCohortScope(cohort) {
+        var scope = (cohort.scopeMode || 'GLOBAL').toUpperCase();
+        if (scope === 'PROJECT' && cohort.projectKey) {
+            return 'Project ' + cohort.projectKey;
+        }
+        if (scope === 'REPOSITORY' && cohort.projectKey && cohort.repositorySlug) {
+            return cohort.projectKey + '/' + cohort.repositorySlug;
+        }
+        return 'Global';
+    }
+
+    function formatCohortMetrics(metrics) {
+        metrics = metrics || {};
+        var enforced = metrics.startedEnforced || 0;
+        var shadow = metrics.startedShadow || 0;
+        var fallback = metrics.startedFallback || 0;
+        var completed = metrics.completed || 0;
+        return 'E:' + enforced + ' • S:' + shadow + ' • F:' + fallback + ' • C:' + completed;
+    }
+
+    function findRolloutCohort(id) {
+        var targetId = parseInt(id, 10);
+        if (isNaN(targetId)) {
+            return null;
+        }
+        for (var i = 0; i < rolloutCohortsCache.length; i++) {
+            if (parseInt(rolloutCohortsCache[i].id, 10) === targetId) {
+                return rolloutCohortsCache[i];
+            }
+        }
+        return null;
+    }
+
     function renderQueue(data) {
         data = data || {};
         var stats = data.queue || {};
@@ -221,7 +448,9 @@
                 estimatedStartMs: estimatedStart,
                 repoWaiting: entry.repoWaiting,
                 projectWaiting: entry.projectWaiting,
-                backpressureReason: entry.backpressureReason
+                backpressureReason: entry.backpressureReason,
+                cohort: entry.cohort || null,
+                rolloutMode: entry.rolloutMode || null
             };
         });
     }
@@ -246,7 +475,9 @@
                 requestedBy: run.requestedBy || '—',
                 startedAt: run.startedAt,
                 runningMs: runningMs,
-                cancelRequested: !!run.cancelRequested
+                cancelRequested: !!run.cancelRequested,
+                cohort: run.cohort || null,
+                rolloutMode: run.rolloutMode || null
             };
         }).sort(function(a, b) {
             return (a.startedAt || 0) - (b.startedAt || 0);
@@ -269,7 +500,9 @@
                 manual: action.manual,
                 update: action.update,
                 force: action.force,
-                note: action.note
+                note: action.note,
+                cohort: action.cohort || null,
+                rolloutMode: action.rolloutMode || null
             };
         });
     }
@@ -298,12 +531,14 @@
             if (entry.runId) {
                 repoHtml += '<div class="queue-meta"><code>' + escapeHtml(entry.runId) + '</code></div>';
             }
+            var rolloutHtml = rolloutSummaryHtml(entry);
             var actionHtml = entry.runId
                 ? '<button type="button" class="aui-button aui-button-link queue-cancel-btn" data-run-id="' + escapeHtml(entry.runId) + '">Cancel</button>'
                 : '—';
             return '<tr>' +
                 '<td>' + entry.position + '</td>' +
                 '<td>' + repoHtml + '</td>' +
+                '<td>' + rolloutHtml + '</td>' +
                 '<td>' + escapeHtml(entry.requestedBy) + '</td>' +
                 '<td>' + escapeHtml(formatDurationMs(entry.waitingMs)) + '</td>' +
                 '<td>' + escapeHtml(scope) + '</td>' +
@@ -336,6 +571,7 @@
             if (run.runId) {
                 repoHtml += '<div class="queue-meta"><code>' + escapeHtml(run.runId) + '</code></div>';
             }
+            var rolloutHtml = rolloutSummaryHtml(run);
             var status = run.cancelRequested ? 'Cancel pending' : 'Running';
             var actionHtml;
             if (!run.runId) {
@@ -348,6 +584,7 @@
             return '<tr>' +
                 '<td>' + repoHtml + '</td>' +
                 '<td>' + escapeHtml(run.requestedBy) + '</td>' +
+                '<td>' + rolloutHtml + '</td>' +
                 '<td>' + escapeHtml(formatDurationMs(run.runningMs)) + '</td>' +
                 '<td>' + escapeHtml(status) + '</td>' +
                 '<td class="queue-actions-cell">' + actionHtml + '</td>' +
@@ -386,6 +623,7 @@
                 '<td>' + escapeHtml(formatTimestamp(action.timestamp)) + '</td>' +
                 '<td>' + escapeHtml(formatStageLabel(action.action)) + '</td>' +
                 '<td>' + escapeHtml(action.actor) + '</td>' +
+                '<td>' + rolloutSummaryHtml(action) + '</td>' +
                 '<td>' + escapeHtml(formatActionTarget(action)) + metaLabel + '</td>' +
                 '<td>' + escapeHtml(action.note || '—') + '</td>' +
                 '</tr>';
@@ -550,6 +788,28 @@
         return labels.map(function(label) {
             return '<span class="aui-lozenge aui-lozenge-subtle">' + escapeHtml(label) + '</span>';
         }).join(' ');
+    }
+
+    function rolloutSummaryHtml(item) {
+        if (!item) {
+            return '—';
+        }
+        var cohort = item.cohort || 'default';
+        var mode = (item.rolloutMode || 'enforced').toLowerCase();
+        var label = mode === 'shadow' ? 'Shadow' : (mode === 'fallback' ? 'Fallback' : 'Enforced');
+        var css = 'aui-lozenge';
+        if (mode === 'enforced') {
+            css += ' aui-lozenge-success';
+        } else if (mode === 'shadow') {
+            css += ' aui-lozenge-current';
+        } else {
+            css += ' aui-lozenge-subtle';
+        }
+        var html = '<span class="' + css + '">' + escapeHtml(label) + '</span>';
+        if (cohort) {
+            html += '<div class="queue-meta">' + escapeHtml(cohort) + '</div>';
+        }
+        return html;
     }
 
     function describeBulkScope(payload) {
@@ -1291,6 +1551,14 @@
         }
         var date = new Date(epochMillis);
         return isNaN(date.getTime()) ? '—' : date.toLocaleString();
+    }
+
+    function cleanText(value) {
+        if (value === undefined || value === null) {
+            return null;
+        }
+        var trimmed = String(value).trim();
+        return trimmed.length ? trimmed : null;
     }
 
     function valueOrDash(value) {

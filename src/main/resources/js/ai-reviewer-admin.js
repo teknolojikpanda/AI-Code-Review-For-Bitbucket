@@ -53,6 +53,7 @@
         $('#repository-scope-tree').on('click', '.scope-node-toggle', handleNodeToggle);
         $('#repository-scope-tree').on('change', '.scope-checkbox', handleScopeCheckboxChange);
         $('#repository-overrides-body').on('click', '.override-toggle', handleOverrideToggle);
+        $('#guardrails-scope-manage').on('click', focusScopeTreeSection);
 
         // Load current configuration
         loadConfiguration();
@@ -721,6 +722,23 @@
         treeInitialized = true;
     }
 
+    function focusScopeTreeSection(event) {
+        if (event) {
+            event.preventDefault();
+        }
+        var container = document.getElementById('scope-tree-container');
+        if (!container) {
+            return;
+        }
+        if (typeof container.scrollIntoView === 'function') {
+            container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        container.classList.add('guardrails-scope-focus');
+        window.setTimeout(function() {
+            container.classList.remove('guardrails-scope-focus');
+        }, 1600);
+    }
+
     function renderRepositoryScopeTree() {
         var $container = $('#repository-scope-tree');
         if (!$container.length) {
@@ -998,23 +1016,70 @@
 
     function updateScopeSummary() {
         var $summary = $('#scope-summary');
-        if (!$summary.length) {
-            return;
-        }
-        if (scopeState.mode === 'all') {
-            $summary.text('Scope: All repositories (current and future).');
-            return;
-        }
+        var mode = scopeState.mode === 'repositories' ? 'repositories' : 'all';
         var count = scopeState.selectedRepositories.size;
-        if (!count) {
-            $summary.text('Scope: No repositories selected. Save to remove existing overrides.');
+        var summaryText;
+
+        if (mode === 'all') {
+            summaryText = 'Scope: All repositories (current and future).';
+        } else if (!count) {
+            summaryText = 'Scope: No repositories selected. Save to remove existing overrides.';
+        } else if (totalRepositoryCount > 0) {
+            summaryText = 'Scope: ' + count + ' of ' + totalRepositoryCount + ' repositories selected.';
+        } else {
+            summaryText = 'Scope: ' + count + ' repositories selected.';
+        }
+
+        if ($summary.length) {
+            $summary.text(summaryText);
+        }
+
+        updateScopeFeatureFlagCard({
+            mode: mode,
+            count: count,
+            total: totalRepositoryCount
+        });
+    }
+
+    function updateScopeFeatureFlagCard(details) {
+        var $pill = $('#guardrails-scope-pill');
+        var $summary = $('#guardrails-scope-summary');
+        var $description = $('#guardrails-scope-description');
+
+        if (!$pill.length || !$summary.length || !$description.length) {
             return;
         }
-        if (totalRepositoryCount > 0) {
-            $summary.text('Scope: ' + count + ' of ' + totalRepositoryCount + ' repositories selected.');
+
+        var mode = (details && details.mode === 'repositories') ? 'repositories' : 'all';
+        var count = details && typeof details.count === 'number' ? details.count : 0;
+        var total = details && typeof details.total === 'number' ? details.total : 0;
+
+        var pillClass = 'aui-lozenge guardrails-scope-pill';
+        var pillText;
+        var summaryText;
+        var descriptionText;
+
+        if (mode === 'all') {
+            pillClass += ' aui-lozenge-success';
+            pillText = 'Global';
+            summaryText = 'Guardrails apply to every repository.';
+            descriptionText = 'All existing and future repositories inherit these guardrails. Use the Scope section above if you need a smaller allow list.';
+        } else if (count > 0) {
+            pillClass += ' aui-lozenge-current';
+            pillText = 'Targeted';
+            var totalPortion = total > 0 ? (' of ' + total) : '';
+            summaryText = count + totalPortion + ' repositories are explicitly covered.';
+            descriptionText = 'Only the selected projects/repositories enforce guardrails. Save after adjusting the scope tree to update the allow list.';
         } else {
-            $summary.text('Scope: ' + count + ' repositories selected.');
+            pillClass += ' aui-lozenge-error';
+            pillText = 'Targeted';
+            summaryText = 'No repositories selected.';
+            descriptionText = 'Guardrails are effectively disabled because the allow list is empty. Select repositories in the Scope section to re-enable coverage.';
         }
+
+        $pill.attr('class', pillClass).text(pillText);
+        $summary.text(summaryText);
+        $description.text(descriptionText);
     }
 
     function updateOverridePanelVisibility() {

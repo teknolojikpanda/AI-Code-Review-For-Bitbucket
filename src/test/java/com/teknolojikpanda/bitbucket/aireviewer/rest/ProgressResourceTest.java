@@ -12,6 +12,7 @@ import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressEvent;
 import com.teknolojikpanda.bitbucket.aireviewer.progress.ProgressRegistry;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
@@ -208,7 +209,9 @@ public class ProgressResourceTest {
                         1000L,
                         2,
                         3,
-                        "author");
+                        "author",
+                        "pilot",
+                        GuardrailsRolloutService.RolloutMode.ENFORCED);
         when(concurrencyController.getQueuedRequests()).thenReturn(Collections.singletonList(entry));
 
         Response response = resource.getQueueSnapshot(request);

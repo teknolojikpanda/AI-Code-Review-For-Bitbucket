@@ -340,6 +340,24 @@
                             <div class="description">Master switch to enable or disable AI code review</div>
                         </div>
 
+                        <div class="field-group guardrails-scope-flag">
+                            <label>Guardrails Scope Mode</label>
+                            <div class="guardrails-scope-card" id="guardrails-scope-card">
+                                <div class="guardrails-scope-chip">
+                                    <span id="guardrails-scope-pill" class="aui-lozenge guardrails-scope-pill">Loading…</span>
+                                    <span id="guardrails-scope-summary" class="guardrails-scope-summary">Evaluating scope…</span>
+                                </div>
+                                <p id="guardrails-scope-description" class="description guardrails-scope-description">
+                                    Guardrails scope is loading…
+                                </p>
+                                <div class="guardrails-scope-actions">
+                                    <button type="button" class="aui-button aui-button-link" id="guardrails-scope-manage">
+                                        Review scope selection
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="field-group">
                             <div class="checkbox">
                                 <input class="checkbox" type="checkbox" id="review-draft-prs" name="reviewDraftPRs"

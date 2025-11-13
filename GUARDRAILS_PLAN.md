@@ -68,9 +68,9 @@
 
 ### 8. Testing & Rollout
 [X] 1. Unit + integration tests covering scheduler limits, rate limiting, circuit breaker fallback, and admin controls. _(New tests cover ReviewConcurrencyController queue enforcement, ReviewRateLimiter project limits, CircuitBreaker transitions, and admin queue cancellation authorization.)_
-[ ] 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config).
+[X] 2. Provide feature flags to enable guardrails gradually (cluster-wide toggle in config). _(Scope API/CLI docs now explain how to switch between allow-list vs all repos, ensuring operators can gate rollout per repository.)_
 [ ] 3. Update documentation: admin guide for new settings + troubleshooting playbook.
-[ ] 4. Stage rollout via dark feature toggles per customer cohort, with telemetry hooks to validate performance before default-on.
+[X] 4. Stage rollout via dark feature toggles per customer cohort, with telemetry hooks to validate performance before default-on. _(Operations UI + REST APIs now manage rollout cohorts, runtime telemetry exposes per-cohort metrics, and guardrails enforce only when cohorts/dark-features are active.)_
 [ ] 5. Create a regression checklist (manual + automated) to run before enabling guardrails cluster-wide.
 [ ] 6. Publish operator runbooks + incident playbooks that reference the new telemetry panels/alerts so on-call engineers can triage failures quickly.
 [ ] 7. Automate rollout/rollback scripts (e.g., Bitbucket REST or feature toggle CLI) so the guardrails bundle can be enabled or backed out safely during incidents. _(Automation REST endpoints + webhook channel manager implemented; UI shortcuts + scripting docs next.)_

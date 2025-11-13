@@ -123,6 +123,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     private final GuardrailsAutoSnoozeService autoSnoozeService;
     private final WorkerDegradationService workerDegradationService;
     private final ModelHealthService modelHealthService;
+    private final GuardrailsRolloutService rolloutService;
     private static final ThreadLocal<ReviewRun> REVIEW_RUN_CONTEXT = ThreadLocal.withInitial(() -> null);
     private static final ThreadLocal<ProgressTracker> PROGRESS_TRACKER = new ThreadLocal<>();
 
@@ -147,7 +148,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             ReviewWorkerPool workerPool,
             GuardrailsAutoSnoozeService autoSnoozeService,
             WorkerDegradationService workerDegradationService,
-            ModelHealthService modelHealthService) {
+            ModelHealthService modelHealthService,
+            GuardrailsRolloutService rolloutService) {
         this.pullRequestService = Objects.requireNonNull(pullRequestService, "pullRequestService cannot be null");
         this.commentService = Objects.requireNonNull(commentService, "commentService cannot be null");
         this.ao = Objects.requireNonNull(ao, "activeObjects cannot be null");
@@ -168,6 +170,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         this.autoSnoozeService = Objects.requireNonNull(autoSnoozeService, "autoSnoozeService cannot be null");
         this.workerDegradationService = Objects.requireNonNull(workerDegradationService, "workerDegradationService cannot be null");
         this.modelHealthService = Objects.requireNonNull(modelHealthService, "modelHealthService cannot be null");
+        this.rolloutService = Objects.requireNonNull(rolloutService, "rolloutService cannot be null");
 
     }
 
@@ -203,6 +206,25 @@ public class AIReviewServiceImpl implements AIReviewService {
     private ReviewResult executeWithQueueSafeguards(PullRequest pullRequest,
                                                    ReviewRun run,
                                                    Supplier<ReviewResult> action) {
+        GuardrailsRolloutService.Evaluation evaluation =
+                rolloutService.evaluate(run.getProjectKey(), run.getRepositorySlug(), run.runId);
+        if (evaluation != null) {
+            run.applyRollout(evaluation);
+        }
+
+        if (evaluation != null && !evaluation.isGuardrailsEnabled()) {
+            Map<String, Object> details = progressDetails(
+                    "cohort", evaluation.getCohortKey(),
+                    "mode", evaluation.getMode().name().toLowerCase(Locale.ROOT),
+                    "reason", evaluation.getReason());
+            recordProgress("review.rollout.shadow", 0, details);
+            log.info("Guardrails bypassed for PR #{} (cohort={}, reason={})",
+                    pullRequest.getId(),
+                    evaluation.getCohortKey(),
+                    evaluation.getReason());
+            return executeWithoutGuardrails(run, action);
+        }
+
         try {
             maybeAutoSnoozeRateLimit(run);
             rateLimiter.acquire(run.getProjectKey(), run.getRepositorySlug());
@@ -263,42 +285,63 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private ReviewResult executeWithRun(ReviewRun run, Supplier<ReviewResult> action) {
         ReviewConcurrencyController.ReviewExecutionRequest request = run.toExecutionRequest();
+        Callable<ReviewResult> task = buildWorkerCallable(run, action);
         try (ReviewConcurrencyController.Slot ignored = concurrencyController.acquire(request)) {
-            Future<ReviewResult> future = workerPool.submit(() -> {
-                ReviewRun previous = REVIEW_RUN_CONTEXT.get();
-                ProgressTracker previousTracker = PROGRESS_TRACKER.get();
-                ProgressTracker tracker = new ProgressTracker();
-                REVIEW_RUN_CONTEXT.set(run);
-                PROGRESS_TRACKER.set(tracker);
-                ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
-                if (metadata != null) {
-                    progressRegistry.start(metadata);
-                }
-                try {
-                    return action.get();
-                } finally {
-                    if (previous != null) {
-                        REVIEW_RUN_CONTEXT.set(previous);
-                    } else {
-                        REVIEW_RUN_CONTEXT.remove();
-                    }
-                    if (previousTracker != null) {
-                        PROGRESS_TRACKER.set(previousTracker);
-                    } else {
-                        PROGRESS_TRACKER.remove();
-                    }
-                }
-            });
+            Future<ReviewResult> future = workerPool.submit(task);
             concurrencyController.registerActiveRun(request, future);
-            try {
-                return workerPool.join(future);
-            } catch (ReviewCanceledException ex) {
-                return handleRunCanceled(run, ex.getMessage());
-            } catch (CancellationException ex) {
-                return handleRunCanceled(run, null);
-            } finally {
-                concurrencyController.completeActiveRun(request.getRunId());
+            return joinRun(run, request, future);
+        }
+    }
+
+    private ReviewResult executeWithoutGuardrails(ReviewRun run,
+                                                 Supplier<ReviewResult> action) {
+        ReviewConcurrencyController.ReviewExecutionRequest request = run.toExecutionRequest();
+        Callable<ReviewResult> task = buildWorkerCallable(run, action);
+        Future<ReviewResult> future = workerPool.submit(task);
+        concurrencyController.registerActiveRun(request, future);
+        return joinRun(run, request, future);
+    }
+
+    private Callable<ReviewResult> buildWorkerCallable(ReviewRun run,
+                                                       Supplier<ReviewResult> action) {
+        return () -> {
+            ReviewRun previous = REVIEW_RUN_CONTEXT.get();
+            ProgressTracker previousTracker = PROGRESS_TRACKER.get();
+            ProgressTracker tracker = new ProgressTracker();
+            REVIEW_RUN_CONTEXT.set(run);
+            PROGRESS_TRACKER.set(tracker);
+            ProgressRegistry.ProgressMetadata metadata = run != null ? run.toProgressMetadata() : null;
+            if (metadata != null) {
+                progressRegistry.start(metadata);
             }
+            try {
+                return action.get();
+            } finally {
+                if (previous != null) {
+                    REVIEW_RUN_CONTEXT.set(previous);
+                } else {
+                    REVIEW_RUN_CONTEXT.remove();
+                }
+                if (previousTracker != null) {
+                    PROGRESS_TRACKER.set(previousTracker);
+                } else {
+                    PROGRESS_TRACKER.remove();
+                }
+            }
+        };
+    }
+
+    private ReviewResult joinRun(ReviewRun run,
+                                 ReviewConcurrencyController.ReviewExecutionRequest request,
+                                 Future<ReviewResult> future) {
+        try {
+            return workerPool.join(future);
+        } catch (ReviewCanceledException ex) {
+            return handleRunCanceled(run, ex.getMessage());
+        } catch (CancellationException ex) {
+            return handleRunCanceled(run, null);
+        } finally {
+            concurrencyController.completeActiveRun(request.getRunId());
         }
     }
 
@@ -1091,6 +1134,9 @@ public class AIReviewServiceImpl implements AIReviewService {
         final String repositorySlug;
         final String runId;
         final String requestedBy;
+        private String cohortKey;
+        private GuardrailsRolloutService.RolloutMode rolloutMode = GuardrailsRolloutService.RolloutMode.FALLBACK;
+        private boolean guardrailsEnabled = true;
 
         private ReviewRun(@Nonnull PullRequest pullRequest, boolean update, boolean force, boolean manual) {
             this.update = update;
@@ -1102,6 +1148,7 @@ public class AIReviewServiceImpl implements AIReviewService {
             this.repositorySlug = repository != null ? repository.getSlug() : null;
             this.runId = UUID.randomUUID().toString();
             this.requestedBy = resolveRequestedBy(pullRequest);
+            this.cohortKey = null;
         }
 
         static ReviewRun initial(@Nonnull PullRequest pullRequest) {
@@ -1137,7 +1184,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                     update,
                     force,
                     runId,
-                    requestedBy);
+                    requestedBy,
+                    cohortKey,
+                    rolloutMode,
+                    guardrailsEnabled);
         }
 
         ProgressRegistry.ProgressMetadata toProgressMetadata() {
@@ -1164,6 +1214,28 @@ public class AIReviewServiceImpl implements AIReviewService {
                 return user.getSlug();
             }
             return user.getEmailAddress();
+        }
+
+        void applyRollout(@Nullable GuardrailsRolloutService.Evaluation evaluation) {
+            if (evaluation == null) {
+                return;
+            }
+            this.cohortKey = evaluation.getCohortKey();
+            this.rolloutMode = evaluation.getMode();
+            this.guardrailsEnabled = evaluation.isGuardrailsEnabled();
+        }
+
+        @Nullable
+        String getCohortKey() {
+            return cohortKey;
+        }
+
+        GuardrailsRolloutService.RolloutMode getRolloutMode() {
+            return rolloutMode;
+        }
+
+        boolean guardrailsEnabled() {
+            return guardrailsEnabled;
         }
     }
 
@@ -2325,6 +2397,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (metadata != null) {
             progressRegistry.complete(metadata, status);
         }
+        rolloutService.recordCompletion(run.getCohortKey(), run.getRolloutMode(), status);
     }
 
     private ProgressTracker progressTracker() {

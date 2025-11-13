@@ -26,6 +26,7 @@ import java.lang.reflect.Method;
 import java.util.Collections;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -56,6 +57,7 @@ public class AIReviewServiceMergeCheckTest {
     private ReviewQueueAuditService queueAuditService;
     private WorkerDegradationService workerDegradationService;
     private ModelHealthService modelHealthService;
+    private GuardrailsRolloutService rolloutService;
 
     private AIReviewServiceImpl service;
 
@@ -104,6 +106,14 @@ public class AIReviewServiceMergeCheckTest {
         modelHealthService = mock(ModelHealthService.class);
         when(modelHealthService.apply(any())).thenAnswer(invocation ->
                 ModelHealthService.Result.passThrough(invocation.getArgument(0)));
+        rolloutService = mock(GuardrailsRolloutService.class);
+        GuardrailsRolloutService.Evaluation defaultEval =
+                new GuardrailsRolloutService.Evaluation(
+                        GuardrailsRolloutService.RolloutMode.ENFORCED,
+                        null,
+                        true,
+                        "default");
+        when(rolloutService.evaluate(anyString(), anyString(), anyString())).thenReturn(defaultEval);
 
         service = new AIReviewServiceImpl(
                 pullRequestService,
@@ -125,7 +135,8 @@ public class AIReviewServiceMergeCheckTest {
                 workerPool,
                 autoSnoozeService,
                 workerDegradationService,
-                modelHealthService);
+                modelHealthService,
+                rolloutService);
 
         try {
             setSecurityServiceNull();

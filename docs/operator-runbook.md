@@ -9,6 +9,8 @@ This playbook explains how to monitor and operate the Guardrails features that g
 | `GET /rest/ai-reviewer/1.0/monitoring/runtime` | Same payload that powers the Health Dashboard. Use for ad‑hoc inspection. |
 | `GET /rest/ai-reviewer/1.0/metrics` | Machine-readable export that flattens queue, limiter, worker, and retention metrics. The response contains a `runtime` object (detailed snapshot) and a `metrics` array (scalar metric points). |
 | `GET /rest/ai-reviewer/1.0/alerts` | Evaluates the current telemetry and returns synthesized guardrail alerts (severity, summary, recommendation). Use this to wire chat/email alerts without scraping the UI. |
+| `GET /rest/ai-reviewer/1.0/config/scope` | Returns the active scope mode (`all` vs `repositories`) plus the currently whitelisted repositories so automation can inspect rollout status. |
+| `POST /rest/ai-reviewer/1.0/config/scope` | Updates scope mode. Payload supports `{"mode":"all"}` for fleet-wide enablement or `{"mode":"repositories","repositories":[{"projectKey":"PRJ","repositorySlug":"repo"}]}` for explicit whitelists. |
 | `GET /rest/ai-reviewer/1.0/history/cleanup/export` | Returns a JSON payload of retention candidates. Use `includeChunks=true` to inline chunk telemetry for auditing prior to deletion. |
 | `GET /rest/ai-reviewer/1.0/history/cleanup/export/download` | Streams the same data as a JSON or CSV attachment (`format=csv`) so you can archive it with incident tickets. |
 | `GET /rest/ai-reviewer/1.0/history/cleanup/integrity` | Runs integrity checks (chunk mismatch + corrupt progress/metrics detection) against the oldest review records. |
@@ -106,6 +108,10 @@ export GUARDRAILS_AUTH=admin:api-token
 # Sample or repair retention integrity
 ./scripts/guardrails-cli.sh cleanup-integrity --days=90 --sample=150
 ./scripts/guardrails-cli.sh cleanup-integrity --days=90 --sample=150 --repair
+
+# Toggle review scope (all repos vs allow-list)
+./scripts/guardrails-cli.sh scope --mode=all
+./scripts/guardrails-cli.sh scope --mode=repositories --repo PRJ/repo-one --repo PRJ/repo-two
 ```
 
 The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.
@@ -200,3 +206,60 @@ The script prints the scheduler JSON response (requires `jq` for pretty output).
 3. Reference this runbook in alert descriptions so on-call engineers can execute the appropriate play immediately.
 
 Keeping this document up to date is part of the Guardrails plan (section 8.5). Update it whenever new controls or telemetry fields ship.
+
+## Feature Rollout Cohorts
+
+Use rollout cohorts to stage guardrails for specific projects or repositories before enabling them cluster-wide.
+
+### UI Workflow
+
+1. Navigate to **Administration → AI Code Reviewer → Operations** and scroll to **Rollout Cohorts**.
+2. Review the table to see each cohort’s scope, dark feature key, rollout percentage, and enforcement metrics (enforced/shadow/fallback/completed counts).
+3. Click **Add Cohort** (or **Edit**) to define:
+   - Key + display name/description.
+   - Scope (`Global`, `Project`, or `Repository`). Project/repository fields are enabled automatically based on scope.
+   - Rollout percentage (0‑100) if you want to sample only a portion of matching reviews.
+   - Optional SAL dark feature key that must be enabled before enforcement happens.
+   - Enabled toggle. When disabled the cohort collects telemetry but runs in shadow mode.
+4. Save the cohort. As soon as at least one cohort exists, any repository that does not match an enabled cohort runs guardrails in fallback/shadow mode; the header shows the current default.
+
+### REST API
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/rest/ai-reviewer/1.0/automation/rollout/cohorts` | Returns every cohort plus telemetry (startedEnforced, startedShadow, startedFallback, completed) and the `defaultMode`. |
+| `POST` | `/rest/ai-reviewer/1.0/automation/rollout/cohorts` | Creates a cohort. Body mirrors the UI fields (`key`, `displayName`, `scopeMode`, `projectKey`, `repositorySlug`, `rolloutPercent`, `darkFeatureKey`, `enabled`). |
+| `PUT` | `/rest/ai-reviewer/1.0/automation/rollout/cohorts/{id}` | Updates the cohort with the supplied `id`. |
+| `DELETE` | `/rest/ai-reviewer/1.0/automation/rollout/cohorts/{id}` | Removes the cohort. Remaining repositories immediately fall back to the default rollout mode. |
+
+All endpoints require Bitbucket system-administrator permissions and return `400` with a descriptive error when validation fails (duplicate keys, missing scope fields, etc.).
+
+### Telemetry
+
+`GET /rest/ai-reviewer/1.0/monitoring/runtime` now includes a `rollout` object:
+
+```json
+"rollout": {
+  "defaultMode": "shadow",
+  "cohorts": [
+    {
+      "key": "pilot",
+      "scopeMode": "repository",
+      "projectKey": "PRJ",
+      "repositorySlug": "app",
+      "enabled": true,
+      "rolloutPercent": 100,
+      "darkFeatureKey": "com.example.guardrails.pilot",
+      "metrics": {
+        "startedEnforced": 12,
+        "startedShadow": 3,
+        "startedFallback": 0,
+        "completed": 10,
+        "lastEvaluationAt": 1731419784000
+      }
+    }
+  ]
+}
+```
+
+Use these counters to validate performance before promoting guardrails to all repositories. The Operations UI renders the same information and the CLI/automation endpoints can ingest the telemetry for custom dashboards.

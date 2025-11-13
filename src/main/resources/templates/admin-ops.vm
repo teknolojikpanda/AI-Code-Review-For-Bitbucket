@@ -100,6 +100,7 @@
                                     <tr>
                                         <th>#</th>
                                         <th>Repository / PR</th>
+                                        <th>Rollout</th>
                                         <th>Requested By</th>
                                         <th>Waiting</th>
                                         <th>Scope Pressure</th>
@@ -130,6 +131,7 @@
                                     <tr>
                                         <th>Repository / PR</th>
                                         <th>Requested By</th>
+                                        <th>Rollout</th>
                                         <th>Runtime</th>
                                         <th>Status</th>
                                         <th>Actions</th>
@@ -155,6 +157,7 @@
                                         <th>When</th>
                                         <th>Action</th>
                                         <th>Actor</th>
+                                        <th>Rollout</th>
                                         <th>Target</th>
                                         <th>Note</th>
                                     </tr>
@@ -190,6 +193,94 @@
                         </div>
                     </div>
                     <div class="aui-message" id="rollout-message" style="display:none;"></div>
+                </section>
+
+                <section class="ops-section">
+                    <header class="ops-section__header">
+                        <div>
+                            <h2>Rollout Cohorts</h2>
+                            <p class="ops-section__subtitle">Target guardrails to pilot repositories or customer cohorts before enabling them cluster-wide.</p>
+                        </div>
+                        <span id="rollout-cohort-default-mode" class="queue-updated">Default rollout: ENFORCED</span>
+                    </header>
+                    <div class="ops-panel">
+                        <div class="aui-message" id="rollout-cohort-message" style="display:none;"></div>
+                        <div class="queue-empty" id="rollout-cohorts-empty">No cohorts defined.</div>
+                        <div class="ops-table-wrapper">
+                            <table class="aui aui-table aui-table-rowhover" id="rollout-cohorts-table" style="display:none;">
+                                <thead>
+                                <tr>
+                                    <th>Key</th>
+                                    <th>Scope</th>
+                                    <th>Dark Feature</th>
+                                    <th>Rollout</th>
+                                    <th>Metrics</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="ops-card ops-card--form" id="rollout-cohort-form-card">
+                        <div class="ops-card__header">
+                            <h3 id="rollout-cohort-form-title">Add Cohort</h3>
+                            <p>Create or edit cohorts that control where guardrails are enforced.</p>
+                        </div>
+                        <form id="rollout-cohort-form">
+                            <input type="hidden" id="rollout-cohort-id"/>
+                            <div class="ops-form-grid ops-form-grid--two-column">
+                                <div class="ops-form-field">
+                                    <label for="rollout-cohort-key">Cohort key *</label>
+                                    <input type="text" id="rollout-cohort-key" class="text" placeholder="early-adopters" required/>
+                                    <span class="ops-field-hint">Used in telemetry; letters, digits, '.', '-', '_'.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="rollout-cohort-name">Display name</label>
+                                    <input type="text" id="rollout-cohort-name" class="text" placeholder="Early Adopters"/>
+                                </div>
+                                <div class="ops-form-field ops-form-field--full">
+                                    <label for="rollout-cohort-description">Description</label>
+                                    <textarea id="rollout-cohort-description" class="textarea" rows="2" placeholder="Optional context for operators."></textarea>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="rollout-cohort-scope">Scope</label>
+                                    <select id="rollout-cohort-scope" class="select">
+                                        <option value="GLOBAL">Global</option>
+                                        <option value="PROJECT">Project</option>
+                                        <option value="REPOSITORY">Repository</option>
+                                    </select>
+                                </div>
+                                <div class="ops-form-field" id="rollout-cohort-project-field">
+                                    <label for="rollout-cohort-project">Project key</label>
+                                    <input type="text" id="rollout-cohort-project" class="text" placeholder="PRJ"/>
+                                </div>
+                                <div class="ops-form-field" id="rollout-cohort-repo-field">
+                                    <label for="rollout-cohort-repo">Repository slug</label>
+                                    <input type="text" id="rollout-cohort-repo" class="text" placeholder="repo"/>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="rollout-cohort-percent">Rollout percent</label>
+                                    <input type="number" id="rollout-cohort-percent" class="text" min="0" max="100" value="100"/>
+                                    <span class="ops-field-hint">Sample percentage of runs that enforce guardrails.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="rollout-cohort-dark">Dark feature key</label>
+                                    <input type="text" id="rollout-cohort-dark" class="text" placeholder="com.example.guardrails.beta"/>
+                                    <span class="ops-field-hint">Optional SAL dark feature to pair with this cohort.</span>
+                                </div>
+                                <div class="ops-form-field ops-form-field--checkbox">
+                                    <input type="checkbox" id="rollout-cohort-enabled" class="checkbox" checked="checked"/>
+                                    <label for="rollout-cohort-enabled">Enforce guardrails for this cohort</label>
+                                </div>
+                            </div>
+                            <div class="ops-form-actions">
+                                <button type="submit" class="aui-button aui-button-primary" id="rollout-cohort-submit">Save Cohort</button>
+                                <button type="button" class="aui-button" id="rollout-cohort-cancel" style="display:none;">Cancel Edit</button>
+                            </div>
+                        </form>
+                    </div>
                 </section>
 
                 <section class="ops-section">

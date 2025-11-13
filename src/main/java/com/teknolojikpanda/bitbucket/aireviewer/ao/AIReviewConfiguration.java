@@ -137,6 +137,22 @@ public interface AIReviewConfiguration extends Entity {
     boolean isWorkerDegradationEnabled();
     void setWorkerDegradationEnabled(boolean enabled);
 
+    @Default("true")
+    boolean isGuardrailsQueueEnabled();
+    void setGuardrailsQueueEnabled(boolean enabled);
+
+    @Default("true")
+    boolean isGuardrailsRateLimitEnabled();
+    void setGuardrailsRateLimitEnabled(boolean enabled);
+
+    @Default("true")
+    boolean isGuardrailsAlertingEnabled();
+    void setGuardrailsAlertingEnabled(boolean enabled);
+
+    @Default("true")
+    boolean isModelHealthEnabled();
+    void setModelHealthEnabled(boolean enabled);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();

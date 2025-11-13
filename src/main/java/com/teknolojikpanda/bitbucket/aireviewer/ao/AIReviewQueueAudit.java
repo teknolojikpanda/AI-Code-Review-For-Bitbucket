@@ -54,4 +54,12 @@ public interface AIReviewQueueAudit extends Entity {
     @StringLength(255)
     String getRequestedBy();
     void setRequestedBy(String requestedBy);
+
+    @StringLength(64)
+    String getCohortKey();
+    void setCohortKey(String cohortKey);
+
+    @StringLength(32)
+    String getRolloutMode();
+    void setRolloutMode(String rolloutMode);
 }

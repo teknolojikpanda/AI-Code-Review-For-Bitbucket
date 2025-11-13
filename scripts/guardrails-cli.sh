@@ -14,6 +14,7 @@ Commands:
   resume|active    Resume normal scheduling.
   state            Print the current scheduler state JSON.
   alerts           Fetch the latest guardrails alerts (and trigger outbound notifications).
+  scope            View or update repository scope (use --help for options).
   cleanup-status   Fetch cleanup schedule + recent runs.
   cleanup-run      Trigger an immediate cleanup run using saved schedule.
   cleanup-export   Download retention export (`--format`, `--days`, `--limit`, `--chunks`, `--output`, `--preview`).
@@ -140,7 +141,7 @@ EOHELP
         local preview_url="${base_url}${preview_endpoint}"
         if [[ -n "${query_string}" ]]; then
             preview_url="${preview_url}?${query_string}"
-        }
+        fi
         local response
         response=$(curl --fail -sS -u "${auth}" "${headers[@]}" "${preview_url}")
         if command -v jq >/dev/null 2>&1; then
@@ -259,7 +260,7 @@ EOHELP
         else
             printf '%s\n' "${response}"
         fi
-    } else {
+    else
         local response
         response=$(curl --fail -sS -u "${auth}" "${headers[@]}" "${url}")
         if command -v jq >/dev/null 2>&1; then
@@ -268,6 +269,89 @@ EOHELP
             printf '%s\n' "${response}"
         fi
     fi
+}
+
+scope_command() {
+    local base_url="$1"
+    local auth="$2"
+    shift 2 || true
+
+    local mode=""
+    local repos=()
+    local list_only="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --mode=*)
+                mode="${1#*=}"
+                ;;
+            --mode)
+                mode="${2:-}"
+                shift || true
+                ;;
+            --repo=*)
+                repos+=("${1#*=}")
+                ;;
+            --repo|--repository)
+                repos+=("${2:-}")
+                shift || true
+                ;;
+            --list|--show)
+                list_only="true"
+                ;;
+            --help|-h)
+                cat <<'EOHELP'
+scope options:
+  --list            Print the current scope selection.
+  --mode all        Enable AI reviews for every repository (clears allow-list).
+  --mode repositories --repo PRJ/repo --repo PRJ/repo2
+                    Restrict scope to the listed repositories (repeat --repo).
+EOHELP
+                return 0
+                ;;
+            *)
+                echo "Unknown scope option: $1" >&2
+                usage
+                exit 1
+                ;;
+        esac
+        shift || true
+    done
+
+    local scope_url="${base_url}/rest/ai-reviewer/1.0/config/scope"
+    if [[ "${list_only}" == "true" || -z "${mode}" ]]; then
+        curl --fail -sS -u "${auth}" -H "Content-Type: application/json" "${scope_url}" | jq '.'
+        return 0
+    fi
+
+    mode="${mode,,}"
+    if [[ "${mode}" != "all" && "${mode}" != "repositories" ]]; then
+        echo "Invalid scope mode: ${mode}. Expected 'all' or 'repositories'." >&2
+        exit 1
+    fi
+
+    local payload="{\"mode\":\"${mode}\""
+    if [[ "${mode}" == "repositories" ]]; then
+        if [[ ${#repos[@]} -eq 0 ]]; then
+            echo "At least one --repo is required when mode=repositories." >&2
+            exit 1
+        fi
+        local repo_entries=()
+        for repo in "${repos[@]}"; do
+            IFS='/' read -r projectKey repositorySlug <<<"${repo}"
+            if [[ -z "${projectKey}" || -z "${repositorySlug}" ]]; then
+                echo "Invalid repo format (expected PROJECT/repo): ${repo}" >&2
+                exit 1
+            fi
+            repo_entries+=("{\"projectKey\":\"${projectKey}\",\"repositorySlug\":\"${repositorySlug}\"}")
+        done
+        local IFS=','
+        payload+=" ,\"repositories\":[${repo_entries[*]}]"
+    fi
+    payload+="}"
+
+    curl --fail -sS -u "${auth}" -H "Content-Type: application/json" \
+        -X POST -d "${payload}" "${scope_url}" | jq '.'
 }
 main() {
     if [[ $# -lt 1 ]]; then
@@ -306,6 +390,10 @@ main() {
         alerts|ALERTS)
             endpoint="/rest/ai-reviewer/1.0/alerts"
             method="GET"
+            ;;
+        scope)
+            scope_command "${base_url}" "${auth}" "$@"
+            return 0
             ;;
         cleanup-status)
             endpoint="/rest/ai-reviewer/1.0/history/cleanup/status"

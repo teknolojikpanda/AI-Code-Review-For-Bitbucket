@@ -28,6 +28,7 @@
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsRateOverride</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsBurstCredit</entity>
         <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.GuardrailsWorkerNodeState</entity>
+        <entity>com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRolloutCohort</entity>
     </ao>
 
     <!--

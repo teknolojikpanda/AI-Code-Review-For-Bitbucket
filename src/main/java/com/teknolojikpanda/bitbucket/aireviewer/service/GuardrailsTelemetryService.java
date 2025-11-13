@@ -4,9 +4,6 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyControl
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController.QueueStats.ScopeQueueStats;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot.BucketState;
-import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewQueueAuditService;
-import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitOverrideService;
-import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -45,6 +42,7 @@ public class GuardrailsTelemetryService {
     private final ReviewQueueAuditService queueAuditService;
     private final GuardrailsRateLimitOverrideService overrideService;
     private final GuardrailsRateLimitStore rateLimitStore;
+    private final GuardrailsRolloutService rolloutService;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -60,7 +58,8 @@ public class GuardrailsTelemetryService {
                                       ModelHealthService modelHealthService,
                                       ReviewQueueAuditService queueAuditService,
                                       GuardrailsRateLimitOverrideService overrideService,
-                                      GuardrailsRateLimitStore rateLimitStore) {
+                                      GuardrailsRateLimitStore rateLimitStore,
+                                      GuardrailsRolloutService rolloutService) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -75,6 +74,7 @@ public class GuardrailsTelemetryService {
         this.queueAuditService = Objects.requireNonNull(queueAuditService, "queueAuditService");
         this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
         this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
+        this.rolloutService = Objects.requireNonNull(rolloutService, "rolloutService");
     }
 
     /**
@@ -97,6 +97,7 @@ public class GuardrailsTelemetryService {
         payload.put("workerPoolNodes", workerNodeTimeline);
         payload.put("rateLimiter", rateLimitStatsToMap(rateLimiter.snapshot()));
         payload.put("rateLimitOverrides", overridesToList(overrideService.listOverrides(false)));
+        payload.put("rollout", rolloutService.describeTelemetry());
         payload.put("scalingHints", scalingHintsToList(scalingAdvisor.evaluate(queueStats, workerNodes)));
         payload.put("reviewDurations", durationStatsToMap(historyService.getRecentDurationStats(DURATION_SAMPLE_LIMIT)));
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));

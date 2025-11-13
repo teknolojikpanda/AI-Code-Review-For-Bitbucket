@@ -31,6 +31,7 @@ public class GuardrailsTelemetryServiceTest {
     private ReviewQueueAuditService queueAuditService;
     private GuardrailsRateLimitOverrideService overrideService;
     private GuardrailsRateLimitStore rateLimitStore;
+    private GuardrailsRolloutService rolloutService;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -48,6 +49,7 @@ public class GuardrailsTelemetryServiceTest {
         queueAuditService = mock(ReviewQueueAuditService.class);
         overrideService = mock(GuardrailsRateLimitOverrideService.class);
         rateLimitStore = mock(GuardrailsRateLimitStore.class);
+        rolloutService = mock(GuardrailsRolloutService.class);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -122,6 +124,9 @@ public class GuardrailsTelemetryServiceTest {
                                 "Add nodes")));
         modelHealthService = mock(ModelHealthService.class);
         when(modelHealthService.snapshot()).thenReturn(Collections.emptyMap());
+        when(rolloutService.describeTelemetry()).thenReturn(Map.of(
+                "cohorts", Collections.emptyList(),
+                "defaultMode", "enforced"));
         when(queueAuditService.listRecentActions(org.mockito.Mockito.anyInt())).thenReturn(Collections.singletonList(
                 new ReviewConcurrencyController.QueueStats.QueueAction(
                         "canceled",
@@ -135,7 +140,9 @@ public class GuardrailsTelemetryServiceTest {
                         false,
                         "admin",
                         "manual cancel",
-                        "user")));
+                        "user",
+                        null,
+                        null)));
         GuardrailsRateLimitOverrideService.OverrideRecord overrideRecord =
                 new GuardrailsRateLimitOverrideService.OverrideRecord(1,
                         GuardrailsRateLimitScope.PROJECT,
@@ -162,7 +169,8 @@ public class GuardrailsTelemetryServiceTest {
                 modelHealthService,
                 queueAuditService,
                 overrideService,
-                rateLimitStore);
+                rateLimitStore,
+                rolloutService);
     }
 
     @Test

@@ -592,6 +592,48 @@
     color: #42526e;
 }
 
+#scope-tree-container.guardrails-scope-focus {
+    box-shadow: 0 0 0 2px #4c9aff inset;
+    border-radius: 4px;
+}
+
+.guardrails-scope-flag label {
+    font-weight: 600;
+    color: #253858;
+}
+
+.guardrails-scope-card {
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    padding: 12px 16px;
+    background-color: #fafbff;
+}
+
+.guardrails-scope-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.guardrails-scope-pill {
+    font-weight: 600;
+}
+
+.guardrails-scope-summary {
+    font-size: 13px;
+    color: #172b4d;
+}
+
+.guardrails-scope-description {
+    margin-bottom: 4px;
+    color: #505f79;
+}
+
+.guardrails-scope-actions {
+    margin-top: 8px;
+}
+
 #repository-override-panel {
     margin: 15px 0 25px;
     padding: 15px;
@@ -1348,6 +1390,12 @@
     overflow-x: auto;
 }
 
+.ops-table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
 .ops-form-field {
     display: flex;
     flex-direction: column;
@@ -1358,6 +1406,10 @@
     flex-direction: row;
     align-items: center;
     gap: 8px;
+}
+
+.ops-form-field--full {
+    grid-column: 1 / -1;
 }
 
 .ops-field-hint {

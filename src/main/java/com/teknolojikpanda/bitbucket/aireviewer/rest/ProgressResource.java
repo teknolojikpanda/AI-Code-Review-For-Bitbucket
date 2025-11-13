@@ -605,6 +605,10 @@ public class ProgressResource {
             map.put("estimatedDurationMs", estimatedDuration);
             map.put("repoWaiting", entry.getRepoWaiting());
             map.put("projectWaiting", entry.getProjectWaiting());
+            map.put("cohort", entry.getCohortKey());
+            map.put("rolloutMode", entry.getRolloutMode() != null
+                    ? entry.getRolloutMode().name().toLowerCase(Locale.ROOT)
+                    : null);
             String reason = determineBackpressure(entry, stats);
             if (reason != null) {
                 map.put("backpressureReason", reason);
@@ -633,6 +637,10 @@ public class ProgressResource {
             map.put("runningMs", Math.max(0, now - entry.getStartedAt()));
             map.put("cancelRequested", entry.isCancelRequested());
             map.put("requestedBy", entry.getRequestedBy());
+            map.put("cohort", entry.getCohortKey());
+            map.put("rolloutMode", entry.getRolloutMode() != null
+                    ? entry.getRolloutMode().name().toLowerCase(Locale.ROOT)
+                    : null);
             list.add(map);
         }
         return list;
@@ -733,6 +741,10 @@ public class ProgressResource {
             map.put("actor", action.getActor());
             map.put("note", action.getNote());
             map.put("requestedBy", action.getRequestedBy());
+            map.put("cohort", action.getCohortKey());
+            map.put("rolloutMode", action.getRolloutMode() != null
+                    ? action.getRolloutMode().name().toLowerCase(Locale.ROOT)
+                    : null);
             list.add(map);
         }
         return list;

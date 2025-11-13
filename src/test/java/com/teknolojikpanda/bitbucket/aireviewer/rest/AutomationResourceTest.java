@@ -9,6 +9,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryS
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService.Delivery;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService.BurstCredit;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitScope;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
@@ -35,6 +36,7 @@ public class AutomationResourceTest {
     private GuardrailsAlertChannelService channelService;
     private GuardrailsAlertDeliveryService deliveryService;
     private GuardrailsBurstCreditService burstCreditService;
+    private GuardrailsRolloutService rolloutService;
     private AutomationResource resource;
     private HttpServletRequest request;
     private UserProfile profile;
@@ -46,7 +48,11 @@ public class AutomationResourceTest {
         channelService = mock(GuardrailsAlertChannelService.class);
         deliveryService = mock(GuardrailsAlertDeliveryService.class);
         burstCreditService = mock(GuardrailsBurstCreditService.class);
-        resource = new AutomationResource(userManager, schedulerStateService, channelService, deliveryService, burstCreditService);
+        rolloutService = mock(GuardrailsRolloutService.class);
+        when(rolloutService.describeTelemetry()).thenReturn(Map.of(
+                "cohorts", List.of(),
+                "defaultMode", "enforced"));
+        resource = new AutomationResource(userManager, schedulerStateService, channelService, deliveryService, burstCreditService, rolloutService);
         request = mock(HttpServletRequest.class);
         profile = mock(UserProfile.class);
         Channel channel = new Channel(1, "https://example", "Ops Pager", true, 0L, 0L, true, "secret", 2, 5);

@@ -68,7 +68,10 @@ public class ReviewConcurrencyControllerTest {
                 false,
                 false,
                 runId,
-                "alice");
+                "alice",
+                "pilot",
+                GuardrailsRolloutService.RolloutMode.ENFORCED,
+                true);
     }
 
     private ReviewSchedulerStateService.SchedulerState state(ReviewSchedulerStateService.SchedulerState.Mode mode) {

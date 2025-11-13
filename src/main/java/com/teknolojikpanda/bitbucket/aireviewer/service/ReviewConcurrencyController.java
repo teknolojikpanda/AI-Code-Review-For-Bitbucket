@@ -5,6 +5,8 @@ import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService.RolloutMode;
+
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -166,7 +168,9 @@ public class ReviewConcurrencyController {
                     permit.getWaitingSince(),
                     repoWaiting,
                     projectWaiting,
-                    req.getRequestedBy()));
+                    req.getRequestedBy(),
+                    req.getCohortKey(),
+                    req.getRolloutMode()));
         });
         entries.sort(Comparator.comparingLong(QueueStats.QueueEntry::getWaitingSince));
         return entries;
@@ -306,7 +310,9 @@ public class ReviewConcurrencyController {
                 request != null && request.isForce(),
                 actor,
                 note,
-                request != null ? request.getRequestedBy() : null);
+                request != null ? request.getRequestedBy() : null,
+                request != null ? request.getCohortKey() : null,
+                request != null ? request.getRolloutMode() : null);
         queueActions.addFirst(event);
         queueAuditService.recordAction(event);
         while (queueActions.size() > MAX_QUEUE_ACTIONS) {
@@ -493,6 +499,11 @@ public class ReviewConcurrencyController {
         private final boolean force;
         private final String runId;
         private final String requestedBy;
+        @Nullable
+        private final String cohortKey;
+        @Nullable
+        private final RolloutMode rolloutMode;
+        private final boolean guardrailsEnabled;
 
         public ReviewExecutionRequest(String projectKey,
                                       String repositorySlug,
@@ -501,7 +512,10 @@ public class ReviewConcurrencyController {
                                       boolean update,
                                       boolean force,
                                       String runId,
-                                      String requestedBy) {
+                                      String requestedBy,
+                                      @Nullable String cohortKey,
+                                      @Nullable RolloutMode rolloutMode,
+                                      boolean guardrailsEnabled) {
             this.projectKey = projectKey;
             this.repositorySlug = repositorySlug;
             this.pullRequestId = pullRequestId;
@@ -510,6 +524,9 @@ public class ReviewConcurrencyController {
             this.force = force;
             this.runId = runId;
             this.requestedBy = requestedBy;
+            this.cohortKey = cohortKey;
+            this.rolloutMode = rolloutMode;
+            this.guardrailsEnabled = guardrailsEnabled;
         }
 
         public String getProjectKey() {
@@ -543,6 +560,20 @@ public class ReviewConcurrencyController {
         @Nullable
         public String getRequestedBy() {
             return requestedBy;
+        }
+
+        @Nullable
+        public String getCohortKey() {
+            return cohortKey;
+        }
+
+        @Nullable
+        public RolloutMode getRolloutMode() {
+            return rolloutMode;
+        }
+
+        public boolean isGuardrailsEnabled() {
+            return guardrailsEnabled;
         }
     }
 
@@ -666,6 +697,10 @@ public class ReviewConcurrencyController {
             private final String actor;
             private final String note;
             private final String requestedBy;
+            @Nullable
+            private final String cohortKey;
+            @Nullable
+            private final RolloutMode rolloutMode;
 
             public QueueAction(String action,
                                long timestamp,
@@ -678,7 +713,9 @@ public class ReviewConcurrencyController {
                                boolean force,
                                String actor,
                                String note,
-                               String requestedBy) {
+                               String requestedBy,
+                               @Nullable String cohortKey,
+                               @Nullable RolloutMode rolloutMode) {
                 this.action = action;
                 this.timestamp = timestamp;
                 this.runId = runId;
@@ -691,6 +728,8 @@ public class ReviewConcurrencyController {
                 this.actor = actor;
                 this.note = note;
                 this.requestedBy = requestedBy;
+                this.cohortKey = cohortKey;
+                this.rolloutMode = rolloutMode;
             }
 
             public String getAction() {
@@ -740,6 +779,16 @@ public class ReviewConcurrencyController {
             public String getRequestedBy() {
                 return requestedBy;
             }
+
+            @Nullable
+            public String getCohortKey() {
+                return cohortKey;
+            }
+
+            @Nullable
+            public RolloutMode getRolloutMode() {
+                return rolloutMode;
+            }
         }
 
         public static final class QueueEntry {
@@ -754,6 +803,10 @@ public class ReviewConcurrencyController {
             private final int repoWaiting;
             private final int projectWaiting;
             private final String requestedBy;
+            @Nullable
+            private final String cohortKey;
+            @Nullable
+            private final RolloutMode rolloutMode;
 
             public QueueEntry(String runId,
                               String projectKey,
@@ -765,7 +818,9 @@ public class ReviewConcurrencyController {
                               long waitingSince,
                               int repoWaiting,
                               int projectWaiting,
-                              String requestedBy) {
+                              String requestedBy,
+                              @Nullable String cohortKey,
+                              @Nullable RolloutMode rolloutMode) {
                 this.runId = runId;
                 this.projectKey = projectKey;
                 this.repositorySlug = repositorySlug;
@@ -777,6 +832,8 @@ public class ReviewConcurrencyController {
                 this.repoWaiting = repoWaiting;
                 this.projectWaiting = projectWaiting;
                 this.requestedBy = requestedBy;
+                this.cohortKey = cohortKey;
+                this.rolloutMode = rolloutMode;
             }
 
             public String getRunId() {
@@ -823,6 +880,16 @@ public class ReviewConcurrencyController {
             public String getRequestedBy() {
                 return requestedBy;
             }
+
+            @Nullable
+            public String getCohortKey() {
+                return cohortKey;
+            }
+
+            @Nullable
+            public RolloutMode getRolloutMode() {
+                return rolloutMode;
+            }
         }
 
         public static final class ScopeQueueStats {
@@ -861,6 +928,10 @@ public class ReviewConcurrencyController {
             private final boolean cancelRequested;
             @Nullable
             private final String requestedBy;
+            @Nullable
+            private final String cohortKey;
+            @Nullable
+            private final RolloutMode rolloutMode;
 
             public ActiveRunEntry(String runId,
                                   String projectKey,
@@ -871,7 +942,9 @@ public class ReviewConcurrencyController {
                                   boolean force,
                                   long startedAt,
                                   boolean cancelRequested,
-                                  @Nullable String requestedBy) {
+                                  @Nullable String requestedBy,
+                                  @Nullable String cohortKey,
+                                  @Nullable RolloutMode rolloutMode) {
                 this.runId = runId;
                 this.projectKey = projectKey;
                 this.repositorySlug = repositorySlug;
@@ -882,6 +955,8 @@ public class ReviewConcurrencyController {
                 this.startedAt = startedAt;
                 this.cancelRequested = cancelRequested;
                 this.requestedBy = requestedBy;
+                this.cohortKey = cohortKey;
+                this.rolloutMode = rolloutMode;
             }
 
             public String getRunId() {
@@ -923,6 +998,16 @@ public class ReviewConcurrencyController {
             @Nullable
             public String getRequestedBy() {
                 return requestedBy;
+            }
+
+            @Nullable
+            public String getCohortKey() {
+                return cohortKey;
+            }
+
+            @Nullable
+            public RolloutMode getRolloutMode() {
+                return rolloutMode;
             }
         }
     }
@@ -1115,7 +1200,9 @@ public class ReviewConcurrencyController {
                     request.isForce(),
                     startedAt,
                     cancelRequested.get(),
-                    request.getRequestedBy());
+                    request.getRequestedBy(),
+                    request.getCohortKey(),
+                    request.getRolloutMode());
         }
 
         ReviewExecutionRequest getRequest() {

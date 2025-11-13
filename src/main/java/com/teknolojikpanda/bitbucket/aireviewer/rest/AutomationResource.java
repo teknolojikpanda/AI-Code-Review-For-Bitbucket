@@ -9,10 +9,15 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryS
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertDeliveryService.Delivery;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsBurstCreditService.BurstCredit;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService.CohortMutation;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService.CohortRecord;
+import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService.ScopeMode;
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitScope;
 import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.servlet.http.HttpServletRequest;
@@ -28,6 +33,7 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,18 +55,21 @@ public class AutomationResource {
     private final GuardrailsAlertChannelService channelService;
     private final GuardrailsAlertDeliveryService deliveryService;
     private final GuardrailsBurstCreditService burstCreditService;
+    private final GuardrailsRolloutService rolloutService;
 
     @Inject
     public AutomationResource(@ComponentImport UserManager userManager,
                               ReviewSchedulerStateService schedulerStateService,
                               GuardrailsAlertChannelService channelService,
                               GuardrailsAlertDeliveryService deliveryService,
-                              GuardrailsBurstCreditService burstCreditService) {
+                              GuardrailsBurstCreditService burstCreditService,
+                              GuardrailsRolloutService rolloutService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.schedulerStateService = Objects.requireNonNull(schedulerStateService, "schedulerStateService");
         this.channelService = Objects.requireNonNull(channelService, "channelService");
         this.deliveryService = Objects.requireNonNull(deliveryService, "deliveryService");
         this.burstCreditService = Objects.requireNonNull(burstCreditService, "burstCreditService");
+        this.rolloutService = Objects.requireNonNull(rolloutService, "rolloutService");
     }
 
     @POST
@@ -110,6 +119,94 @@ public class AutomationResource {
         }
         ReviewSchedulerStateService.SchedulerState state = schedulerStateService.getState();
         return Response.ok(schedulerStateToMap(state)).build();
+    }
+
+    @GET
+    @Path("/rollout/cohorts")
+    public Response listRolloutCohorts(@Context HttpServletRequest request) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        Map<String, Object> telemetry = rolloutService.describeTelemetry();
+        Map<String, Map<String, Object>> metrics = indexTelemetryByKey(telemetry);
+        List<CohortRecord> records = rolloutService.listCohorts();
+        List<Map<String, Object>> payload = new ArrayList<>(records.size());
+        for (CohortRecord record : records) {
+            payload.add(cohortToMap(record, metrics.get(record.getCohortKey())));
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("cohorts", payload);
+        response.put("defaultMode", telemetry.getOrDefault("defaultMode", "enforced"));
+        return Response.ok(response).build();
+    }
+
+    @POST
+    @Path("/rollout/cohorts")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response createRolloutCohort(@Context HttpServletRequest request,
+                                        RolloutCohortRequest body) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        if (body == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "Request body is required"))
+                    .build();
+        }
+        try {
+            CohortMutation mutation = body.toMutation(resolveActor(access));
+            CohortRecord record = rolloutService.createCohort(mutation);
+            return Response.ok(cohortToMap(record, null)).build();
+        } catch (IllegalArgumentException ex) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", ex.getMessage()))
+                    .build();
+        }
+    }
+
+    @PUT
+    @Path("/rollout/cohorts/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response updateRolloutCohort(@Context HttpServletRequest request,
+                                        @PathParam("id") int id,
+                                        RolloutCohortRequest body) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        if (body == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", "Request body is required"))
+                    .build();
+        }
+        try {
+            CohortMutation mutation = body.toMutation(resolveActor(access));
+            CohortRecord record = rolloutService.updateCohort(id, mutation);
+            return Response.ok(cohortToMap(record, null)).build();
+        } catch (IllegalArgumentException ex) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(Map.of("error", ex.getMessage()))
+                    .build();
+        }
+    }
+
+    @DELETE
+    @Path("/rollout/cohorts/{id}")
+    public Response deleteRolloutCohort(@Context HttpServletRequest request,
+                                        @PathParam("id") int id) {
+        Access access = requireSystemAdmin(request);
+        if (!access.allowed) {
+            return access.response;
+        }
+        boolean removed = rolloutService.deleteCohort(id);
+        if (!removed) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(Map.of("error", "Cohort not found"))
+                    .build();
+        }
+        return Response.noContent().build();
     }
 
     @GET
@@ -337,6 +434,35 @@ public class AutomationResource {
         }
     }
 
+    public static final class RolloutCohortRequest {
+        public String key;
+        public String displayName;
+        public String description;
+        public String scopeMode;
+        public String projectKey;
+        public String repositorySlug;
+        public Integer rolloutPercent;
+        public String darkFeatureKey;
+        public Boolean enabled;
+
+        CohortMutation toMutation(String updatedBy) {
+            ScopeMode scope = ScopeMode.fromString(scopeMode);
+            int percent = rolloutPercent != null ? rolloutPercent : 100;
+            boolean active = enabled == null || enabled;
+            return new CohortMutation(
+                    key,
+                    displayName,
+                    description,
+                    scope,
+                    projectKey,
+                    repositorySlug,
+                    percent,
+                    darkFeatureKey,
+                    active,
+                    updatedBy);
+        }
+    }
+
     public static final class AckRequest {
         public String note;
     }
@@ -431,5 +557,84 @@ public class AutomationResource {
         map.put("note", credit.getNote());
         map.put("lastConsumedAt", credit.getLastConsumedAt());
         return map;
+    }
+
+    private Map<String, Object> cohortToMap(CohortRecord record,
+                                            @Nullable Map<String, Object> metrics) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", record.getId());
+        map.put("key", record.getCohortKey());
+        map.put("displayName", record.getDisplayName());
+        map.put("description", record.getDescription());
+        map.put("scopeMode", record.getScopeMode().name().toLowerCase(Locale.ROOT));
+        map.put("projectKey", record.getProjectKey());
+        map.put("repositorySlug", record.getRepositorySlug());
+        map.put("rolloutPercent", record.getRolloutPercent());
+        map.put("darkFeatureKey", record.getDarkFeatureKey());
+        map.put("enabled", record.isEnabled());
+        map.put("createdAt", record.getCreatedAt());
+        map.put("updatedAt", record.getUpdatedAt());
+        map.put("updatedBy", record.getUpdatedBy());
+        map.put("metrics", metrics != null ? metrics : Map.of());
+        return map;
+    }
+
+    private Map<String, Map<String, Object>> indexTelemetryByKey(@Nullable Map<String, Object> telemetry) {
+        Map<String, Map<String, Object>> index = new LinkedHashMap<>();
+        if (telemetry == null) {
+            return index;
+        }
+        Object cohortsObj = telemetry.get("cohorts");
+        if (!(cohortsObj instanceof List<?>)) {
+            return index;
+        }
+        List<?> list = (List<?>) cohortsObj;
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<?, ?> raw = (Map<?, ?>) item;
+            Object key = raw.get("key");
+            if (!(key instanceof String)) {
+                continue;
+            }
+            Map<String, Object> metrics = toStringObjectMap(raw.get("metrics"));
+            index.put((String) key, metrics);
+        }
+        return index;
+    }
+
+    private Map<String, Object> toStringObjectMap(@Nullable Object value) {
+        if (!(value instanceof Map<?, ?>)) {
+            return Map.of();
+        }
+        Map<?, ?> raw = (Map<?, ?>) value;
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            if (entry.getKey() instanceof String) {
+                map.put((String) entry.getKey(), entry.getValue());
+            }
+        }
+        return map;
+    }
+
+    private String resolveActor(Access access) {
+        if (access != null && access.profile != null) {
+            String username = access.profile.getUsername();
+            if (username != null && !username.isBlank()) {
+                return username;
+            }
+            if (access.profile.getUserKey() != null) {
+                String key = access.profile.getUserKey().getStringValue();
+                if (key != null && !key.isBlank()) {
+                    return key;
+                }
+            }
+            String displayName = access.profile.getFullName();
+            if (displayName != null && !displayName.isBlank()) {
+                return displayName;
+            }
+        }
+        return "system";
     }
 }
