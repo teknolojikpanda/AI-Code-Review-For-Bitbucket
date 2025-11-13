@@ -16,6 +16,7 @@ Commands:
   alerts           Fetch the latest guardrails alerts (and trigger outbound notifications).
   cleanup-status   Fetch cleanup schedule + recent runs.
   cleanup-run      Trigger an immediate cleanup run using saved schedule.
+  cleanup-export   Download retention export (`--format`, `--days`, `--limit`, `--chunks`, `--output`, `--preview`).
 
 Environment:
   GUARDRAILS_BASE_URL   Base Bitbucket URL (e.g. https://bitbucket.example.com).
@@ -35,6 +36,141 @@ require_env() {
         echo "Error: ${name} is not set." >&2
         usage
         exit 1
+    fi
+}
+
+cleanup_export() {
+    local base_url="$1"
+    local auth="$2"
+    shift 2 || true
+
+    local format="json"
+    local retention_days=""
+    local limit=""
+    local include_chunks="false"
+    local output=""
+    local preview="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --format=*)
+                format="${1#*=}"
+                ;;
+            --format)
+                format="${2:-json}"
+                shift || true
+                ;;
+            --days=*|--retentionDays=*)
+                retention_days="${1#*=}"
+                ;;
+            --days|--retentionDays)
+                retention_days="${2:-}"
+                shift || true
+                ;;
+            --limit=*)
+                limit="${1#*=}"
+                ;;
+            --limit)
+                limit="${2:-}"
+                shift || true
+                ;;
+            --chunks|--include-chunks)
+                include_chunks="true"
+                ;;
+            --no-chunks)
+                include_chunks="false"
+                ;;
+            --output=*)
+                output="${1#*=}"
+                ;;
+            --output)
+                output="${2:-}"
+                shift || true
+                ;;
+            --preview)
+                preview="true"
+                ;;
+            --help|-h)
+                cat <<'EOHELP'
+cleanup-export options:
+  --format json|csv         Output format (default json).
+  --days N                  Retention window in days (default uses schedule).
+  --limit N                 Max number of rows to export (default 100).
+  --chunks                  Include chunk telemetry (larger payload).
+  --output /path/file       Destination file (CSV only, defaults to guardrails-retention-export.csv).
+  --preview                 Fetch JSON preview instead of downloading.
+EOHELP
+                return 0
+                ;;
+            *)
+                echo "Unknown cleanup-export option: $1" >&2
+                usage
+                exit 1
+                ;;
+        esac
+        shift || true
+    done
+
+    format="${format,,}"
+    if [[ "${preview}" == "true" && "${format}" != "json" ]]; then
+        echo "Preview is only available for JSON; overriding format to json." >&2
+        format="json"
+    fi
+
+    local query_params=()
+    if [[ -n "${retention_days}" ]]; then
+        query_params+=("retentionDays=${retention_days}")
+    fi
+    if [[ -n "${limit}" ]]; then
+        query_params+=("limit=${limit}")
+    fi
+    if [[ "${include_chunks}" == "true" ]]; then
+        query_params+=("includeChunks=true")
+    fi
+    local query_string=""
+    if [[ ${#query_params[@]} -gt 0 ]]; then
+        local IFS='&'
+        query_string="${query_params[*]}"
+    fi
+
+    local headers=(-H "Content-Type: application/json")
+    if [[ "${preview}" == "true" ]]; then
+        local preview_endpoint="/rest/ai-reviewer/1.0/history/cleanup/export"
+        local preview_url="${base_url}${preview_endpoint}"
+        if [[ -n "${query_string}" ]]; then
+            preview_url="${preview_url}?${query_string}"
+        }
+        local response
+        response=$(curl --fail -sS -u "${auth}" "${headers[@]}" "${preview_url}")
+        if command -v jq >/dev/null 2>&1; then
+            printf '%s\n' "${response}" | jq '.'
+        else
+            printf '%s\n' "${response}"
+        fi
+        return 0
+    fi
+
+    local download_endpoint="/rest/ai-reviewer/1.0/history/cleanup/export/download"
+    local download_query="format=${format}"
+    if [[ -n "${query_string}" ]]; then
+        download_query="${download_query}&${query_string}"
+    fi
+    local download_url="${base_url}${download_endpoint}?${download_query}"
+
+    if [[ "${format}" == "csv" ]]; then
+        local file="${output:-guardrails-retention-export.csv}"
+        curl --fail -sS -u "${auth}" \
+            -H "Accept: text/csv" \
+            "${download_url}" -o "${file}"
+        echo "Retention export saved to ${file}"
+    else
+        local response
+        response=$(curl --fail -sS -u "${auth}" "${headers[@]}" "${download_url}")
+        if command -v jq >/dev/null 2>&1; then
+            printf '%s\n' "${response}" | jq '.'
+        else
+            printf '%s\n' "${response}"
+        fi
     fi
 }
 
@@ -85,6 +221,10 @@ main() {
             method="POST"
             payload='{"runNow":true}'
             custom_payload="true"
+            ;;
+        cleanup-export)
+            cleanup_export "${base_url}" "${auth}" "$@"
+            return 0
             ;;
         *)
             echo "Unknown command: ${command}" >&2

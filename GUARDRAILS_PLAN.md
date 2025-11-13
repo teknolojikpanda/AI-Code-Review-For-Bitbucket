@@ -63,7 +63,7 @@
 [X] 2. Compress large `progress`/`metrics` blobs before persisting to reduce AO load. _(Metrics/progress snapshots now store gzip+Base64 payloads with transparent inflate in history readers/exporters.)_
 [X] 3. Add a background AO maintenance task that runs during off-peak hours, batching deletes to avoid table locks and emitting metrics for processed rows. _(Nightly ReviewHistoryMaintenanceService now enforces a configurable window/start hour, chains batches via the scheduler, and surfaces the processed counts/metrics in REST + UI.)_
 [X] 4. Surface retention/cleanup status in the admin UI (last run, duration, records purged) so operators can confirm hygiene jobs run successfully. _(Health dashboard now includes a Cleanup card summarizing last run time, duration, deleted rows, window, and error state.)_
-[ ] 5. Provide export tooling (CSV/JSON) before cleanup runs so teams can archive long-lived data externally. _(Retention export REST + streaming download endpoints implemented.)_
+[X] 5. Provide export tooling (CSV/JSON) before cleanup runs so teams can archive long-lived data externally. _(Operations UI now exposes a Retention Export form + preview, and `guardrails-cli.sh cleanup-export` wraps the JSON/CSV download endpoints.)_
 [ ] 6. Introduce integrity checks that ensure orphaned progress/metrics records are detected and repaired automatically. _(Integrity reporting + auto-repair REST endpoint shipped.)_
 
 ### 8. Testing & Rollout

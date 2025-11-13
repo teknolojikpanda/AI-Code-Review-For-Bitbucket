@@ -98,6 +98,10 @@ export GUARDRAILS_AUTH=admin:api-token
 
 # Trigger an on-demand cleanup using the saved schedule
 ./scripts/guardrails-cli.sh cleanup-run
+
+# Export retention candidates before a manual cleanup (JSON preview or CSV download)
+./scripts/guardrails-cli.sh cleanup-export --preview --days=120 --limit=50
+./scripts/guardrails-cli.sh cleanup-export --format=csv --days=180 --limit=500 --chunks --output=/tmp/ai-history-archive.csv
 ```
 
 The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.
@@ -135,6 +139,7 @@ The script prints the scheduler JSON response (requires `jq` for pretty output).
 2. **Validate scheduler health:** `ai.retention.cleanup.enabled` (should be 1) and `ai.retention.cleanup.lastErrorFlag` (should be 0). A high `ai.retention.cleanup.lastRunAgeSeconds` means the job has not run recently. Use the “Recent Cleanup Runs” table on the Health dashboard to inspect the last few executions (duration, actor, manual/system, error text).
    - The Health page Runtime Snapshot now includes a **Cleanup** card that mirrors these values (enabled flag, last run timestamp, duration, deleted histories/chunks, batches, and the configured window) so you can confirm hygiene at a glance without drilling into the Operations page.
 3. **Pre-cleanup export/integrity:**
+   - Use the **Retention Export** form on the Operations page to pull a JSON preview or download a CSV/JSON snapshot (retention window, row limit, optional chunk telemetry) before purging data. This leverages the `/history/cleanup/export` + `/history/cleanup/export/download` endpoints so you do not need curl scripts.
    - `GET /history/cleanup/export` for a quick JSON snapshot, or `/history/cleanup/export/download?format=csv&includeChunks=true` to capture a spreadsheet-friendly attachment with per-chunk telemetry.
    - `GET /history/cleanup/integrity` to ensure chunk counts match what will be deleted. If the report flags mismatches, pause cleanup and run `POST /history/cleanup/integrity` with `{"repair": true}` to clear corrupt progress/metrics blobs and resync chunk counts automatically.
    > **Heads-up:** Large `metricsJson` / `progressJson` blobs are automatically stored as gzip+Base64 payloads (`gz:` prefix). All REST/CLI exports already decompress them, but if you query the AO tables directly you will need to decode the field before inspection.

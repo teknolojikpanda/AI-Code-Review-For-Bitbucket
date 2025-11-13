@@ -11,6 +11,9 @@
     var queueCancelUrl = queueAdminUrl + '/cancel';
     var runningCancelUrl = baseUrl + '/rest/ai-reviewer/1.0/progress/admin/running/cancel';
     var cleanupUrl = baseUrl + '/rest/ai-reviewer/1.0/history/cleanup';
+    var historyBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/history';
+    var cleanupExportDownloadUrl = historyBaseUrl + '/cleanup/export/download';
+    var cleanupExportPreviewUrl = historyBaseUrl + '/cleanup/export';
     var automationBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/automation';
     var rolloutStateUrl = automationBaseUrl + '/rollout/state';
     var channelsUrl = automationBaseUrl + '/channels';
@@ -28,6 +31,17 @@
         $('#cleanup-run-btn').on('click', function(event) {
             event.preventDefault();
             submitCleanup(true);
+        });
+        $('#cleanup-export-form').on('submit', function(event) {
+            event.preventDefault();
+            triggerCleanupExportDownload();
+        });
+        $('#cleanup-export-preview').on('click', function(event) {
+            event.preventDefault();
+            previewCleanupExport();
+        });
+        $('#cleanup-export-format').on('change', function() {
+            adjustCleanupExportControls();
         });
         $('.rollout-btn').on('click', function(event) {
             event.preventDefault();
@@ -86,6 +100,7 @@
                 cancelRunningBulk();
             }
         });
+        adjustCleanupExportControls();
         refreshOperations();
         loadAutomationData();
     }
@@ -588,6 +603,8 @@
             var message = formatCleanupResult(latestResult);
             setCleanupMessage('info', message, false);
         }
+        updateCleanupExportDefaults(status);
+        adjustCleanupExportControls();
     }
 
     function submitCleanup(runNow) {
@@ -727,6 +744,104 @@
         $table.show();
         $empty.hide();
         $count.text(runs.length + (runs.length === 1 ? ' run' : ' runs'));
+    }
+
+    function updateCleanupExportDefaults(status) {
+        status = status || {};
+        var $days = $('#cleanup-export-days');
+        if ($days.length && !$days.val()) {
+            if (status.retentionDays != null) {
+                $days.val(status.retentionDays);
+            }
+        }
+    }
+
+    function adjustCleanupExportControls() {
+        var format = $('#cleanup-export-format').val() || 'json';
+        $('#cleanup-export-preview').prop('disabled', format !== 'json');
+        if (format !== 'json') {
+            setCleanupExportMessage();
+        }
+    }
+
+    function buildCleanupExportParams() {
+        var format = ($('#cleanup-export-format').val() || 'json').toLowerCase();
+        var days = parseIntField('#cleanup-export-days');
+        var limit = parseIntField('#cleanup-export-limit');
+        var includeChunks = $('#cleanup-export-chunks').is(':checked');
+        var params = [];
+        if (days != null) {
+            params.push('retentionDays=' + encodeURIComponent(days));
+        }
+        if (limit != null) {
+            params.push('limit=' + encodeURIComponent(limit));
+        }
+        if (includeChunks) {
+            params.push('includeChunks=true');
+        }
+        return {
+            format: format,
+            query: params.join('&')
+        };
+    }
+
+    function triggerCleanupExportDownload() {
+        var request = buildCleanupExportParams();
+        var format = request.format || 'json';
+        var query = request.query ? '&' + request.query : '';
+        var url = cleanupExportDownloadUrl + '?format=' + encodeURIComponent(format) + query;
+        setCleanupExportMessage('info', 'Preparing ' + format.toUpperCase() + ' download…');
+        window.location = url;
+        setTimeout(function() {
+            setCleanupExportMessage('success', 'If the download did not start, ensure pop-ups/downloads are allowed for this page.');
+        }, 800);
+    }
+
+    function previewCleanupExport() {
+        var request = buildCleanupExportParams();
+        if (request.format !== 'json') {
+            setCleanupExportMessage('warning', 'Preview is only available for JSON exports.');
+            return;
+        }
+        var query = request.query ? '?' + request.query : '';
+        setCleanupExportMessage('info', 'Fetching preview…', true);
+        $.ajax({
+            url: cleanupExportPreviewUrl + query,
+            type: 'GET',
+            dataType: 'json'
+        }).done(function(resp) {
+            resp = resp || {};
+            var entries = Array.isArray(resp.entries) ? resp.entries.length : 0;
+            var count = resp.count != null ? resp.count : entries;
+            var limit = resp.limit != null ? resp.limit : '—';
+            var retentionDays = resp.retentionDays != null ? resp.retentionDays : '—';
+            var message = 'Preview ready: ' + entries + ' entries (count field ' + count + ', limit ' + limit + ', retention ' + retentionDays + 'd).';
+            setCleanupExportMessage('success', message);
+        }).fail(function(xhr) {
+            setCleanupExportMessage('error', describeError(xhr, 'Failed to fetch export preview'));
+        });
+    }
+
+    function setCleanupExportMessage(type, message, showSpinner) {
+        var $message = $('#cleanup-export-message');
+        if (!$message.length) {
+            return;
+        }
+        if (!message) {
+            $message.hide().removeClass('info error warning success').text('');
+            return;
+        }
+        var css = 'info';
+        if (type === 'error') {
+            css = 'error';
+        } else if (type === 'warning') {
+            css = 'warning';
+        } else if (type === 'success') {
+            css = 'success';
+        }
+        $message.removeClass('info error warning success').addClass(css);
+        var content = showSpinner ? '<span class="aui-icon aui-icon-wait"></span> ' + escapeHtml(message) : escapeHtml(message);
+        $message.html(content).show();
     }
 
     function renderRollout(state) {

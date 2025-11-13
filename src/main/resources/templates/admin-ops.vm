@@ -379,6 +379,46 @@
                             </table>
                         </div>
                     </div>
+                    <div class="ops-panel">
+                        <div class="ops-panel__header">
+                            <div>
+                                <h3>Retention Export</h3>
+                                <span class="ops-panel__hint">Download a JSON/CSV snapshot before or after cleanup to archive AI review history externally.</span>
+                            </div>
+                        </div>
+                        <form id="cleanup-export-form" class="cleanup-form">
+                            <div class="ops-form-grid ops-form-grid--two-column">
+                                <div class="ops-form-field">
+                                    <label for="cleanup-export-format">Format</label>
+                                    <select id="cleanup-export-format" class="select">
+                                        <option value="json">JSON (preview + download)</option>
+                                        <option value="csv">CSV (download only)</option>
+                                    </select>
+                                    <span class="ops-field-hint">JSON streams structured data, CSV is spreadsheet-friendly.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-export-days">Retention window (days)</label>
+                                    <input class="text" type="number" id="cleanup-export-days" min="1" placeholder="defaults to schedule">
+                                    <span class="ops-field-hint">Only rows older than this window are exported.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-export-limit">Row limit</label>
+                                    <input class="text" type="number" id="cleanup-export-limit" min="1" value="100">
+                                    <span class="ops-field-hint">Cap export size to keep downloads manageable.</span>
+                                </div>
+                                <div class="ops-form-field ops-form-field--checkbox">
+                                    <input class="checkbox" type="checkbox" id="cleanup-export-chunks">
+                                    <label for="cleanup-export-chunks">Include chunk telemetry</label>
+                                    <span class="ops-field-hint">Adds per-chunk rows (larger payload).</span>
+                                </div>
+                            </div>
+                            <div class="ops-form-actions">
+                                <button type="submit" class="aui-button aui-button-primary" id="cleanup-export-download">Download Export</button>
+                                <button type="button" class="aui-button" id="cleanup-export-preview">Preview JSON</button>
+                            </div>
+                            <div class="aui-message info" id="cleanup-export-message" style="display:none;"></div>
+                        </form>
+                    </div>
                 </section>
             </div>
         </section>
