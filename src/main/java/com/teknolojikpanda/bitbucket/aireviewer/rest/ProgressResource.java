@@ -308,9 +308,7 @@ public class ProgressResource {
                     .entity(error("runId is required to cancel a queued review."))
                     .build();
         }
-        String actor = admin.profile != null && admin.profile.getUserKey() != null
-                ? admin.profile.getUserKey().getStringValue()
-                : "admin";
+        String actor = resolveActor(admin.profile);
         String note = normalizeReason(body);
         boolean cancelled = concurrencyController.cancelQueuedRun(body.runId.trim(), actor, note);
         if (!cancelled) {
@@ -335,9 +333,7 @@ public class ProgressResource {
             return admin.response;
         }
         ReviewConcurrencyController.BulkCancelRequest cancelRequest = toBulkRequest(body);
-        String actor = admin.profile != null && admin.profile.getUserKey() != null
-                ? admin.profile.getUserKey().getStringValue()
-                : "admin";
+        String actor = resolveActor(admin.profile);
         String note = normalizeReason(body);
         ReviewConcurrencyController.BulkCancelResult result = concurrencyController.cancelQueuedRuns(cancelRequest, actor, note);
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -361,9 +357,7 @@ public class ProgressResource {
                     .entity(error("runId is required to cancel an active review."))
                     .build();
         }
-        String actor = admin.profile != null && admin.profile.getUserKey() != null
-                ? admin.profile.getUserKey().getStringValue()
-                : "admin";
+        String actor = resolveActor(admin.profile);
         String note = normalizeReason(body);
         boolean cancelled = concurrencyController.cancelActiveRun(body.runId.trim(), actor, note);
         if (!cancelled) {
@@ -387,9 +381,7 @@ public class ProgressResource {
         if (!admin.allowed) {
             return admin.response;
         }
-        String actor = admin.profile != null && admin.profile.getUserKey() != null
-                ? admin.profile.getUserKey().getStringValue()
-                : "admin";
+        String actor = resolveActor(admin.profile);
         String note = normalizeReason(body);
         ReviewConcurrencyController.BulkCancelResult result = concurrencyController.cancelActiveRuns(actor, note);
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -803,6 +795,24 @@ public class ProgressResource {
             return null;
         }
         return profile.getUserKey().getStringValue();
+    }
+
+    private String resolveActor(@Nullable UserProfile profile) {
+        if (profile == null) {
+            return "system";
+        }
+        String displayName = profile.getFullName();
+        if (displayName != null && !displayName.trim().isEmpty()) {
+            return displayName.trim();
+        }
+        String username = profile.getUsername();
+        if (username != null && !username.trim().isEmpty()) {
+            return username.trim();
+        }
+        if (profile.getUserKey() != null) {
+            return profile.getUserKey().getStringValue();
+        }
+        return "system";
     }
 
     private static final class Access {
