@@ -17,6 +17,7 @@ Commands:
   cleanup-status   Fetch cleanup schedule + recent runs.
   cleanup-run      Trigger an immediate cleanup run using saved schedule.
   cleanup-export   Download retention export (`--format`, `--days`, `--limit`, `--chunks`, `--output`, `--preview`).
+  cleanup-integrity Run or repair retention integrity (`--days`, `--sample`, `--repair`).
 
 Environment:
   GUARDRAILS_BASE_URL   Base Bitbucket URL (e.g. https://bitbucket.example.com).
@@ -174,6 +175,100 @@ EOHELP
     fi
 }
 
+cleanup_integrity() {
+    local base_url="$1"
+    local auth="$2"
+    shift 2 || true
+
+    local retention_days=""
+    local sample=""
+    local repair="false"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --days=*|--retentionDays=*)
+                retention_days="${1#*=}"
+                ;;
+            --days|--retentionDays)
+                retention_days="${2:-}"
+                shift || true
+                ;;
+            --sample=*)
+                sample="${1#*=}"
+                ;;
+            --sample)
+                sample="${2:-}"
+                shift || true
+                ;;
+            --repair)
+                repair="true"
+                ;;
+            --help|-h)
+                cat <<'EOHELP'
+cleanup-integrity options:
+  --days N          Retention window in days (defaults to schedule).
+  --sample N        Sample size (default 100).
+  --repair          Apply repairs instead of running a read-only report.
+EOHELP
+                return 0
+                ;;
+        *)
+            echo "Unknown cleanup-integrity option: $1" >&2
+            usage
+            exit 1
+            ;;
+        esac
+        shift || true
+    done
+
+    local query_params=()
+    if [[ -n "${retention_days}" ]]; then
+        query_params+=("retentionDays=${retention_days}")
+    fi
+    if [[ -n "${sample}" ]]; then
+        query_params+=("sample=${sample}")
+    fi
+    local query_string=""
+    if [[ ${#query_params[@]} -gt 0 ]]; then
+        local IFS='&'
+        query_string="${query_params[*]}"
+    fi
+
+    local endpoint="/rest/ai-reviewer/1.0/history/cleanup/integrity"
+    local headers=(-H "Content-Type: application/json")
+    local url="${base_url}${endpoint}"
+    if [[ -n "${query_string}" ]]; then
+        url="${url}?${query_string}"
+    fi
+
+    if [[ "${repair}" == "true" ]]; then
+        local payload_parts=()
+        if [[ -n "${retention_days}" ]]; then
+            payload_parts+=("\"retentionDays\":${retention_days}")
+        fi
+        if [[ -n "${sample}" ]]; then
+            payload_parts+=("\"sample\":${sample}")
+        fi
+        payload_parts+=("\"repair\":true")
+        local IFS=','
+        local payload="{${payload_parts[*]}}"
+        local response
+        response=$(curl --fail -sS -u "${auth}" "${headers[@]}" -X POST -d "${payload}" "${url}")
+        if command -v jq >/dev/null 2>&1; then
+            printf '%s\n' "${response}" | jq '.'
+        else
+            printf '%s\n' "${response}"
+        fi
+    } else {
+        local response
+        response=$(curl --fail -sS -u "${auth}" "${headers[@]}" "${url}")
+        if command -v jq >/dev/null 2>&1; then
+            printf '%s\n' "${response}" | jq '.'
+        else
+            printf '%s\n' "${response}"
+        fi
+    fi
+}
 main() {
     if [[ $# -lt 1 ]]; then
         usage
@@ -224,6 +319,10 @@ main() {
             ;;
         cleanup-export)
             cleanup_export "${base_url}" "${auth}" "$@"
+            return 0
+            ;;
+        cleanup-integrity)
+            cleanup_integrity "${base_url}" "${auth}" "$@"
             return 0
             ;;
         *)

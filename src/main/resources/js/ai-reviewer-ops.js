@@ -14,6 +14,7 @@
     var historyBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/history';
     var cleanupExportDownloadUrl = historyBaseUrl + '/cleanup/export/download';
     var cleanupExportPreviewUrl = historyBaseUrl + '/cleanup/export';
+    var cleanupIntegrityUrl = historyBaseUrl + '/cleanup/integrity';
     var automationBaseUrl = baseUrl + '/rest/ai-reviewer/1.0/automation';
     var rolloutStateUrl = automationBaseUrl + '/rollout/state';
     var channelsUrl = automationBaseUrl + '/channels';
@@ -42,6 +43,14 @@
         });
         $('#cleanup-export-format').on('change', function() {
             adjustCleanupExportControls();
+        });
+        $('#cleanup-integrity-run').on('click', function(event) {
+            event.preventDefault();
+            runCleanupIntegrity(false);
+        });
+        $('#cleanup-integrity-repair-btn').on('click', function(event) {
+            event.preventDefault();
+            runCleanupIntegrity(true);
         });
         $('.rollout-btn').on('click', function(event) {
             event.preventDefault();
@@ -840,6 +849,103 @@
             css = 'success';
         }
         $message.removeClass('info error warning success').addClass(css);
+        var content = showSpinner ? '<span class="aui-icon aui-icon-wait"></span> ' + escapeHtml(message) : escapeHtml(message);
+        $message.html(content).show();
+    }
+
+    function buildCleanupIntegrityParams() {
+        return {
+            retentionDays: parseIntField('#cleanup-integrity-days'),
+            sample: parseIntField('#cleanup-integrity-sample')
+        };
+    }
+
+    function runCleanupIntegrity(repair) {
+        var params = buildCleanupIntegrityParams();
+        var query = [];
+        if (params.retentionDays != null) {
+            query.push('retentionDays=' + encodeURIComponent(params.retentionDays));
+        }
+        if (params.sample != null) {
+            query.push('sample=' + encodeURIComponent(params.sample));
+        }
+        var queryString = query.length ? '?' + query.join('&') : '';
+        setCleanupIntegrityMessage('info', repair ? 'Running integrity repair…' : 'Running integrity check…', true);
+        var ajaxOptions = {
+            dataType: 'json'
+        };
+        if (repair) {
+            ajaxOptions.type = 'POST';
+            ajaxOptions.contentType = 'application/json';
+            ajaxOptions.url = cleanupIntegrityUrl;
+            ajaxOptions.data = JSON.stringify({
+                retentionDays: params.retentionDays,
+                sample: params.sample,
+                repair: true
+            });
+        } else {
+            ajaxOptions.type = 'GET';
+            ajaxOptions.url = cleanupIntegrityUrl + queryString;
+        }
+        $.ajax(ajaxOptions).done(function(resp) {
+            renderIntegrityResults(resp || {});
+            var summary = repair ? 'Integrity check & repair completed.' : 'Integrity check completed.';
+            setCleanupIntegrityMessage('success', summary);
+        }).fail(function(xhr) {
+            setCleanupIntegrityMessage('error', describeError(xhr, 'Unable to run integrity check'));
+        });
+    }
+
+    function renderIntegrityResults(report) {
+        if (!report) {
+            $('#cleanup-integrity-results').hide();
+            return;
+        }
+        var rows = [];
+        rows.push(buildIntegrityRow('Retention days', report.retentionDays));
+        rows.push(buildIntegrityRow('Cutoff (epoch)', report.cutoffEpochMs ? formatTimestamp(report.cutoffEpochMs) : '—'));
+        rows.push(buildIntegrityRow('Generated at', report.generatedAt ? formatTimestamp(report.generatedAt) : '—'));
+        rows.push(buildIntegrityRow('Total candidates', report.totalCandidates));
+        rows.push(buildIntegrityRow('Sampled entries', report.sampledEntries));
+        rows.push(buildIntegrityRow('Chunk mismatches', report.chunkMismatches));
+        rows.push(buildIntegrityRow('Progress anomalies', report.progressAnomalies));
+        rows.push(buildIntegrityRow('Metrics anomalies', report.metricsAnomalies));
+        rows.push(buildIntegrityRow('Repairs applied', report.repairsApplied));
+        rows.push(buildIntegrityRow('Repair attempted', report.repairAttempted ? 'Yes' : 'No'));
+        var $results = $('#cleanup-integrity-results');
+        $results.find('tbody').html(rows.join(''));
+        var mismatchCount = (report.mismatchSamples || []).length;
+        var progressIssues = (report.progressIssues || []).length;
+        var metricIssues = (report.metricIssues || []).length;
+        var repairs = (report.repairActions || []).length;
+        var summary = 'Samples: chunk mismatches ' + mismatchCount +
+            ', progress issues ' + progressIssues +
+            ', metrics issues ' + metricIssues +
+            ', repair actions ' + repairs + '.';
+        $('#cleanup-integrity-summary').text(summary);
+        $results.show();
+    }
+
+    function buildIntegrityRow(label, value) {
+        return '<tr><td>' + escapeHtml(label) + '</td><td>' + escapeHtml(valueOrDash(value)) + '</td></tr>';
+    }
+
+    function setCleanupIntegrityMessage(type, message, showSpinner) {
+        var $message = $('#cleanup-integrity-message');
+        if (!$message.length) {
+            return;
+        }
+        if (!message) {
+            $message.hide().removeClass('info error success').text('');
+            return;
+        }
+        var css = 'info';
+        if (type === 'error') {
+            css = 'error';
+        } else if (type === 'success') {
+            css = 'success';
+        }
+        $message.removeClass('info error success').addClass(css);
         var content = showSpinner ? '<span class="aui-icon aui-icon-wait"></span> ' + escapeHtml(message) : escapeHtml(message);
         $message.html(content).show();
     }

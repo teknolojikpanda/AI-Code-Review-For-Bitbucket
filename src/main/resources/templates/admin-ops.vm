@@ -419,6 +419,50 @@
                             <div class="aui-message info" id="cleanup-export-message" style="display:none;"></div>
                         </form>
                     </div>
+                    <div class="ops-panel">
+                        <div class="ops-panel__header">
+                            <div>
+                                <h3>Integrity Check & Repair</h3>
+                                <span class="ops-panel__hint">Detect or automatically repair orphaned metrics/progress blobs before retention cleanup runs.</span>
+                            </div>
+                        </div>
+                        <form id="cleanup-integrity-form" class="cleanup-form">
+                            <div class="ops-form-grid ops-form-grid--two-column">
+                                <div class="ops-form-field">
+                                    <label for="cleanup-integrity-days">Retention window (days)</label>
+                                    <input class="text" type="number" id="cleanup-integrity-days" min="1" placeholder="defaults to schedule">
+                                    <span class="ops-field-hint">Older-than window used to sample candidates.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-integrity-sample">Sample size</label>
+                                    <input class="text" type="number" id="cleanup-integrity-sample" min="1" value="100">
+                                    <span class="ops-field-hint">Maximum rows inspected per run (keeps checks fast).</span>
+                                </div>
+                                <div class="ops-form-field ops-form-field--checkbox">
+                                    <input class="checkbox" type="checkbox" id="cleanup-integrity-repair">
+                                    <label for="cleanup-integrity-repair">Apply repairs</label>
+                                    <span class="ops-field-hint">When enabled, corrupt JSON blobs are cleared automatically.</span>
+                                </div>
+                            </div>
+                            <div class="ops-form-actions">
+                                <button type="button" class="aui-button" id="cleanup-integrity-run">Run Check</button>
+                                <button type="button" class="aui-button aui-button-primary" id="cleanup-integrity-repair-btn">Run + Repair</button>
+                            </div>
+                            <div class="aui-message info" id="cleanup-integrity-message" style="display:none;"></div>
+                            <div class="ops-table-wrapper" id="cleanup-integrity-results" style="display:none;">
+                                <table class="aui aui-table aui-table-rowhover">
+                                    <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Value</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                                <div class="ops-panel__hint" id="cleanup-integrity-summary"></div>
+                            </div>
+                        </form>
+                    </div>
                 </section>
             </div>
         </section>

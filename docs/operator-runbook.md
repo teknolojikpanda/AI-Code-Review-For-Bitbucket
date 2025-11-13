@@ -102,6 +102,10 @@ export GUARDRAILS_AUTH=admin:api-token
 # Export retention candidates before a manual cleanup (JSON preview or CSV download)
 ./scripts/guardrails-cli.sh cleanup-export --preview --days=120 --limit=50
 ./scripts/guardrails-cli.sh cleanup-export --format=csv --days=180 --limit=500 --chunks --output=/tmp/ai-history-archive.csv
+
+# Sample or repair retention integrity
+./scripts/guardrails-cli.sh cleanup-integrity --days=90 --sample=150
+./scripts/guardrails-cli.sh cleanup-integrity --days=90 --sample=150 --repair
 ```
 
 The script prints the scheduler JSON response (requires `jq` for pretty output). Because it only depends on curl it can be embedded in Cron, Rundeck, or any CI/CD workflow to automate pause/resume sequences.
@@ -141,7 +145,7 @@ The script prints the scheduler JSON response (requires `jq` for pretty output).
 3. **Pre-cleanup export/integrity:**
    - Use the **Retention Export** form on the Operations page to pull a JSON preview or download a CSV/JSON snapshot (retention window, row limit, optional chunk telemetry) before purging data. This leverages the `/history/cleanup/export` + `/history/cleanup/export/download` endpoints so you do not need curl scripts.
    - `GET /history/cleanup/export` for a quick JSON snapshot, or `/history/cleanup/export/download?format=csv&includeChunks=true` to capture a spreadsheet-friendly attachment with per-chunk telemetry.
-   - `GET /history/cleanup/integrity` to ensure chunk counts match what will be deleted. If the report flags mismatches, pause cleanup and run `POST /history/cleanup/integrity` with `{"repair": true}` to clear corrupt progress/metrics blobs and resync chunk counts automatically.
+   - Run the **Integrity Check & Repair** panel (or `cleanup-integrity` CLI command) to detect orphaned progress/metrics blobs before deleting anything. The UI/CLI both call `GET /history/cleanup/integrity` for sampling and `POST /history/cleanup/integrity` with `{"repair": true}` when you are ready to clear corrupt rows automatically.
    > **Heads-up:** Large `metricsJson` / `progressJson` blobs are automatically stored as gzip+Base64 payloads (`gz:` prefix). All REST/CLI exports already decompress them, but if you query the AO tables directly you will need to decode the field before inspection.
    - Configure the **Maintenance Window** card (start hour, duration, max batches) so the cleanup runner only touches AO tables during off-peak hours. By default it starts at 02:00 (cluster local time), runs for 180 minutes, and executes up to six 200-row batches—tune these knobs if your instance needs a shorter or longer digestion period.
 4. **Actions:**
