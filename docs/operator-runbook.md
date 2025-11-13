@@ -400,3 +400,12 @@ Before GA, run the load/perf plan in `docs/perf-test-plan.md`. At a high level:
 2. Fire manual PR reviews mid-load to ensure queue/worker pools drain correctly.
 3. Exercise burst credits + alert deliveries to confirm audit/automation tables hold up.
 4. Capture metrics/logs + the load-test summary and attach them to the rollout ticket.
+
+## Beta Feedback Workflow
+
+During the staged rollout, follow the [Beta Feedback Playbook](beta-feedback.md):
+
+- Announce the beta and point users to the Operations dashboard.
+- Gather qualitative answers (queue experience, limiter defaults, telemetry usefulness, operational tasks, readiness to go GA).
+- Capture objective stats (runtime/alerts snapshots, burst credit usage) alongside the survey.
+- Adjust Guardrails defaults (queue concurrency, limiter caps, alert thresholds) as needed and communicate the changes back to testers.
