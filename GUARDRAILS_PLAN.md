@@ -61,7 +61,7 @@
 ### 7. History & Storage Hygiene
 [X] 1. Implement configurable retention (e.g., keep last N days) and periodic cleanup job for `AIReviewHistory` plus chunk telemetry. _(Cleanup job now records throughput/latency stats, a REST/CLI endpoint (`cleanup-run`, `cleanup-status`) triggers or inspects runs, and Health UI exposes the scheduler controls.)_
 [X] 2. Compress large `progress`/`metrics` blobs before persisting to reduce AO load. _(Metrics/progress snapshots now store gzip+Base64 payloads with transparent inflate in history readers/exporters.)_
-[ ] 3. Add a background AO maintenance task that runs during off-peak hours, batching deletes to avoid table locks and emitting metrics for processed rows.
+[X] 3. Add a background AO maintenance task that runs during off-peak hours, batching deletes to avoid table locks and emitting metrics for processed rows. _(Nightly ReviewHistoryMaintenanceService now enforces a configurable window/start hour, chains batches via the scheduler, and surfaces the processed counts/metrics in REST + UI.)_
 [ ] 4. Surface retention/cleanup status in the admin UI (last run, duration, records purged) so operators can confirm hygiene jobs run successfully. _(Health dashboard now shows schedule controls plus recent cleanup runs.)_
 [ ] 5. Provide export tooling (CSV/JSON) before cleanup runs so teams can archive long-lived data externally. _(Retention export REST + streaming download endpoints implemented.)_
 [ ] 6. Introduce integrity checks that ensure orphaned progress/metrics records are detected and repaired automatically. _(Integrity reporting + auto-repair REST endpoint shipped.)_

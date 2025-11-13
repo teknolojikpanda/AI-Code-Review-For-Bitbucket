@@ -334,8 +334,21 @@ public class HistoryResource {
         int batchSize = req.batchSize != null ? Math.max(1, req.batchSize) : current.getBatchSize();
         int intervalMinutes = req.intervalMinutes != null ? Math.max(5, req.intervalMinutes) : current.getIntervalMinutes();
         boolean enabled = req.enabled != null ? req.enabled : current.isEnabled();
+        int windowStartHour = req.windowStartHour != null ? normalizeHour(req.windowStartHour) : current.getWindowStartHour();
+        int windowDurationMinutes = req.windowDurationMinutes != null
+                ? Math.max(30, req.windowDurationMinutes)
+                : current.getWindowDurationMinutes();
+        int maxBatchesPerWindow = req.maxBatchesPerWindow != null
+                ? Math.max(1, req.maxBatchesPerWindow)
+                : current.getMaxBatchesPerWindow();
 
-        cleanupStatusService.updateSchedule(retentionDays, batchSize, intervalMinutes, enabled);
+        cleanupStatusService.updateSchedule(retentionDays,
+                batchSize,
+                intervalMinutes,
+                enabled,
+                windowStartHour,
+                windowDurationMinutes,
+                maxBatchesPerWindow);
         cleanupScheduler.reschedule();
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -762,16 +775,30 @@ public class HistoryResource {
         return map;
     }
 
+    private int normalizeHour(int hour) {
+        if (hour < 0) {
+            return 0;
+        }
+        if (hour > 23) {
+            return hour % 24;
+        }
+        return hour;
+    }
+
     private Map<String, Object> cleanupStatusToMap(ReviewHistoryCleanupStatusService.Status status) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("enabled", status.isEnabled());
         map.put("retentionDays", status.getRetentionDays());
         map.put("batchSize", status.getBatchSize());
         map.put("intervalMinutes", status.getIntervalMinutes());
+        map.put("windowStartHour", status.getWindowStartHour());
+        map.put("windowDurationMinutes", status.getWindowDurationMinutes());
+        map.put("maxBatchesPerWindow", status.getMaxBatchesPerWindow());
         map.put("lastRun", status.getLastRun());
         map.put("lastDurationMs", status.getLastDurationMs());
         map.put("lastDeletedHistories", status.getLastDeletedHistories());
         map.put("lastDeletedChunks", status.getLastDeletedChunks());
+        map.put("lastBatchesExecuted", status.getLastBatchesExecuted());
         map.put("lastError", status.getLastError());
         return map;
     }
@@ -786,6 +813,7 @@ public class HistoryResource {
         map.put("cutoffEpochMs", result.getCutoffEpochMs());
         map.put("elapsedMs", result.getElapsedMs());
         map.put("throughputPerSecond", result.getThroughputPerSecond());
+        map.put("batchesExecuted", result.getBatchesExecuted());
         return map;
     }
 
@@ -915,6 +943,9 @@ public class HistoryResource {
         public Integer batchSize;
         public Integer intervalMinutes;
         public Boolean enabled;
+        public Integer windowStartHour;
+        public Integer windowDurationMinutes;
+        public Integer maxBatchesPerWindow;
         public Boolean runNow;
     }
 

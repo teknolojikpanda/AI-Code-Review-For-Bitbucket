@@ -546,22 +546,29 @@
         setFieldValue('#cleanup-retention-days', status.retentionDays);
         setFieldValue('#cleanup-batch-size', status.batchSize);
         setFieldValue('#cleanup-interval-minutes', status.intervalMinutes);
+        setFieldValue('#cleanup-window-start', status.windowStartHour);
+        setFieldValue('#cleanup-window-duration', status.windowDurationMinutes);
+        setFieldValue('#cleanup-max-batches', status.maxBatchesPerWindow);
         $('#cleanup-enabled').prop('checked', status.enabled !== false);
 
         var cadence = status.intervalMinutes ? ('Every ' + status.intervalMinutes + ' min') : 'Not scheduled';
         var enabledLabel = status.enabled === false ? 'Disabled' : 'Enabled';
-        $('#cleanup-updated').text(enabledLabel + (status.intervalMinutes ? ' • ' + cadence : ''));
+        var windowDescription = 'Window ' +
+            (status.windowStartHour != null ? status.windowStartHour + ':00' : '—') +
+            ' / ' + valueOrDash(status.windowDurationMinutes) + ' min';
+        $('#cleanup-updated').text(enabledLabel + (status.intervalMinutes ? ' • ' + cadence : '') + ' • ' + windowDescription);
 
         var lastRun = status.lastRun ? formatTimestamp(status.lastRun) : 'Never';
         $('#cleanup-last-run').text(lastRun);
         var duration = status.lastDurationMs ? formatDurationMs(status.lastDurationMs) : '—';
-        $('#cleanup-last-run-note').text(enabledLabel + ' • ' + cadence + ' • Duration ' + duration);
+        $('#cleanup-last-run-note').text(enabledLabel + ' • ' + cadence + ' • ' + windowDescription + ' • Duration ' + duration);
 
         var outcomeValue;
         if (status.lastDeletedHistories != null || status.lastDeletedChunks != null) {
             var histories = status.lastDeletedHistories != null ? status.lastDeletedHistories : '—';
             var chunks = status.lastDeletedChunks != null ? status.lastDeletedChunks : '—';
-            outcomeValue = histories + ' histories / ' + chunks + ' chunks';
+            var batches = valueOrDash(status.lastBatchesExecuted);
+            outcomeValue = histories + ' histories / ' + chunks + ' chunks (batches ' + batches + ')';
         } else {
             outcomeValue = 'No data yet';
         }
@@ -593,6 +600,9 @@
             retentionDays: parseIntField('#cleanup-retention-days'),
             batchSize: parseIntField('#cleanup-batch-size'),
             intervalMinutes: parseIntField('#cleanup-interval-minutes'),
+            windowStartHour: parseIntField('#cleanup-window-start'),
+            windowDurationMinutes: parseIntField('#cleanup-window-duration'),
+            maxBatchesPerWindow: parseIntField('#cleanup-max-batches'),
             enabled: $('#cleanup-enabled').is(':checked'),
             runNow: runNow
         };
@@ -670,8 +680,10 @@
         var deletedHistories = valueOrDash(result.deletedHistories);
         var deletedChunks = valueOrDash(result.deletedChunks);
         var remaining = valueOrDash(result.remainingCandidates);
+        var batches = valueOrDash(result.batchesExecuted);
         return 'Deleted ' + deletedHistories + ' histories / ' + deletedChunks +
-            ' chunks • Remaining candidates ' + remaining;
+            ' chunks • Remaining candidates ' + remaining +
+            ' • Batches ' + batches;
     }
 
     function renderCleanupLog(runs) {

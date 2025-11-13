@@ -137,6 +137,7 @@ The script prints the scheduler JSON response (requires `jq` for pretty output).
    - `GET /history/cleanup/export` for a quick JSON snapshot, or `/history/cleanup/export/download?format=csv&includeChunks=true` to capture a spreadsheet-friendly attachment with per-chunk telemetry.
    - `GET /history/cleanup/integrity` to ensure chunk counts match what will be deleted. If the report flags mismatches, pause cleanup and run `POST /history/cleanup/integrity` with `{"repair": true}` to clear corrupt progress/metrics blobs and resync chunk counts automatically.
    > **Heads-up:** Large `metricsJson` / `progressJson` blobs are automatically stored as gzip+Base64 payloads (`gz:` prefix). All REST/CLI exports already decompress them, but if you query the AO tables directly you will need to decode the field before inspection.
+   - Configure the **Maintenance Window** card (start hour, duration, max batches) so the cleanup runner only touches AO tables during off-peak hours. By default it starts at 02:00 (cluster local time), runs for 180 minutes, and executes up to six 200-row batches—tune these knobs if your instance needs a shorter or longer digestion period.
 4. **Actions:**
    - Trigger a manual cleanup from the Health Dashboard (Run Once) if backlog keeps growing.
    - Adjust `ai.retention.cleanup.intervalMinutes` and `batchSize` to keep up with growth.

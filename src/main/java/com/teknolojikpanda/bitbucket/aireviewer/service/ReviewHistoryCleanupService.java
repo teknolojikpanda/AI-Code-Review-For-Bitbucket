@@ -68,6 +68,7 @@ public class ReviewHistoryCleanupService {
         private final long cutoffEpochMs;
         private final long elapsedMs;
         private final double throughputPerSecond;
+        private final int batchesExecuted;
 
         public CleanupResult(int retentionDays,
                              int batchSize,
@@ -77,6 +78,26 @@ public class ReviewHistoryCleanupService {
                              long cutoffEpochMs,
                              long elapsedMs,
                              double throughputPerSecond) {
+            this(retentionDays,
+                    batchSize,
+                    deletedHistories,
+                    deletedChunks,
+                    remainingCandidates,
+                    cutoffEpochMs,
+                    elapsedMs,
+                    throughputPerSecond,
+                    1);
+        }
+
+        public CleanupResult(int retentionDays,
+                             int batchSize,
+                             int deletedHistories,
+                             int deletedChunks,
+                             int remainingCandidates,
+                             long cutoffEpochMs,
+                             long elapsedMs,
+                             double throughputPerSecond,
+                             int batchesExecuted) {
             this.retentionDays = retentionDays;
             this.batchSize = batchSize;
             this.deletedHistories = deletedHistories;
@@ -85,6 +106,7 @@ public class ReviewHistoryCleanupService {
             this.cutoffEpochMs = cutoffEpochMs;
             this.elapsedMs = elapsedMs;
             this.throughputPerSecond = throughputPerSecond;
+            this.batchesExecuted = Math.max(1, batchesExecuted);
         }
 
         public int getRetentionDays() {
@@ -117,6 +139,10 @@ public class ReviewHistoryCleanupService {
 
         public double getThroughputPerSecond() {
             return throughputPerSecond;
+        }
+
+        public int getBatchesExecuted() {
+            return batchesExecuted;
         }
     }
 }

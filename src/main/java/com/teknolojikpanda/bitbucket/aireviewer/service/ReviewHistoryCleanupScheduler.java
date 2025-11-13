@@ -31,6 +31,7 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
 
     private final SchedulerService schedulerService;
     private final ReviewHistoryCleanupService cleanupService;
+    private final ReviewHistoryMaintenanceService maintenanceService;
     private final ReviewHistoryCleanupStatusService statusService;
     private final ReviewHistoryCleanupAuditService auditService;
     private final JobRunner cleanupRunner = new CleanupJobRunner();
@@ -39,10 +40,12 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
     @Inject
     public ReviewHistoryCleanupScheduler(@ComponentImport SchedulerService schedulerService,
                                          ReviewHistoryCleanupService cleanupService,
+                                         ReviewHistoryMaintenanceService maintenanceService,
                                          ReviewHistoryCleanupStatusService statusService,
                                          ReviewHistoryCleanupAuditService auditService) {
         this.schedulerService = Objects.requireNonNull(schedulerService, "schedulerService");
         this.cleanupService = Objects.requireNonNull(cleanupService, "cleanupService");
+        this.maintenanceService = Objects.requireNonNull(maintenanceService, "maintenanceService");
         this.statusService = Objects.requireNonNull(statusService, "statusService");
         this.auditService = Objects.requireNonNull(auditService, "auditService");
     }
@@ -95,7 +98,12 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
             return;
         }
         long intervalMs = TimeUnit.MINUTES.toMillis(Math.max(5, status.getIntervalMinutes()));
-        Date firstRun = new Date(System.currentTimeMillis() + intervalMs);
+        long now = System.currentTimeMillis();
+        long firstRunMillis = maintenanceService.computeNextScheduleTime(status, now);
+        if (firstRunMillis <= now) {
+            firstRunMillis = now + 2_000L;
+        }
+        Date firstRun = new Date(firstRunMillis);
         JobConfig jobConfig = JobConfig.forJobRunnerKey(JOB_RUNNER_KEY)
                 .withRunMode(RunMode.RUN_ONCE_PER_CLUSTER)
                 .withSchedule(Schedule.forInterval(intervalMs, firstRun));
@@ -114,19 +122,25 @@ public class ReviewHistoryCleanupScheduler implements LifecycleAware, Disposable
             if (!status.isEnabled()) {
                 return JobRunnerResponse.aborted("Cleanup disabled");
             }
+            long now = System.currentTimeMillis();
+            if (!maintenanceService.isWithinWindow(status, now)) {
+                return JobRunnerResponse.aborted("Outside maintenance window");
+            }
             long start = System.currentTimeMillis();
             try {
-                ReviewHistoryCleanupService.CleanupResult result = cleanupService.cleanupOlderThanDays(status.getRetentionDays(), status.getBatchSize());
+                ReviewHistoryMaintenanceService.MaintenanceRun run = maintenanceService.runMaintenanceWindow(status);
+                ReviewHistoryCleanupService.CleanupResult result = run.getAggregatedResult();
                 long duration = System.currentTimeMillis() - start;
                 statusService.recordRun(result);
                 auditService.recordRun(start,
                         duration,
-                        result.getDeletedHistories(),
-                        result.getDeletedChunks(),
+                        run.getDeletedHistories(),
+                        run.getDeletedChunks(),
                         false,
                         "system",
                         "System");
-                return JobRunnerResponse.success("Deleted " + result.getDeletedHistories() + " histories");
+                return JobRunnerResponse.success("Deleted " + run.getDeletedHistories()
+                        + " histories across " + result.getBatchesExecuted() + " batches");
             } catch (Exception ex) {
                 statusService.recordFailure(ex.getMessage());
                 auditService.recordFailure(start, false, "system", "System", ex.getMessage());

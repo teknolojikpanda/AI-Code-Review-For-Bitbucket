@@ -17,6 +17,15 @@ public interface AIReviewCleanupStatus extends Entity {
     int getIntervalMinutes();
     void setIntervalMinutes(int minutes);
 
+    int getWindowStartHour();
+    void setWindowStartHour(int hour);
+
+    int getWindowDurationMinutes();
+    void setWindowDurationMinutes(int minutes);
+
+    int getMaxBatchesPerWindow();
+    void setMaxBatchesPerWindow(int batches);
+
     boolean isEnabled();
     void setEnabled(boolean enabled);
 
@@ -31,6 +40,9 @@ public interface AIReviewCleanupStatus extends Entity {
 
     int getLastDeletedChunks();
     void setLastDeletedChunks(int count);
+
+    int getLastBatchesExecuted();
+    void setLastBatchesExecuted(int batches);
 
     String getLastError();
     void setLastError(String error);

@@ -26,23 +26,29 @@ public class ReviewHistoryCleanupSchedulerTest {
 
     private SchedulerService schedulerService;
     private ReviewHistoryCleanupService cleanupService;
+    private ReviewHistoryMaintenanceService maintenanceService;
     private ReviewHistoryCleanupStatusService statusService;
     private ReviewHistoryCleanupAuditService auditService;
+    private long nextScheduleTime;
 
     @Before
     public void setUp() {
         schedulerService = mock(SchedulerService.class);
         cleanupService = mock(ReviewHistoryCleanupService.class);
+        maintenanceService = mock(ReviewHistoryMaintenanceService.class);
         statusService = mock(ReviewHistoryCleanupStatusService.class);
         auditService = mock(ReviewHistoryCleanupAuditService.class);
+        nextScheduleTime = System.currentTimeMillis() + 60_000L;
+        when(maintenanceService.computeNextScheduleTime(any(), anyLong())).thenReturn(nextScheduleTime);
+        when(maintenanceService.isWithinWindow(any(), anyLong())).thenReturn(true);
     }
 
     @Test
     public void schedulesJobWhenEnabled() throws SchedulerServiceException {
         when(statusService.getStatus()).thenReturn(
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null));
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 2, 180, 6, 0L, 0L, 0, 0, 0, null));
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
         scheduler.onStart();
 
         verify(schedulerService).unregisterJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY));
@@ -53,9 +59,9 @@ public class ReviewHistoryCleanupSchedulerTest {
     @Test
     public void skipsSchedulingWhenDisabled() throws SchedulerServiceException {
         when(statusService.getStatus()).thenReturn(
-                ReviewHistoryCleanupStatusService.Status.snapshot(false, 90, 200, 1440, 0L, 0L, 0, 0, null));
+                ReviewHistoryCleanupStatusService.Status.snapshot(false, 90, 200, 1440, 2, 180, 6, 0L, 0L, 0, 0, 0, null));
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
         scheduler.onStart();
 
         verify(schedulerService).unregisterJobRunner(eq(ReviewHistoryCleanupScheduler.JOB_RUNNER_KEY));
@@ -66,10 +72,10 @@ public class ReviewHistoryCleanupSchedulerTest {
     @Test
     public void rescheduleUnschedulesExistingJob() throws SchedulerServiceException {
         ReviewHistoryCleanupStatusService.Status status =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status, status);
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
         scheduler.onStart();
         scheduler.reschedule();
 
@@ -80,19 +86,21 @@ public class ReviewHistoryCleanupSchedulerTest {
     @Test
     public void jobRunsCleanupAndRecordsStatus() {
         ReviewHistoryCleanupStatusService.Status status =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 45, 125, 60, 0L, 0L, 0, 0, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 45, 125, 60, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status);
         ReviewHistoryCleanupService.CleanupResult result =
-                new ReviewHistoryCleanupService.CleanupResult(45, 125, 5, 18, 42, System.currentTimeMillis(), 800L, 4.5);
-        when(cleanupService.cleanupOlderThanDays(45, 125)).thenReturn(result);
+                new ReviewHistoryCleanupService.CleanupResult(45, 125, 5, 18, 42, System.currentTimeMillis(), 800L, 4.5, 3);
+        ReviewHistoryMaintenanceService.MaintenanceRun run =
+                new ReviewHistoryMaintenanceService.MaintenanceRun(result, result.getBatchesExecuted(), result.getDeletedHistories(), result.getDeletedChunks());
+        when(maintenanceService.runMaintenanceWindow(status)).thenReturn(run);
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
         scheduler.onStart();
         JobRunner runner = captureRunner();
 
         JobRunnerResponse response = runner.runJob(null);
 
-        verify(cleanupService).cleanupOlderThanDays(45, 125);
+        verify(maintenanceService).runMaintenanceWindow(status);
         verify(statusService).recordRun(eq(result));
         verify(auditService).recordRun(anyLong(), anyLong(), eq(5), eq(18), eq(false), eq("system"), eq("System"));
         assertNotNull(response.getMessage());
@@ -100,18 +108,35 @@ public class ReviewHistoryCleanupSchedulerTest {
     }
 
     @Test
-    public void jobSkipsWhenDisabled() {
+    public void jobSkipsOutsideWindow() {
         ReviewHistoryCleanupStatusService.Status status =
-                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 125, 60, 0L, 0L, 0, 0, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 45, 125, 60, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status);
+        when(maintenanceService.isWithinWindow(eq(status), anyLong())).thenReturn(false);
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
         scheduler.onStart();
         JobRunner runner = captureRunner();
 
         JobRunnerResponse response = runner.runJob(null);
 
-        verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
+        verify(maintenanceService, never()).runMaintenanceWindow(any());
+        assertEquals(RunOutcome.ABORTED, response.getRunOutcome());
+    }
+
+    @Test
+    public void jobSkipsWhenDisabled() {
+        ReviewHistoryCleanupStatusService.Status status =
+                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 125, 60, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
+        when(statusService.getStatus()).thenReturn(status);
+
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
+        scheduler.onStart();
+        JobRunner runner = captureRunner();
+
+        JobRunnerResponse response = runner.runJob(null);
+
+        verify(maintenanceService, never()).runMaintenanceWindow(any());
         verify(statusService, never()).recordRun(any());
         assertEquals(RunOutcome.ABORTED, response.getRunOutcome());
     }
@@ -119,11 +144,12 @@ public class ReviewHistoryCleanupSchedulerTest {
     @Test
     public void jobRecordsFailureOnException() {
         ReviewHistoryCleanupStatusService.Status status =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 30, 50, 120, 0L, 0L, 0, 0, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 30, 50, 120, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
         when(statusService.getStatus()).thenReturn(status);
-        when(cleanupService.cleanupOlderThanDays(30, 50)).thenThrow(new RuntimeException("boom"));
+        when(maintenanceService.isWithinWindow(eq(status), anyLong())).thenReturn(true);
+        when(maintenanceService.runMaintenanceWindow(status)).thenThrow(new RuntimeException("boom"));
 
-        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, statusService, auditService);
+        ReviewHistoryCleanupScheduler scheduler = new ReviewHistoryCleanupScheduler(schedulerService, cleanupService, maintenanceService, statusService, auditService);
         scheduler.onStart();
         JobRunner runner = captureRunner();
 

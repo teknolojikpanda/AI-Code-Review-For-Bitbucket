@@ -221,12 +221,20 @@ public class GuardrailsTelemetryService {
                 "Scheduled cleanup cadence");
         addMetric(metrics, "ai.retention.cleanup.batchSize", schedule.get("batchSize"), "items",
                 "Maximum rows purged per cleanup run");
+        addMetric(metrics, "ai.retention.cleanup.windowStartHour", schedule.get("windowStartHour"), "hour",
+                "Hour (0-23) when the cleanup window opens");
+        addMetric(metrics, "ai.retention.cleanup.windowDurationMinutes", schedule.get("windowDurationMinutes"), "minutes",
+                "Duration of the daily cleanup window");
+        addMetric(metrics, "ai.retention.cleanup.maxBatchesPerWindow", schedule.get("maxBatchesPerWindow"), "batches",
+                "Maximum delete batches executed per window");
         addMetric(metrics, "ai.retention.cleanup.lastDurationMs", schedule.get("lastDurationMs"), "ms",
                 "Duration of the last cleanup run");
         addMetric(metrics, "ai.retention.cleanup.lastDeletedHistories", schedule.get("lastDeletedHistories"), "items",
                 "History rows deleted in the last cleanup run");
         addMetric(metrics, "ai.retention.cleanup.lastDeletedChunks", schedule.get("lastDeletedChunks"), "items",
                 "Chunk rows deleted in the last cleanup run");
+        addMetric(metrics, "ai.retention.cleanup.lastBatchesExecuted", schedule.get("lastBatchesExecuted"), "batches",
+                "Delete batches executed in the most recent cleanup window");
 
         Long lastRun = toLong(schedule.get("lastRun"));
         if (lastRun != null && lastRun > 0) {

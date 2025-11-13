@@ -78,7 +78,7 @@ public class GuardrailsTelemetryServiceTest {
         when(historyService.getRetentionStats(anyInt())).thenReturn(retentionStatsMap());
 
         ReviewHistoryCleanupStatusService.Status cleanupStatus =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 60, System.currentTimeMillis() - 5_000L, 1200L, 25, 60, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 60, 2, 180, 6, System.currentTimeMillis() - 5_000L, 1200L, 25, 60, 3, null);
         when(cleanupStatusService.getStatus()).thenReturn(cleanupStatus);
         when(cleanupAuditService.listRecent(10)).thenReturn(Collections.singletonList(
                 Map.of("runTimestamp", System.currentTimeMillis(), "success", true)));

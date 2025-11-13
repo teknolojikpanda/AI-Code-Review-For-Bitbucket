@@ -185,6 +185,11 @@
         <description>Deletes stale review history and chunk telemetry</description>
     </component>
 
+    <component key="reviewHistoryMaintenanceService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryMaintenanceService">
+        <description>Executes off-peak cleanup batches within the maintenance window</description>
+    </component>
+
     <component key="guardrailsWorkerNodeService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsWorkerNodeService">
         <description>Persists per-node worker snapshots for telemetry</description>

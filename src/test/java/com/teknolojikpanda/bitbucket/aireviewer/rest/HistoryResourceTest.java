@@ -174,7 +174,7 @@ public class HistoryResourceTest {
         ReviewWorkerPool.WorkerPoolSnapshot workerSnapshot = createWorkerPoolSnapshot();
         when(workerPool.snapshot()).thenReturn(workerSnapshot);
         ReviewHistoryCleanupStatusService.Status cleanupStatus =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
         when(cleanupStatusService.getStatus()).thenReturn(cleanupStatus);
         when(cleanupAuditService.listRecent(anyInt())).thenReturn(Collections.emptyList());
         resource = new HistoryResource(userManager, historyService, progressRegistry, concurrencyController, rateLimiter, workerPool, cleanupService, cleanupStatusService, cleanupAuditService, cleanupScheduler);
@@ -261,7 +261,7 @@ public class HistoryResourceTest {
 
         assertEquals(Response.Status.FORBIDDEN.getStatusCode(), response.getStatus());
         verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
-        verify(cleanupStatusService, never()).updateSchedule(anyInt(), anyInt(), anyInt(), anyBoolean());
+        verify(cleanupStatusService, never()).updateSchedule(anyInt(), anyInt(), anyInt(), anyBoolean(), anyInt(), anyInt(), anyInt());
         verify(cleanupScheduler, never()).reschedule();
     }
 
@@ -283,7 +283,7 @@ public class HistoryResourceTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         verify(cleanupService).cleanupOlderThanDays(60, 100);
-        verify(cleanupStatusService).updateSchedule(60, 100, 180, true);
+        verify(cleanupStatusService).updateSchedule(60, 100, 180, true, 2, 180, 6);
         verify(cleanupScheduler).reschedule();
         verify(cleanupStatusService).recordRun(any());
     }
@@ -325,9 +325,9 @@ public class HistoryResourceTest {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
         ReviewHistoryCleanupStatusService.Status current =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 0L, 0L, 0, 0, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 1440, 2, 180, 6, 0L, 0L, 0, 0, 0, null);
         ReviewHistoryCleanupStatusService.Status updated =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 60, 500, 30, System.currentTimeMillis(), 2500L, 12, 24, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 60, 500, 30, 3, 120, 4, System.currentTimeMillis(), 2500L, 12, 24, 2, null);
         when(cleanupStatusService.getStatus()).thenReturn(current, updated);
         ReviewHistoryCleanupService.CleanupResult result =
                 new ReviewHistoryCleanupService.CleanupResult(60, 500, 3, 12, 5, System.currentTimeMillis(), 1500L, 2.0);
@@ -338,12 +338,15 @@ public class HistoryResourceTest {
         body.batchSize = 500;
         body.intervalMinutes = 30;
         body.enabled = true;
+        body.windowStartHour = 3;
+        body.windowDurationMinutes = 120;
+        body.maxBatchesPerWindow = 4;
         body.runNow = true;
 
         Response response = resource.cleanupHistory(request, body);
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        verify(cleanupStatusService).updateSchedule(60, 500, 30, true);
+        verify(cleanupStatusService).updateSchedule(60, 500, 30, true, 3, 120, 4);
         verify(cleanupScheduler).reschedule();
         verify(cleanupService).cleanupOlderThanDays(60, 500);
         verify(cleanupStatusService).recordRun(eq(result));
@@ -361,7 +364,7 @@ public class HistoryResourceTest {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
         ReviewHistoryCleanupStatusService.Status status =
-                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 100, 60, 0L, 0L, 0, 0, "recent failure");
+                ReviewHistoryCleanupStatusService.Status.snapshot(false, 45, 100, 60, 1, 90, 5, 0L, 0L, 0, 0, 0, "recent failure");
         when(cleanupStatusService.getStatus()).thenReturn(status, status);
 
         HistoryResource.CleanupRequest body = new HistoryResource.CleanupRequest();
@@ -369,12 +372,15 @@ public class HistoryResourceTest {
         body.batchSize = 100;
         body.intervalMinutes = 60;
         body.enabled = false;
+        body.windowStartHour = 1;
+        body.windowDurationMinutes = 90;
+        body.maxBatchesPerWindow = 5;
         body.runNow = false;
 
         Response response = resource.cleanupHistory(request, body);
 
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
-        verify(cleanupStatusService).updateSchedule(45, 100, 60, false);
+        verify(cleanupStatusService).updateSchedule(45, 100, 60, false, 1, 90, 5);
         verify(cleanupScheduler).reschedule();
         verify(cleanupService, never()).cleanupOlderThanDays(anyInt(), anyInt());
         verify(cleanupAuditService, never()).recordRun(anyLong(), anyLong(), anyInt(), anyInt(), anyBoolean(), any(), any());
@@ -402,7 +408,7 @@ public class HistoryResourceTest {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         when(userManager.isSystemAdmin(profile.getUserKey())).thenReturn(true);
         ReviewHistoryCleanupStatusService.Status status =
-                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 60, System.currentTimeMillis(), 1000L, 5, 12, null);
+                ReviewHistoryCleanupStatusService.Status.snapshot(true, 90, 200, 60, 2, 180, 6, System.currentTimeMillis(), 1000L, 5, 12, 3, null);
         when(cleanupStatusService.getStatus()).thenReturn(status);
         when(cleanupAuditService.listRecent(anyInt())).thenReturn(Collections.singletonList(Map.of("success", true)));
 

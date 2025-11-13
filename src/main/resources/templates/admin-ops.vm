@@ -332,6 +332,21 @@
                                     <input class="text" type="number" id="cleanup-interval-minutes" min="5">
                                     <span class="ops-field-hint">How frequently the automatic job runs.</span>
                                 </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-window-start">Maintenance window start (hour)</label>
+                                    <input class="text" type="number" id="cleanup-window-start" min="0" max="23">
+                                    <span class="ops-field-hint">24h clock hour (cluster local time) to begin cleanup (e.g. 2 for 2AM).</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-window-duration">Window duration (minutes)</label>
+                                    <input class="text" type="number" id="cleanup-window-duration" min="30">
+                                    <span class="ops-field-hint">Maximum time the background job may run each day.</span>
+                                </div>
+                                <div class="ops-form-field">
+                                    <label for="cleanup-max-batches">Max batches per window</label>
+                                    <input class="text" type="number" id="cleanup-max-batches" min="1">
+                                    <span class="ops-field-hint">Number of back-to-back delete batches executed inside the window.</span>
+                                </div>
                             </div>
                             <div class="ops-form-actions">
                                 <button type="submit" class="aui-button aui-button-primary" id="cleanup-save-btn">Save Schedule</button>
