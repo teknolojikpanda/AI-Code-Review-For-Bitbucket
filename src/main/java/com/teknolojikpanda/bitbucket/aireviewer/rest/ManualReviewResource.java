@@ -9,6 +9,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.dto.ReviewResult;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewService;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,6 +64,7 @@ public class ManualReviewResource {
 
         UserProfile profile = userManager.getRemoteUser(request);
         if (!isSystemAdmin(profile)) {
+            log.warn("Manual review denied for non-admin user {}", profile != null ? profile.getUsername() : "anonymous");
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
@@ -105,18 +107,28 @@ public class ManualReviewResource {
         boolean force = Boolean.TRUE.equals(payload.getForce());
         boolean treatAsUpdate = Boolean.TRUE.equals(payload.getTreatAsUpdate());
 
-        log.info("Manual review requested by {} for PR #{} in {}/{} (force={}, treatAsUpdate={})",
-                profile != null ? profile.getUsername() : "unknown",
-                prId,
-                projectKey,
-                repositorySlug,
-                force,
-                treatAsUpdate);
+        try (LogContext prContext = LogContext.forPullRequest(pullRequest)) {
+            Map<String, String> manualMeta = new LinkedHashMap<>();
+            manualMeta.put("review.trigger", "manual");
+            manualMeta.put("review.manual.force", String.valueOf(force));
+            manualMeta.put("review.manual.treatAsUpdate", String.valueOf(treatAsUpdate));
+            if (profile != null) {
+                manualMeta.put("review.triggeredBy", profile.getUsername());
+            }
 
-        try {
-            ReviewResult result = aiReviewService.manualReview(pullRequest, force, treatAsUpdate);
-            Map<String, Object> response = toResultPayload(result, force, treatAsUpdate);
-            return Response.ok(response).build();
+            try (LogContext manualCtx = LogContext.scoped(manualMeta)) {
+                log.info("Manual review requested by {} for PR #{} in {}/{} (force={}, treatAsUpdate={})",
+                        profile != null ? profile.getUsername() : "unknown",
+                        prId,
+                        projectKey,
+                        repositorySlug,
+                        force,
+                        treatAsUpdate);
+
+                ReviewResult result = aiReviewService.manualReview(pullRequest, force, treatAsUpdate);
+                Map<String, Object> response = toResultPayload(result, force, treatAsUpdate);
+                return Response.ok(response).build();
+            }
         } catch (Exception ex) {
             log.error("Manual review failed for PR #{} in {}/{}: {}", prId, projectKey, repositorySlug, ex.getMessage(), ex);
             return Response.serverError()

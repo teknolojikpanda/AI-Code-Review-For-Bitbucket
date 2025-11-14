@@ -9,6 +9,7 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aireviewer.dto.ReviewResult;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -74,30 +75,30 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
     @EventListener
     public void onPullRequestOpened(@Nonnull PullRequestOpenedEvent event) {
         PullRequest pullRequest = event.getPullRequest();
-        log.info("🚀 PR OPENED EVENT RECEIVED: PR #{} in {}/{} - Title: '{}'",
-                pullRequest.getId(),
-                pullRequest.getToRef().getRepository().getProject().getKey(),
-                pullRequest.getToRef().getRepository().getSlug(),
-                pullRequest.getTitle());
+        try (LogContext ignored = LogContext.forPullRequest(pullRequest);
+             LogContext triggerCtx = LogContext.scoped("review.trigger", "event:opened")) {
+            log.info("🚀 PR OPENED EVENT RECEIVED: PR #{} in {}/{} - Title: '{}'",
+                    pullRequest.getId(),
+                    pullRequest.getToRef().getRepository().getProject().getKey(),
+                    pullRequest.getToRef().getRepository().getSlug(),
+                    pullRequest.getTitle());
 
-        // Check if reviews are enabled
-        if (!isReviewEnabled()) {
-            log.info("AI reviews are disabled in configuration - skipping PR #{}", pullRequest.getId());
-            return;
-        }
-
-        // Check if this is a draft PR
-        if (isDraftPR(pullRequest)) {
-            boolean reviewDrafts = shouldReviewDraftPRs();
-            if (!reviewDrafts) {
-                log.info("PR #{} is a draft and reviewDraftPRs=false - skipping", pullRequest.getId());
+            if (!isReviewEnabled()) {
+                log.info("AI reviews are disabled in configuration - skipping PR #{}", pullRequest.getId());
                 return;
             }
-            log.info("PR #{} is a draft but reviewDraftPRs=true - proceeding with review", pullRequest.getId());
-        }
 
-        // Execute review synchronously
-        executeReview(pullRequest, false);
+            if (isDraftPR(pullRequest)) {
+                boolean reviewDrafts = shouldReviewDraftPRs();
+                if (!reviewDrafts) {
+                    log.info("PR #{} is a draft and reviewDraftPRs=false - skipping", pullRequest.getId());
+                    return;
+                }
+                log.info("PR #{} is a draft but reviewDraftPRs=true - proceeding with review", pullRequest.getId());
+            }
+
+            executeReview(pullRequest, false);
+        }
     }
 
     /**
@@ -110,28 +111,28 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
     @EventListener
     public void onPullRequestRescoped(@Nonnull PullRequestRescopedEvent event) {
         PullRequest pullRequest = event.getPullRequest();
-        log.info("PR rescoped event received: PR #{} in {}/{}",
-                pullRequest.getId(),
-                pullRequest.getToRef().getRepository().getProject().getKey(),
-                pullRequest.getToRef().getRepository().getSlug());
+        try (LogContext ignored = LogContext.forPullRequest(pullRequest);
+             LogContext triggerCtx = LogContext.scoped("review.trigger", "event:rescoped")) {
+            log.info("PR rescoped event received: PR #{} in {}/{}",
+                    pullRequest.getId(),
+                    pullRequest.getToRef().getRepository().getProject().getKey(),
+                    pullRequest.getToRef().getRepository().getSlug());
 
-        // Check if reviews are enabled
-        if (!isReviewEnabled()) {
-            log.info("AI reviews are disabled in configuration - skipping PR #{}", pullRequest.getId());
-            return;
-        }
-
-        // Check if this is a draft PR
-        if (isDraftPR(pullRequest)) {
-            boolean reviewDrafts = shouldReviewDraftPRs();
-            if (!reviewDrafts) {
-                log.info("PR #{} is a draft and reviewDraftPRs=false - skipping", pullRequest.getId());
+            if (!isReviewEnabled()) {
+                log.info("AI reviews are disabled in configuration - skipping PR #{}", pullRequest.getId());
                 return;
             }
-        }
 
-        // Execute re-review synchronously (compares with previous review)
-        executeReview(pullRequest, true);
+            if (isDraftPR(pullRequest)) {
+                boolean reviewDrafts = shouldReviewDraftPRs();
+                if (!reviewDrafts) {
+                    log.info("PR #{} is a draft and reviewDraftPRs=false - skipping", pullRequest.getId());
+                    return;
+                }
+            }
+
+            executeReview(pullRequest, true);
+        }
     }
 
     /**
@@ -141,17 +142,15 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
      * @param isUpdate true if this is a re-review (PR update), false if new PR
      */
     private void executeReview(@Nonnull PullRequest pullRequest, boolean isUpdate) {
-        try {
+        try (LogContext ignored = LogContext.forPullRequest(pullRequest);
+             LogContext modeCtx = LogContext.scoped("review.mode", isUpdate ? "update" : "initial")) {
             log.info("Starting {} review for PR #{}",
                     isUpdate ? "update" : "initial",
                     pullRequest.getId());
 
-            ReviewResult result;
-            if (isUpdate) {
-                result = reviewService.reReviewPullRequest(pullRequest);
-            } else {
-                result = reviewService.reviewPullRequest(pullRequest);
-            }
+            ReviewResult result = isUpdate
+                    ? reviewService.reReviewPullRequest(pullRequest)
+                    : reviewService.reviewPullRequest(pullRequest);
 
             log.info("Review completed for PR #{}: status={}, issues={}, filesReviewed={}",
                     pullRequest.getId(),

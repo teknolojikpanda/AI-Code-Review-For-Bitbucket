@@ -54,6 +54,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.SeverityLevel;
 // Using simple string building for JSON to avoid external dependencies
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -178,7 +179,11 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Override
     public ReviewResult reviewPullRequest(@Nonnull PullRequest pullRequest) {
         Objects.requireNonNull(pullRequest, "pullRequest");
-        return executeWithQueueSafeguards(pullRequest, ReviewRun.initial(pullRequest), () -> reviewPullRequestInternal(pullRequest));
+        try (LogContext prContext = LogContext.forPullRequest(pullRequest);
+             LogContext entryCtx = LogContext.scoped("review.entryPoint", "service.reviewPullRequest")) {
+            return executeWithQueueSafeguards(pullRequest, ReviewRun.initial(pullRequest),
+                    () -> reviewPullRequestInternal(pullRequest));
+        }
     }
 
     @Nonnull
@@ -190,82 +195,96 @@ public class AIReviewServiceImpl implements AIReviewService {
     @Nonnull
     @Override
     public ReviewResult reReviewPullRequest(@Nonnull PullRequest pullRequest, boolean force) {
-        return runReReview(pullRequest, force, false);
+        try (LogContext prContext = LogContext.forPullRequest(pullRequest);
+             LogContext entryCtx = LogContext.scoped("review.entryPoint", "service.reReview")) {
+            return runReReview(pullRequest, force, false);
+        }
     }
 
     @Nonnull
     @Override
     public ReviewResult manualReview(@Nonnull PullRequest pullRequest, boolean force, boolean treatAsUpdate) {
         Objects.requireNonNull(pullRequest, "pullRequest");
-        if (treatAsUpdate) {
-            return runReReview(pullRequest, force, true);
+        try (LogContext prContext = LogContext.forPullRequest(pullRequest);
+             LogContext entryCtx = LogContext.scoped("review.entryPoint", "service.manual")) {
+            if (treatAsUpdate) {
+                return runReReview(pullRequest, force, true);
+            }
+            return executeWithQueueSafeguards(pullRequest, ReviewRun.manualInitial(pullRequest, force),
+                    () -> reviewPullRequestInternal(pullRequest));
         }
-        return executeWithQueueSafeguards(pullRequest, ReviewRun.manualInitial(pullRequest, force), () -> reviewPullRequestInternal(pullRequest));
     }
 
     private ReviewResult executeWithQueueSafeguards(PullRequest pullRequest,
                                                    ReviewRun run,
                                                    Supplier<ReviewResult> action) {
-        GuardrailsRolloutService.Evaluation evaluation =
-                rolloutService.evaluate(run.getProjectKey(), run.getRepositorySlug(), run.runId);
-        if (evaluation != null) {
-            run.applyRollout(evaluation);
-        }
-
-        if (evaluation != null && !evaluation.isGuardrailsEnabled()) {
-            Map<String, Object> details = progressDetails(
-                    "cohort", evaluation.getCohortKey(),
-                    "mode", evaluation.getMode().name().toLowerCase(Locale.ROOT),
-                    "reason", evaluation.getReason());
-            recordProgress("review.rollout.shadow", 0, details);
-            log.info("Guardrails bypassed for PR #{} (cohort={}, reason={})",
-                    pullRequest.getId(),
-                    evaluation.getCohortKey(),
-                    evaluation.getReason());
-            return executeWithoutGuardrails(run, action);
-        }
-
-        try {
-            maybeAutoSnoozeRateLimit(run);
-            rateLimiter.acquire(run.getProjectKey(), run.getRepositorySlug());
-        } catch (RateLimitExceededException ex) {
-            Map<String, Object> throttleDetails = progressDetails(
-                    "scope", ex.getScope().name().toLowerCase(Locale.ROOT),
-                    "identifier", ex.getIdentifier(),
-                    "retryAfterMs", ex.getRetryAfterMillis());
-            Map<String, Object> limiterSnapshot = rateLimiter.describeScopeState(ex);
-            if (!limiterSnapshot.isEmpty()) {
-                throttleDetails.put("limiterSnapshot", limiterSnapshot);
+        Map<String, String> runContext = new LinkedHashMap<>();
+        runContext.put("review.runId", run.runId);
+        runContext.put("review.manual", String.valueOf(run.manual));
+        runContext.put("review.force", String.valueOf(run.force));
+        runContext.put("review.update", String.valueOf(run.update));
+        try (LogContext runCtx = LogContext.scoped(runContext)) {
+            GuardrailsRolloutService.Evaluation evaluation =
+                    rolloutService.evaluate(run.getProjectKey(), run.getRepositorySlug(), run.runId);
+            if (evaluation != null) {
+                run.applyRollout(evaluation);
             }
-            recordProgress("review.throttled", 0, throttleDetails);
-            log.info("AI review rate limit hit [{}] for PR #{} (retry in {} ms)", ex.getIdentifier(), pullRequest.getId(), ex.getRetryAfterMillis());
-            return buildRateLimitedResult(pullRequest.getId(), ex);
-        }
-        try {
-            return executeWithRun(run, action);
-        } catch (ReviewSchedulerPausedException ex) {
-            ReviewSchedulerStateService.SchedulerState state = ex.getState();
-            recordProgress("review.paused", 0, progressDetails(
-                    "schedulerState", state.getMode().name().toLowerCase(Locale.ROOT),
-                    "reason", state.getReason()));
-            log.warn("AI review paused for PR #{} (state={}, reason={})",
-                    pullRequest.getId(),
-                    state.getMode(),
-                    state.getReason());
-            return buildSchedulerPausedResult(pullRequest.getId(), state);
-        } catch (ReviewQueueFullException ex) {
-            log.warn("AI review queue full for {}/{} PR #{} (waiting={}, maxConcurrent={}, maxQueued={})",
-                    run.getProjectKey(),
-                    run.getRepositorySlug(),
-                    pullRequest.getId(),
-                    ex.getWaitingCount(),
-                    ex.getMaxConcurrent(),
-                    ex.getMaxQueueSize());
-            return buildQueueFullResult(pullRequest.getId(), ex);
-        } catch (ReviewSchedulingInterruptedException ex) {
-            log.warn("AI review scheduling interrupted for PR #{}", pullRequest.getId(), ex);
-            Thread.currentThread().interrupt();
-            return buildQueueInterruptedResult(pullRequest.getId());
+
+            if (evaluation != null && !evaluation.isGuardrailsEnabled()) {
+                Map<String, Object> details = progressDetails(
+                        "cohort", evaluation.getCohortKey(),
+                        "mode", evaluation.getMode().name().toLowerCase(Locale.ROOT),
+                        "reason", evaluation.getReason());
+                recordProgress("review.rollout.shadow", 0, details);
+                log.info("Guardrails bypassed for PR #{} (cohort={}, reason={})",
+                        pullRequest.getId(),
+                        evaluation.getCohortKey(),
+                        evaluation.getReason());
+                return executeWithoutGuardrails(run, action);
+            }
+
+            try {
+                maybeAutoSnoozeRateLimit(run);
+                rateLimiter.acquire(run.getProjectKey(), run.getRepositorySlug());
+            } catch (RateLimitExceededException ex) {
+                Map<String, Object> throttleDetails = progressDetails(
+                        "scope", ex.getScope().name().toLowerCase(Locale.ROOT),
+                        "identifier", ex.getIdentifier(),
+                        "retryAfterMs", ex.getRetryAfterMillis());
+                Map<String, Object> limiterSnapshot = rateLimiter.describeScopeState(ex);
+                if (!limiterSnapshot.isEmpty()) {
+                    throttleDetails.put("limiterSnapshot", limiterSnapshot);
+                }
+                recordProgress("review.throttled", 0, throttleDetails);
+                log.info("AI review rate limit hit [{}] for PR #{} (retry in {} ms)", ex.getIdentifier(), pullRequest.getId(), ex.getRetryAfterMillis());
+                return buildRateLimitedResult(pullRequest.getId(), ex);
+            }
+            try {
+                return executeWithRun(run, action);
+            } catch (ReviewSchedulerPausedException ex) {
+                ReviewSchedulerStateService.SchedulerState state = ex.getState();
+                recordProgress("review.paused", 0, progressDetails(
+                        "schedulerState", state.getMode().name().toLowerCase(Locale.ROOT),
+                        "reason", state.getReason()));
+                log.warn("AI review paused for PR #{} (state={}, reason={})",
+                        pullRequest.getId(),
+                        state.getMode(),
+                        state.getReason());
+                return buildSchedulerPausedResult(pullRequest.getId(), state);
+            } catch (ReviewQueueFullException ex) {
+                log.warn("AI review queue full for {}/{} PR #{} (waiting={}, maxConcurrent={}, maxQueued={})",
+                        run.getProjectKey(),
+                        run.getRepositorySlug(),
+                        pullRequest.getId(),
+                        ex.getWaitingCount(),
+                        ex.getMaxConcurrent(),
+                        ex.getMaxQueueSize());
+                return buildQueueFullResult(pullRequest.getId(), ex);
+            } catch (ReviewSchedulingInterruptedException ex) {
+                log.warn("AI review scheduling interrupted for PR #{}", pullRequest.getId(), ex);
+                Thread.currentThread().interrupt();
+                return buildQueueInterruptedResult(pullRequest.getId());
+            }
         }
     }
 
@@ -304,7 +323,14 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private Callable<ReviewResult> buildWorkerCallable(ReviewRun run,
                                                        Supplier<ReviewResult> action) {
+        Map<String, String> parentMdc = MDC.getCopyOfContextMap();
         return () -> {
+            Map<String, String> previousMdc = MDC.getCopyOfContextMap();
+            if (parentMdc != null) {
+                MDC.setContextMap(new LinkedHashMap<>(parentMdc));
+            } else {
+                MDC.clear();
+            }
             ReviewRun previous = REVIEW_RUN_CONTEXT.get();
             ProgressTracker previousTracker = PROGRESS_TRACKER.get();
             ProgressTracker tracker = new ProgressTracker();
@@ -317,6 +343,11 @@ public class AIReviewServiceImpl implements AIReviewService {
             try {
                 return action.get();
             } finally {
+                if (previousMdc != null) {
+                    MDC.setContextMap(previousMdc);
+                } else {
+                    MDC.clear();
+                }
                 if (previous != null) {
                     REVIEW_RUN_CONTEXT.set(previous);
                 } else {
@@ -361,44 +392,51 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private ReviewResult runReReview(@Nonnull PullRequest pullRequest, boolean force, boolean manual) {
         Objects.requireNonNull(pullRequest, "pullRequest");
-        long pullRequestId = pullRequest.getId();
+        Map<String, String> context = new LinkedHashMap<>();
+        context.put("review.mode", manual ? "manual-update" : "update");
+        context.put("review.force", String.valueOf(force));
+        context.put("review.manual", String.valueOf(manual));
+        try (LogContext prContext = LogContext.forPullRequest(pullRequest);
+             LogContext modeContext = LogContext.scoped(context)) {
+            long pullRequestId = pullRequest.getId();
 
-        if (!force) {
-            try {
-                Optional<AIReviewHistory> latestHistory = reviewHistoryService.findLatestForPullRequest(pullRequestId);
-                String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
+            if (!force) {
+                try {
+                    Optional<AIReviewHistory> latestHistory = reviewHistoryService.findLatestForPullRequest(pullRequestId);
+                    String latestCommit = pullRequest.getFromRef() != null ? pullRequest.getFromRef().getLatestCommit() : null;
 
-                if (latestHistory.isPresent() && latestCommit != null && !latestCommit.isEmpty()) {
-                    AIReviewHistory history = latestHistory.get();
-                    String previousCommit = history.getFromCommit();
-                    if (previousCommit == null || previousCommit.isEmpty()) {
-                        previousCommit = history.getCommitId();
+                    if (latestHistory.isPresent() && latestCommit != null && !latestCommit.isEmpty()) {
+                        AIReviewHistory history = latestHistory.get();
+                        String previousCommit = history.getFromCommit();
+                        if (previousCommit == null || previousCommit.isEmpty()) {
+                            previousCommit = history.getCommitId();
+                        }
+                        ReviewResult.Status previousStatus = ReviewResult.Status.fromString(history.getReviewStatus());
+
+                        if (latestCommit.equals(previousCommit) && previousStatus != ReviewResult.Status.FAILED) {
+                            long now = System.currentTimeMillis();
+                            Map<String, Object> metrics = new HashMap<>();
+                            metrics.put("review.startEpochMs", now);
+                            metrics.put("review.endEpochMs", now);
+                            metrics.put("review.skipped.reason", "commit-unchanged");
+                            metrics.put("review.skipped.commit", latestCommit);
+                            metrics.put("issues.previous", Math.max(0, history.getTotalIssuesFound()));
+
+                            log.info("Skipping re-review for PR #{} - latest commit {} already reviewed with status {}",
+                                    pullRequestId, latestCommit, previousStatus.getValue());
+                            return buildSkippedResult(pullRequestId,
+                                    "Latest commit already reviewed; skipping duplicate re-review.",
+                                    metrics);
+                        }
                     }
-                    ReviewResult.Status previousStatus = ReviewResult.Status.fromString(history.getReviewStatus());
-
-                    if (latestCommit.equals(previousCommit) && previousStatus != ReviewResult.Status.FAILED) {
-                        long now = System.currentTimeMillis();
-                        Map<String, Object> metrics = new HashMap<>();
-                        metrics.put("review.startEpochMs", now);
-                        metrics.put("review.endEpochMs", now);
-                        metrics.put("review.skipped.reason", "commit-unchanged");
-                        metrics.put("review.skipped.commit", latestCommit);
-                        metrics.put("issues.previous", Math.max(0, history.getTotalIssuesFound()));
-
-                        log.info("Skipping re-review for PR #{} - latest commit {} already reviewed with status {}",
-                                pullRequestId, latestCommit, previousStatus.getValue());
-                        return buildSkippedResult(pullRequestId,
-                                "Latest commit already reviewed; skipping duplicate re-review.",
-                                metrics);
-                    }
+                } catch (Exception e) {
+                    log.warn("Unable to determine previous review state for PR #{}: {}", pullRequestId, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Unable to determine previous review state for PR #{}: {}", pullRequestId, e.getMessage());
             }
-        }
 
-        ReviewRun run = manual ? ReviewRun.manualUpdate(pullRequest, force) : ReviewRun.update(pullRequest, force);
-        return executeWithQueueSafeguards(pullRequest, run, () -> reviewPullRequestInternal(pullRequest));
+            ReviewRun run = manual ? ReviewRun.manualUpdate(pullRequest, force) : ReviewRun.update(pullRequest, force);
+            return executeWithQueueSafeguards(pullRequest, run, () -> reviewPullRequestInternal(pullRequest));
+        }
     }
 
     private ReviewResult reviewPullRequestInternal(@Nonnull PullRequest pullRequest) {
@@ -1065,7 +1103,7 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
 
     private ReviewResult handleReviewException(long pullRequestId, @Nonnull Exception e, @Nonnull MetricsCollector metrics, @Nonnull Instant overallStart) {
-        String correlationId = "ERR-" + UUID.randomUUID().toString();
+        String correlationId = LogContext.correlationId();
         log.error("Failed to review pull request: {} correlationId={} type={} message={}",
                 pullRequestId,
                 correlationId,

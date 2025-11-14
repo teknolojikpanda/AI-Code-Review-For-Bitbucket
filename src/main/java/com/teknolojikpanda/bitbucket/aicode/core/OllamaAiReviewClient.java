@@ -746,11 +746,10 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 lineEnd = lineStart;
             }
 
-            LineRange primary = chunk.getPrimaryRanges().get(path);
-            if (primary != null && (lineStart < primary.getStart() || lineStart > primary.getEnd()
-                    || lineEnd < primary.getStart() || lineEnd > primary.getEnd())) {
-                log.warn("Discarding issue for chunk {}: line range {} outside primary range {} for {}",
-                        chunk.getId(), LineRange.of(lineStart, lineEnd), primary, path);
+            List<LineRange> ranges = chunk.getPrimaryRanges().get(path);
+            if (ranges != null && !ranges.isEmpty() && !isWithinRanges(lineStart, lineEnd, ranges)) {
+                log.warn("Discarding issue for chunk {}: line range {} outside primary ranges {} for {}",
+                        chunk.getId(), LineRange.of(lineStart, lineEnd), ranges, path);
                 return null;
             }
 
@@ -804,6 +803,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return null;
         }
         return LineRange.of(min, max);
+    }
+
+    private boolean isWithinRanges(int start, int end, List<LineRange> ranges) {
+        for (LineRange range : ranges) {
+            if (start >= range.getStart() && end <= range.getEnd()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int parseInt(Object value, int defaultValue) {

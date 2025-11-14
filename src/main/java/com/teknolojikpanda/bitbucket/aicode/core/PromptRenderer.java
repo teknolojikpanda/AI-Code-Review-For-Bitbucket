@@ -1,5 +1,6 @@
 package com.teknolojikpanda.bitbucket.aicode.core;
 
+import com.teknolojikpanda.bitbucket.aicode.model.LineRange;
 import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewConfig;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewContext;
@@ -11,6 +12,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewFileMetadata;
 
 import javax.annotation.Nonnull;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -76,9 +78,15 @@ final class PromptRenderer {
                 }
                 builder.append(")");
             }
-            if (chunk.getPrimaryRanges().containsKey(path)) {
-                builder.append(" lines ")
-                        .append(chunk.getPrimaryRanges().get(path).asDisplay());
+            List<LineRange> ranges = chunk.getPrimaryRanges().get(path);
+            if (ranges != null && !ranges.isEmpty()) {
+                builder.append(" lines ");
+                for (int i = 0; i < ranges.size(); i++) {
+                    if (i > 0) {
+                        builder.append(", ");
+                    }
+                    builder.append(ranges.get(i).asDisplay());
+                }
             }
             builder.append('\n');
         });
