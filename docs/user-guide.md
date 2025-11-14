@@ -34,6 +34,47 @@ The panel polls `/rest/ai-reviewer/1.0/progress` to surface the latest informati
 
 If the panel does not appear, ensure AI reviews are enabled and you have permission to view the repository.
 
+## Configuration Page
+
+The **Configuration** page is available from the pull request sidebar and provides a read-only summary of the settings that affect the current repository:
+
+- **Review status** shows whether automatic reviews are enabled and highlights guardrail reasons when reviews are skipped (such as repository allowlists, file type exclusions, or draft pull request enforcement).
+- **Model profile** lists the AI provider, model name, temperature, and maximum tokens so you understand the reviewer’s behavior without leaving the pull request context.
+- **Scope controls** display repository, project, and global overrides for branch filters, maximum diff size, and severity thresholds.
+
+Use this page to quickly confirm whether administrators have customized behavior for a specific repository before escalating missing or unexpected findings.
+
+## History Page
+
+The **History** page surfaces the last 50 review runs for the pull request. Each entry includes:
+
+- Execution time, duration, triggering user, and commit hash.
+- Final status (Success, Skipped, Failed) with error details when available.
+- Links to download raw AI responses for audit or escalation.
+
+Select any run to open its timeline and compare findings against the current state. Use this page when you need to review how earlier iterations were evaluated or when analyzing regressions introduced by newer commits.
+
+## Health Page
+
+The **Health** page focuses on service reliability. It provides:
+
+- Current connectivity to the configured AI provider, including last successful call and response latency.
+- Queue depth metrics for scheduled reviews and worker availability.
+- Recent error rates grouped by failure type (provider outage, guardrail rejection, internal exception).
+
+Open the Health page if progress appears stalled or reviews are delayed. It helps determine whether the issue is localized to your pull request or due to a wider service degradation that administrators must address.
+
+## Operations Page
+
+The **Operations** page offers quick actions for reviewers and project maintainers with the required permission:
+
+- **Trigger manual review** reruns the AI analysis immediately, even when automatic reviews are disabled.
+- **Cancel running review** stops the in-flight job and clears merge checks.
+- **Purge cached data** clears stored AI responses for the pull request to reclaim space or remove sensitive information.
+- **Download logs** bundles request/response metadata (excluding code content) to attach to support tickets.
+
+Use these tools when coordinating with administrators, responding to compliance requests, or debugging why a review produced unexpected findings.
+
 ## Reading AI Findings
 
 - **Inline comments** include severity (Critical, High, Medium, Low) and a description of the issue. They may also provide suggested code snippets.
