@@ -255,7 +255,16 @@ public class SizeFirstChunkStrategy implements ChunkStrategy {
 
                 int start = Integer.parseInt(hunkHeader.group(1));
                 int length = hunkHeader.group(2) != null ? Integer.parseInt(hunkHeader.group(2)) : 1;
-                currentRange = LineRange.of(start, start + Math.max(length - 1, 0));
+                int normalizedStart = Math.max(1, start);
+                int normalizedEnd = Math.max(normalizedStart, normalizedStart + Math.max(length - 1, 0));
+                if (start < 1) {
+                    LogSupport.debug(log, "chunk.zero_based_hunk",
+                            "Adjusted zero-based hunk header to 1-based range",
+                            "file", currentFile,
+                            "rawStart", start,
+                            "length", length);
+                }
+                currentRange = LineRange.of(normalizedStart, normalizedEnd);
                 continue;
             }
 
