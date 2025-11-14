@@ -974,7 +974,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                                        @Nullable ApplicationUser reviewerUser) {
         boolean approved = false;
 
-        if (!shouldApprovePR(issues, config)) {
+        if (!shouldApprovePR(issues, pr, config)) {
             LogSupport.info(log, "autoapprove.skipped", "Auto-approval skipped",
                     "pullRequestId", pr.getId(),
                     "reason", "criteria-not-met");
@@ -1967,7 +1967,9 @@ public class AIReviewServiceImpl implements AIReviewService {
     /**
      * Determines PR auto-approval based on issue severity.
      */
-    private boolean shouldApprovePR(@Nonnull List<ReviewIssue> issues, @Nonnull Map<String, Object> config) {
+    private boolean shouldApprovePR(@Nonnull List<ReviewIssue> issues,
+                                    @Nonnull PullRequest pullRequest,
+                                    @Nonnull Map<String, Object> config) {
         boolean autoApprove = (boolean) config.get("autoApprove");
 
         if (!autoApprove) {
@@ -1983,13 +1985,13 @@ public class AIReviewServiceImpl implements AIReviewService {
 
         if (criticalOrHighCount > 0) {
             LogSupport.info(log, "autoapprove.criteria_failed", "Auto-approval criteria failed",
-                    "pullRequestId", pr.getId(),
+                    "pullRequestId", pullRequest.getId(),
                     "criticalOrHigh", criticalOrHighCount);
             return false;
         }
 
         LogSupport.info(log, "autoapprove.criteria_passed", "Auto-approval criteria met",
-                "pullRequestId", pr.getId(),
+                "pullRequestId", pullRequest.getId(),
                 "issueCount", issues.size());
         return true;
     }
