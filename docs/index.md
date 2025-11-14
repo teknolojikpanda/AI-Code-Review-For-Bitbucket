@@ -37,8 +37,8 @@ The plugin reacts to pull request events, orchestrates a guarded review pipeline
 
 ## Compatibility
 
-- **Bitbucket Server/Data Center**: built and tested against 9.6.5; requires Bitbucket 8.15 or later for the REST and guardrails APIs used by the plugin.
-- **Java**: compiled for Java 8 to match Bitbucket’s supported runtime.
+- **Bitbucket Server/Data Center**: built and tested against 9.6.5; requires Bitbucket 9.6.5 or later to match the bundled APIs and UI resources.
+- **Java**: compiled for Java 17, matching the runtime required by Bitbucket 9.6.5+.
 - **Model backend**: expects access to an Ollama instance reachable from every Bitbucket node.
 
 See the [Release Notes](release-notes.md) for upgrade history and known changes between versions.

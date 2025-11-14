@@ -29,10 +29,10 @@ ai-code-reviewer/
 
 ## Build and Run
 
-- Use Java 8 and Maven 3.8+.
+- Use Java 17 and Maven 3.8+.
 - `mvn clean package` produces `target/ai-code-reviewer-${version}.jar` for distribution.
 - To start a Bitbucket development instance with the plugin:
-  1. Install the Atlassian SDK (`atlas-version` ≥ 8.2).
+  1. Install the Atlassian SDK (`atlas-version` ≥ 9.x).
   2. Run `atlas-run --product bitbucket --version 9.6.5 --plugins target/ai-code-reviewer-*.jar`.
   3. Bitbucket boots with the plugin enabled; log in as `admin:admin` and navigate to **Administration → AI Code Reviewer**.
 - Use `atlas-debug` to attach a remote debugger and `atlas-integration-test` for integration testing if needed.

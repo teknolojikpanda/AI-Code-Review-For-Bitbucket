@@ -1,7 +1,7 @@
 # Frequently Asked Questions
 
 ## Does the plugin support Bitbucket Server and Data Center?
-Yes. The plugin is developed against Bitbucket Data Center 9.6.5 and requires Bitbucket 8.15 or newer. It runs on single-node Server installations and clustered deployments.
+Yes. The plugin is developed against Bitbucket Data Center 9.6.5 and requires Bitbucket 9.6.5 or newer. It runs on single-node Server installations and clustered deployments, provided your environment is upgraded to Bitbucket 9.x with Java 17.
 
 ## Which AI models are supported?
 The built-in client targets Ollama models. You can configure any model available on your Ollama host by setting `ollamaModel` and an optional `fallbackModel` in the configuration.

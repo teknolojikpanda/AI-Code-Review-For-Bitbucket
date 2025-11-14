@@ -28,10 +28,10 @@ Comprehensive documentation lives in the [`docs/`](docs/) directory:
 ## Building
 
 ```bash
-mvn clean package
+JAVA_HOME=/path/to/jdk-17 mvn clean package
 ```
 
-The command produces `target/ai-code-reviewer-<version>.jar`, which can be uploaded to Bitbucket via the Universal Plugin Manager. For development instances, use the Atlassian SDK:
+The build requires JDK 17 to match the Bitbucket 9.6.5 runtime. The command produces `target/ai-code-reviewer-<version>.jar`, which can be uploaded to Bitbucket via the Universal Plugin Manager. For development instances, use the Atlassian SDK:
 
 ```bash
 atlas-run --product bitbucket --version 9.6.5 --plugins target/ai-code-reviewer-*.jar

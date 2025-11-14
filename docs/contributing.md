@@ -5,7 +5,7 @@ We welcome improvements to AI Code Reviewer. This guide documents the expected w
 ## Getting Started
 
 1. **Fork and clone** the repository.
-2. Install **Java 8**, **Maven 3.8+**, and the **Atlassian SDK** (`atlas-version` ≥ 8.2).
+2. Install **Java 17**, **Maven 3.8+**, and the **Atlassian SDK** (`atlas-version` ≥ 9.x to match Bitbucket 9.6.5 APIs).
 3. Run `mvn clean install` once to download dependencies and build the plugin.
 4. Configure your IDE (IntelliJ IDEA recommended) with the Lombok plugin disabled—this project does not use Lombok and relies on explicit getters/setters in Active Objects entities.
 

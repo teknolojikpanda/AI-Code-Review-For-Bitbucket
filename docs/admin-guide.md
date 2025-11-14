@@ -5,8 +5,8 @@ This guide targets Bitbucket system administrators responsible for installing, c
 ## Installation
 
 1. **Verify prerequisites**
-   - Bitbucket Server/Data Center 8.15 or later (developed and tested on 9.6.5).
-   - Java 8 runtime on all application nodes.
+   - Bitbucket Server/Data Center 9.6.5 or later (developed and tested on 9.6.5).
+   - Java 17 runtime on all application nodes (the minimum supported JVM for Bitbucket 9.6.5+).
    - Network reachability from every node to the Ollama host configured for model inference.
    - Database permissions that allow Bitbucket to create Active Objects tables (the plugin stores configuration and telemetry in `AI_REVIEW_*` and `GUARDRAILS_*`).
 2. **Obtain the plugin JAR**
