@@ -52,6 +52,7 @@
     <component-import key="repositoryHookService" interface="com.atlassian.bitbucket.hook.repository.RepositoryHookService"/>
     <component-import key="auditService" interface="com.atlassian.audit.api.AuditService"/>
     <component-import key="schedulerService" interface="com.atlassian.scheduler.SchedulerService"/>
+    <component-import key="darkFeatureManager" interface="com.atlassian.sal.api.features.DarkFeatureManager"/>
 
 
     <!--
