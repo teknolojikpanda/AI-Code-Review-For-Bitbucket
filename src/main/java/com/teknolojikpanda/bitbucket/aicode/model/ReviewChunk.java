@@ -16,14 +16,17 @@ public final class ReviewChunk {
     private final int index;
     private final String content;
     private final List<String> files;
-    private final Map<String, LineRange> primaryRanges;
+    private final Map<String, List<LineRange>> primaryRanges;
 
     private ReviewChunk(Builder builder) {
         this.id = Objects.requireNonNull(builder.id, "id");
         this.index = builder.index;
         this.content = Objects.requireNonNull(builder.content, "content");
         this.files = Collections.unmodifiableList(builder.files);
-        this.primaryRanges = Collections.unmodifiableMap(builder.primaryRanges);
+        Map<String, List<LineRange>> ranges = new LinkedHashMap<>();
+        builder.primaryRanges.forEach((file, values) ->
+                ranges.put(file, Collections.unmodifiableList(new java.util.ArrayList<>(values))));
+        this.primaryRanges = Collections.unmodifiableMap(ranges);
     }
 
     @Nonnull
@@ -46,7 +49,7 @@ public final class ReviewChunk {
     }
 
     @Nonnull
-    public Map<String, LineRange> getPrimaryRanges() {
+    public Map<String, List<LineRange>> getPrimaryRanges() {
         return primaryRanges;
     }
 
@@ -59,7 +62,7 @@ public final class ReviewChunk {
         private int index;
         private String content = "";
         private List<String> files = new java.util.ArrayList<>();
-        private Map<String, LineRange> primaryRanges = new LinkedHashMap<>();
+        private Map<String, List<LineRange>> primaryRanges = new LinkedHashMap<>();
 
         public Builder id(@Nonnull String id) {
             this.id = Objects.requireNonNull(id, "id");
@@ -86,15 +89,17 @@ public final class ReviewChunk {
             return this;
         }
 
-        public Builder primaryRanges(@Nonnull Map<String, LineRange> ranges) {
-            this.primaryRanges = new LinkedHashMap<>(Objects.requireNonNull(ranges, "ranges"));
+        public Builder primaryRanges(@Nonnull Map<String, List<LineRange>> ranges) {
+            this.primaryRanges = new LinkedHashMap<>();
+            Objects.requireNonNull(ranges, "ranges").forEach((file, values) ->
+                    this.primaryRanges.put(file, new java.util.ArrayList<>(values)));
             return this;
         }
 
         public Builder addPrimaryRange(@Nonnull String file, @Nonnull LineRange range) {
-            this.primaryRanges.put(
-                    Objects.requireNonNull(file, "file"),
-                    Objects.requireNonNull(range, "range"));
+            String key = Objects.requireNonNull(file, "file");
+            LineRange value = Objects.requireNonNull(range, "range");
+            this.primaryRanges.computeIfAbsent(key, ignored -> new java.util.ArrayList<>()).add(value);
             return this;
         }
 

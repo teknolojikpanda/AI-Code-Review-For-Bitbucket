@@ -22,6 +22,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogSupport;
 
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
@@ -102,13 +103,17 @@ public class OllamaAiReviewClient implements AiReviewClient {
         } catch (VendorServerException ex) {
             metrics.increment("ai.model.vendor5xx");
             metrics.recordEnd("ai.chunk.call", start);
-            log.warn("AI vendor server error for chunk {}: {}", chunk.getId(), ex.getMessage());
+            LogSupport.warn(log, "ollama.vendor_error", "AI vendor server error",
+                    "chunkId", chunk.getId(),
+                    "error", ex.getMessage());
             return failureResult(chunk, ex.getMessage());
         } catch (Exception ex) {
             hardFailures.incrementAndGet();
             metrics.increment("ai.model.unhandledFailures");
             metrics.recordEnd("ai.chunk.call", start);
-            log.error("AI model invocation failed for chunk {}: {}", chunk.getId(), ex.getMessage(), ex);
+            LogSupport.error(log, "ollama.invocation_failed", "AI model invocation failed", ex,
+                    "chunkId", chunk.getId(),
+                    "error", ex.getMessage());
             return failureResult(chunk, "AI model invocation failed: " + ex.getMessage());
         }
     }
@@ -140,7 +145,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
         List<ReviewFinding> findings = null;
         if (config.isSkipPrimaryModel()) {
             metrics.increment("ai.model.primarySkipped");
-            log.info("Skipping primary model {} due to health probes marking it degraded", config.getPrimaryModel());
+            LogSupport.info(log, "ollama.primary_skipped", "Primary model skipped due to degradation",
+                    "primaryModel", config.getPrimaryModel());
         } else {
             findings = invokeModelWithRetry(
                     chunk,
@@ -199,10 +205,10 @@ public class OllamaAiReviewClient implements AiReviewClient {
         metrics.increment("ai.model." + modelRole + ".invocations");
 
         if (unavailableModels.contains(modelKey)) {
-            if (log.isDebugEnabled()) {
-                log.debug("Skipping model {} at {} for chunk {} because it was previously reported missing",
-                        model, baseUrl, chunk.getId());
-            }
+            LogSupport.debug(log, "ollama.model_skipped", "Model skipped due to previous missing response",
+                    "model", model,
+                    "endpoint", baseUrl,
+                    "chunkId", chunk.getId());
             return null;
         }
 
@@ -252,15 +258,25 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 recordBreakerMetrics(metrics);
                 return parsed;
             } catch (SocketTimeoutException ex) {
-                log.warn("Model {} timeout on attempt {}: {}", model, attempts, ex.getMessage());
+                LogSupport.warn(log, "ollama.timeout", "Model request timed out",
+                        "model", model,
+                        "endpoint", baseUrl,
+                        "chunkId", chunk.getId(),
+                        "attempt", attempts,
+                        "error", ex.getMessage());
                 lastError = ex;
                 lastErrorMessage = ex.getMessage();
                 timeoutOccurred = true;
-                 serverSideFailure = true;
+                serverSideFailure = true;
                 lastResponseBytes = 0;
                 lastStatusCode = null;
             } catch (Exception ex) {
-                log.warn("Model {} failed on attempt {}: {}", model, attempts, ex.getMessage());
+                LogSupport.warn(log, "ollama.attempt_failed", "Model attempt failed",
+                        "model", model,
+                        "endpoint", baseUrl,
+                        "chunkId", chunk.getId(),
+                        "attempt", attempts,
+                        "error", ex.getMessage());
                 lastError = ex;
                 lastErrorMessage = ex.getMessage();
                 timeoutOccurred = false;
@@ -299,8 +315,10 @@ public class OllamaAiReviewClient implements AiReviewClient {
             }
         }
         if (modelNotFound) {
-            log.error("Model {} not found at {} for chunk {}. Skipping analysis for this chunk.",
-                    model, baseUrl, chunk.getId());
+            LogSupport.error(log, "ollama.model_not_found", "Model not found at endpoint",
+                    "model", model,
+                    "endpoint", baseUrl,
+                    "chunkId", chunk.getId());
             unavailableModels.add(modelKey);
             metrics.increment("ai.model." + modelRole + ".failures");
             recordBreakerMetrics(metrics);
@@ -321,9 +339,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     vendorThrottled);
             return null;
         }
-        log.error("Model {} failed after {} attempt(s) for chunk {}: {}",
-                model, attempts, chunk.getId(), lastError != null ? lastError.getMessage() : "unknown error");
-        log.warn("Chunk {} retried without payload reduction ({} chars)", chunk.getId(), originalLength);
+        LogSupport.error(log, "ollama.retries_exhausted", "Model retries exhausted",
+                "model", model,
+                "endpoint", baseUrl,
+                "chunkId", chunk.getId(),
+                "attempts", attempts,
+                "error", lastError != null ? lastError.getMessage() : "unknown error");
+        LogSupport.warn(log, "ollama.no_payload_reduction", "Chunk retried without payload reduction",
+                "chunkId", chunk.getId(),
+                "payloadChars", originalLength);
         metrics.increment("ai.model." + modelRole + ".failures");
         recordBreakerMetrics(metrics);
         recordChunkInvocation(metrics,
@@ -639,23 +663,27 @@ public class OllamaAiReviewClient implements AiReviewClient {
     private List<ReviewFinding> parseFindings(String response, ReviewChunk chunk) throws Exception {
         Map<String, Object> envelope = parseJsonMap(response, "response envelope", chunk);
         if (envelope.isEmpty()) {
-            log.warn("Model response envelope empty for chunk {}", chunk.getId());
+            LogSupport.warn(log, "ollama.response_empty", "Model response envelope empty",
+                    "chunkId", chunk.getId());
             return Collections.emptyList();
         }
         String content = extractContent(envelope);
         if (content == null || content.trim().isEmpty()) {
-            log.warn("Empty content from model for chunk {}", chunk.getId());
+            LogSupport.warn(log, "ollama.response_body_empty", "Empty content from model",
+                    "chunkId", chunk.getId());
             return Collections.emptyList();
         }
 
         Map<String, Object> parsed = parseJsonMap(content, "content", chunk);
         if (parsed.isEmpty()) {
-            log.warn("Model response content empty for chunk {}", chunk.getId());
+            LogSupport.warn(log, "ollama.issues_missing", "Model response content empty",
+                    "chunkId", chunk.getId());
             return Collections.emptyList();
         }
         Object issuesObj = parsed.get("issues");
         if (!(issuesObj instanceof List)) {
-            log.warn("Model response missing issues array");
+            LogSupport.warn(log, "ollama.issues_missing", "Model response missing issues array",
+                    "chunkId", chunk.getId());
             return Collections.emptyList();
         }
 
@@ -682,8 +710,10 @@ public class OllamaAiReviewClient implements AiReviewClient {
             }
 
             if (!chunk.getFiles().contains(path)) {
-                log.warn("Discarding issue for chunk {}: path '{}' not present in chunk files {}",
-                        chunk.getId(), path, chunk.getFiles());
+                LogSupport.warn(log, "ollama.issue_missing_path", "Discarding issue with unknown path",
+                        "chunkId", chunk.getId(),
+                        "path", path,
+                        "chunkFiles", chunk.getFiles());
                 return null;
             }
 
@@ -700,15 +730,17 @@ public class OllamaAiReviewClient implements AiReviewClient {
             String fix = optionalString(map.get("fix"));
             Object problematicObj = map.get("problematicCode");
             if (!(problematicObj instanceof Map)) {
-                log.warn("Discarding issue for chunk {}: problematicCode object missing for {}",
-                        chunk.getId(), path);
+                LogSupport.warn(log, "ollama.issue_missing_problematic_code", "Discarding issue missing problematicCode",
+                        "chunkId", chunk.getId(),
+                        "path", path);
                 return null;
             }
             Map<?, ?> problematic = (Map<?, ?>) problematicObj;
             String snippet = optionalString(problematic.get("snippet"));
             if (snippet == null || snippet.trim().isEmpty()) {
-                log.warn("Discarding issue for chunk {}: missing problematicCode.snippet for {}",
-                        chunk.getId(), path);
+                LogSupport.warn(log, "ollama.issue_missing_snippet", "Discarding issue missing snippet",
+                        "chunkId", chunk.getId(),
+                        "path", path);
                 return null;
             }
 
@@ -716,8 +748,9 @@ public class OllamaAiReviewClient implements AiReviewClient {
             int lineEnd = parseInt(problematic.get("lineEnd"), lineStart);
 
             if (!snippetMatchesChunk(snippet, chunk.getContent())) {
-                log.warn("Discarding issue for chunk {}: problematicCode does not match diff content for {}",
-                        chunk.getId(), path);
+                LogSupport.warn(log, "ollama.issue_snippet_mismatch", "Discarding issue snippet mismatch",
+                        "chunkId", chunk.getId(),
+                        "path", path);
                 return null;
             }
 
@@ -727,30 +760,34 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     String previous = (lineStart > 0 && lineEnd >= lineStart)
                             ? LineRange.of(lineStart, lineEnd).asDisplay()
                             : lineStart + "-" + lineEnd;
-                    log.debug("Adjusted line range for chunk {} path {} based on snippet markers ({}->{})",
-                            chunk.getId(),
-                            path,
-                            previous,
-                            inferredRange.asDisplay());
+                    LogSupport.debug(log, "ollama.adjust_line_range", "Adjusted line range using snippet markers",
+                            "chunkId", chunk.getId(),
+                            "path", path,
+                            "previous", previous,
+                            "adjusted", inferredRange.asDisplay());
                 }
                 lineStart = inferredRange.getStart();
                 lineEnd = inferredRange.getEnd();
             }
 
             if (lineStart <= 0) {
-                log.warn("Discarding issue for chunk {}: invalid problematicCode.lineStart {} after adjustments for {}",
-                        chunk.getId(), lineStart, path);
+                LogSupport.warn(log, "ollama.issue_invalid_line_start", "Discarding issue invalid line start",
+                        "chunkId", chunk.getId(),
+                        "path", path,
+                        "lineStart", lineStart);
                 return null;
             }
             if (lineEnd < lineStart) {
                 lineEnd = lineStart;
             }
 
-            LineRange primary = chunk.getPrimaryRanges().get(path);
-            if (primary != null && (lineStart < primary.getStart() || lineStart > primary.getEnd()
-                    || lineEnd < primary.getStart() || lineEnd > primary.getEnd())) {
-                log.warn("Discarding issue for chunk {}: line range {} outside primary range {} for {}",
-                        chunk.getId(), LineRange.of(lineStart, lineEnd), primary, path);
+            List<LineRange> ranges = chunk.getPrimaryRanges().get(path);
+            if (ranges != null && !ranges.isEmpty() && !isWithinRanges(lineStart, lineEnd, ranges)) {
+                LogSupport.warn(log, "ollama.issue_outside_ranges", "Discarding issue outside primary ranges",
+                        "chunkId", chunk.getId(),
+                        "path", path,
+                        "lineRange", LineRange.of(lineStart, lineEnd),
+                        "primaryRanges", ranges);
                 return null;
             }
 
@@ -765,7 +802,9 @@ public class OllamaAiReviewClient implements AiReviewClient {
                     .snippet(snippet)
                     .build();
         } catch (Exception ex) {
-            log.warn("Failed to parse finding from {}: {}", map, ex.getMessage());
+            LogSupport.warn(log, "ollama.finding_parse_failed", "Failed to parse finding",
+                    "chunkId", chunk.getId(),
+                    "error", ex.getMessage());
             return null;
         }
     }
@@ -804,6 +843,15 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return null;
         }
         return LineRange.of(min, max);
+    }
+
+    private boolean isWithinRanges(int start, int end, List<LineRange> ranges) {
+        for (LineRange range : ranges) {
+            if (start >= range.getStart() && end <= range.getEnd()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int parseInt(Object value, int defaultValue) {
@@ -907,17 +955,24 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 throw first;
             }
             if (sanitized.isEmpty()) {
-                log.warn("Sanitized {} for chunk {} resulted in empty payload", context, chunk.getId());
+                LogSupport.warn(log, "ollama.sanitized_empty", "Sanitization produced empty payload",
+                        "context", context,
+                        "chunkId", chunk.getId());
                 return Collections.emptyMap();
             }
             try {
                 Map<String, Object> parsed = OBJECT_MAPPER.readValue(sanitized, MAP_TYPE);
-                log.debug("Sanitized {} for chunk {} before parsing ({} -> {} chars)",
-                        context, chunk.getId(), raw.length(), sanitized.length());
+                LogSupport.debug(log, "ollama.sanitized", "Sanitized payload prior to parsing",
+                        "context", context,
+                        "chunkId", chunk.getId(),
+                        "rawChars", raw.length(),
+                        "sanitizedChars", sanitized.length());
                 return parsed;
             } catch (JsonProcessingException second) {
-                log.warn("Failed to parse {} for chunk {} after sanitizing: {}",
-                        context, chunk.getId(), second.getOriginalMessage());
+                LogSupport.warn(log, "ollama.sanitized_parse_failed", "Failed to parse sanitized content",
+                        "context", context,
+                        "chunkId", chunk.getId(),
+                        "error", second.getOriginalMessage());
                 throw second;
             }
         }

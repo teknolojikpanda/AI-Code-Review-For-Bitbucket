@@ -52,6 +52,7 @@
     <component-import key="repositoryHookService" interface="com.atlassian.bitbucket.hook.repository.RepositoryHookService"/>
     <component-import key="auditService" interface="com.atlassian.audit.api.AuditService"/>
     <component-import key="schedulerService" interface="com.atlassian.scheduler.SchedulerService"/>
+    <component-import key="darkFeatureManager" interface="com.atlassian.sal.api.features.DarkFeatureManager"/>
 
 
     <!--
@@ -247,6 +248,11 @@
     <component key="guardrailsAlertChannelService"
                class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsAlertChannelService">
         <description>Stores outbound alert destinations and dispatches notifications</description>
+    </component>
+
+    <component key="guardrailsRolloutService"
+               class="com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRolloutService">
+        <description>Evaluates cohort rollout rules for guardrail enforcement and telemetry</description>
     </component>
 
     <component key="progressRegistry"
