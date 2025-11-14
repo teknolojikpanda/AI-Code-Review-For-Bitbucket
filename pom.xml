@@ -6,7 +6,7 @@
 
     <groupId>com.teknolojikpanda.bitbucket</groupId>
     <artifactId>ai-code-reviewer</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>atlassian-plugin</packaging>
 
     <name>AI Code Reviewer for Bitbucket</name>
