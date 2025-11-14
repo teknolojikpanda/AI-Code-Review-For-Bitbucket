@@ -236,10 +236,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                         "mode", evaluation.getMode().name().toLowerCase(Locale.ROOT),
                         "reason", evaluation.getReason());
                 recordProgress("review.rollout.shadow", 0, details);
-                log.info("Guardrails bypassed for PR #{} (cohort={}, reason={})",
-                        pullRequest.getId(),
-                        evaluation.getCohortKey(),
-                        evaluation.getReason());
+                LogSupport.info(log, "guardrails.bypassed", "Guardrails bypassed",
+                        "pullRequestId", pullRequest.getId(),
+                        "cohortKey", evaluation.getCohortKey(),
+                        "reason", evaluation.getReason());
                 return executeWithoutGuardrails(run, action);
             }
 
@@ -256,7 +256,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                     throttleDetails.put("limiterSnapshot", limiterSnapshot);
                 }
                 recordProgress("review.throttled", 0, throttleDetails);
-                log.info("AI review rate limit hit [{}] for PR #{} (retry in {} ms)", ex.getIdentifier(), pullRequest.getId(), ex.getRetryAfterMillis());
+                LogSupport.info(log, "review.rate_limited", "AI review rate limited",
+                        "pullRequestId", pullRequest.getId(),
+                        "identifier", ex.getIdentifier(),
+                        "retryAfterMs", ex.getRetryAfterMillis());
                 return buildRateLimitedResult(pullRequest.getId(), ex);
             }
             try {
@@ -266,22 +269,23 @@ public class AIReviewServiceImpl implements AIReviewService {
                 recordProgress("review.paused", 0, progressDetails(
                         "schedulerState", state.getMode().name().toLowerCase(Locale.ROOT),
                         "reason", state.getReason()));
-                log.warn("AI review paused for PR #{} (state={}, reason={})",
-                        pullRequest.getId(),
-                        state.getMode(),
-                        state.getReason());
+                LogSupport.warn(log, "review.scheduler_paused", "Scheduler paused review",
+                        "pullRequestId", pullRequest.getId(),
+                        "state", state.getMode(),
+                        "reason", state.getReason());
                 return buildSchedulerPausedResult(pullRequest.getId(), state);
             } catch (ReviewQueueFullException ex) {
-                log.warn("AI review queue full for {}/{} PR #{} (waiting={}, maxConcurrent={}, maxQueued={})",
-                        run.getProjectKey(),
-                        run.getRepositorySlug(),
-                        pullRequest.getId(),
-                        ex.getWaitingCount(),
-                        ex.getMaxConcurrent(),
-                        ex.getMaxQueueSize());
+                LogSupport.warn(log, "review.queue_full", "AI review queue full",
+                        "pullRequestId", pullRequest.getId(),
+                        "projectKey", run.getProjectKey(),
+                        "repositorySlug", run.getRepositorySlug(),
+                        "waiting", ex.getWaitingCount(),
+                        "maxConcurrent", ex.getMaxConcurrent(),
+                        "maxQueued", ex.getMaxQueueSize());
                 return buildQueueFullResult(pullRequest.getId(), ex);
             } catch (ReviewSchedulingInterruptedException ex) {
-                log.warn("AI review scheduling interrupted for PR #{}", pullRequest.getId(), ex);
+                LogSupport.warn(log, "review.interrupted", "AI review scheduling interrupted", ex,
+                        "pullRequestId", pullRequest.getId());
                 Thread.currentThread().interrupt();
                 return buildQueueInterruptedResult(pullRequest.getId());
             }
@@ -422,15 +426,19 @@ public class AIReviewServiceImpl implements AIReviewService {
                             metrics.put("review.skipped.commit", latestCommit);
                             metrics.put("issues.previous", Math.max(0, history.getTotalIssuesFound()));
 
-                            log.info("Skipping re-review for PR #{} - latest commit {} already reviewed with status {}",
-                                    pullRequestId, latestCommit, previousStatus.getValue());
+                            LogSupport.info(log, "review.skipped.unchanged_commit", "Skipping re-review for unchanged commit",
+                                    "pullRequestId", pullRequestId,
+                                    "commitId", latestCommit,
+                                    "previousStatus", previousStatus.getValue());
                             return buildSkippedResult(pullRequestId,
                                     "Latest commit already reviewed; skipping duplicate re-review.",
                                     metrics);
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Unable to determine previous review state for PR #{}: {}", pullRequestId, e.getMessage());
+                    LogSupport.warn(log, "review.history_lookup_failed", "Unable to load previous review state",
+                            "pullRequestId", pullRequestId,
+                            "error", e.getMessage());
                 }
             }
 
@@ -451,7 +459,9 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (run.force) {
             modeLabel = modeLabel + " (forced)";
         }
-        log.info("Starting {} AI review for pull request: {}", modeLabel, pullRequestId);
+        LogSupport.info(log, "review.start", "Starting AI review",
+                "pullRequestId", pullRequestId,
+                "mode", modeLabel);
         MetricsCollector metrics = new MetricsCollector("pr-" + pullRequestId);
         MetricsRecorderAdapter recorder = new MetricsRecorderAdapter(metrics);
         Instant overallStart = recorder.recordStart("overall");
@@ -483,7 +493,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                 recordProgress("review.completed", 100, progressDetails(
                         "status", "skipped",
                         "reason", "out-of-scope"));
-                log.info("Skipping PR #{} in {}/{} - repository out of configured AI review scope", pullRequestId, projectKey, repositorySlug);
+                LogSupport.info(log, "review.skipped.out_of_scope", "Repository out of AI review scope",
+                        "pullRequestId", pullRequestId,
+                        "projectKey", projectKey,
+                        "repositorySlug", repositorySlug);
                 metrics.setGauge("review.skipped.reason", "out-of-scope");
                 Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
                 ReviewResult skipped = buildSkippedResult(pullRequestId, "Repository is not selected for AI review scope", metricsSnapshot);
@@ -525,12 +538,12 @@ public class AIReviewServiceImpl implements AIReviewService {
                         "workerQueuedTasks", degradationResult.getQueuedTasks(),
                         "workerDegradationLevel", degradationResult.getLevel().name().toLowerCase(Locale.ROOT)));
                 String utilizationText = String.format(Locale.ROOT, "%.2f", degradationResult.getWorkerUtilization());
-                log.info("Worker degradation applied for PR #{}: parallelThreads {} -> {} (utilization {}, queued {})",
-                        pullRequestId,
-                        degradationResult.getOriginalParallelThreads(),
-                        degradationResult.getAdjustedParallelThreads(),
-                        utilizationText,
-                        degradationResult.getQueuedTasks());
+                LogSupport.info(log, "review.worker_degradation", "Worker degradation applied",
+                        "pullRequestId", pullRequestId,
+                        "threadsBefore", degradationResult.getOriginalParallelThreads(),
+                        "threadsAfter", degradationResult.getAdjustedParallelThreads(),
+                        "utilization", utilizationText,
+                        "queuedTasks", degradationResult.getQueuedTasks());
             }
             if (modelHealthResult.isPrimaryDegraded()) {
                 Map<String, Object> degradeDetails = progressDetails(
@@ -546,8 +559,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                     degradeDetails.put("fallbackStatus", fallbackHealth.getStatus().name().toLowerCase(Locale.ROOT));
                 }
                 recordProgress("config.primaryModelDegraded", 11, degradeDetails);
-                log.warn("Primary model {} marked degraded for PR #{}; routing chunks to fallback",
-                        reviewConfig.getPrimaryModel(), pullRequestId);
+                LogSupport.warn(log, "review.primary_model_degraded", "Primary model degraded",
+                        "pullRequestId", pullRequestId,
+                        "primaryModel", reviewConfig.getPrimaryModel(),
+                        "fallbackModel", reviewConfig.getFallbackModel());
             }
             recordProgress("config.resolved", 10, progressDetails(
                     "primaryModel", reviewConfig.getPrimaryModel(),
@@ -561,7 +576,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                     return null;
                 });
             } catch (Exception ex) {
-                log.warn("Failed to ensure merge check for {}/{}: {}", projectKey, repositorySlug, ex.getMessage());
+                LogSupport.warn(log, "merge_check.ensure_failed", "Failed to ensure AI review merge check",
+                        "projectKey", projectKey,
+                        "repositorySlug", repositorySlug,
+                        "error", ex.getMessage());
             }
 
             TimelineRecorder.TimelineScope diffTimeline = timeline.begin(
@@ -621,15 +639,19 @@ public class AIReviewServiceImpl implements AIReviewService {
                     "chunkCount", preparation.getChunks().size(),
                     "truncated", preparation.isTruncated()));
             Map<String, FileChange> fileChanges = buildFileChanges(context, preparation);
-            log.info("AI Review: collected {} file(s) with diff content, {} file(s) selected for review", fileChanges.size(), preparation.getOverview().getTotalFiles());
+            LogSupport.info(log, "review.diff_collected", "Collected diff content",
+                    "pullRequestId", pullRequestId,
+                    "filesWithDiff", fileChanges.size(),
+                    "filesSelected", preparation.getOverview().getTotalFiles());
             recordProgress("chunks.prepared", 40, progressDetails(
                     "chunkCount", preparation.getChunks().size(),
                     "filesReviewable", preparation.getOverview().getTotalFiles(),
                     "truncated", preparation.isTruncated()));
 
             if (preparation.getChunks().isEmpty()) {
-                log.warn("AI Review: no chunks were generated for PR #{}; check filters/extensions configuration ({} file(s) lacked textual hunks)",
-                        pullRequestId, preparation.getSkippedFiles().size());
+                LogSupport.warn(log, "review.no_chunks", "No reviewable chunks generated",
+                        "pullRequestId", pullRequestId,
+                        "filesWithoutHunks", preparation.getSkippedFiles().size());
                 recordProgress("review.skipped.chunks", 45, progressDetails(
                         "filesWithoutHunks", preparation.getSkippedFiles().size()));
                 recordProgress("review.completed", 100, progressDetails(
@@ -639,7 +661,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                         context,
                         preparation.getOverview().getFileStats().keySet(),
                         preparation.getSkippedFiles());
-                log.warn("AI Review: filter breakdown for PR #{} -> {}", pullRequestId, reasons);
+                LogSupport.warn(log, "review.filtered_files", "Files excluded from review",
+                        "pullRequestId", pullRequestId,
+                        "reasons", reasons);
                 Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
                 ReviewResult skipped = buildSuccessResult(pullRequestId, "No reviewable files found (all filtered)",
                         0, fileChanges.size(), metricsSnapshot);
@@ -651,7 +675,9 @@ public class AIReviewServiceImpl implements AIReviewService {
             metrics.setGauge("files.reviewable", preparation.getOverview().getTotalFiles());
             metrics.setGauge("chunks.planned", preparation.getChunks().size());
             metrics.setGauge("chunks.truncated", preparation.isTruncated());
-            log.debug("AI Review: {} chunk(s) prepared (truncated={})", preparation.getChunks().size(), preparation.isTruncated());
+            LogSupport.debug(log, "review.chunks_prepared", "Review chunks prepared",
+                    "chunkCount", preparation.getChunks().size(),
+                    "truncated", preparation.isTruncated());
             Map<String, Object> analysisStartedDetails = progressDetails(
                     "chunkCount", preparation.getChunks().size(),
                     "truncated", preparation.isTruncated());
@@ -677,9 +703,13 @@ public class AIReviewServiceImpl implements AIReviewService {
             List<ReviewIssue> issues = convertFindings(summary.getFindings());
             metrics.setGauge("issues.truncated", summary.isTruncated());
             if (summary.totalCount() == 0) {
-                log.info("AI Review: no findings returned from AI for PR #{}", pullRequestId);
+                LogSupport.info(log, "review.no_findings", "AI returned no findings",
+                        "pullRequestId", pullRequestId);
             } else {
-                log.info("AI Review: AI returned {} finding(s) (truncated={})", summary.totalCount(), summary.isTruncated());
+                LogSupport.info(log, "review.findings_returned", "AI findings received",
+                        "pullRequestId", pullRequestId,
+                        "totalFindings", summary.totalCount(),
+                        "truncated", summary.isTruncated());
             }
             Map<String, Object> analysisCompletedDetails = progressDetails(
                     "findings", summary.totalCount(),
@@ -726,8 +756,11 @@ public class AIReviewServiceImpl implements AIReviewService {
             ReviewResult result = buildFinalResult(pullRequestId, validated,
                     preparation.getOverview().getTotalFiles(),
                     fileChanges.size(), commentsPosted, approved, metricsSnapshot);
-            log.info("AI Review: completed PR #{} with {} validated issue(s); comments posted={} approved={}",
-                    pullRequestId, validated.size(), commentsPosted, approved);
+            LogSupport.info(log, "review.completed", "Review completed",
+                    "pullRequestId", pullRequestId,
+                    "validatedIssues", validated.size(),
+                    "commentsPosted", commentsPosted,
+                    "autoApproved", approved);
 
             saveReviewHistory(pullRequest, validated, result, configMap);
             completeCurrentRun(result.getStatus());
@@ -750,11 +783,19 @@ public class AIReviewServiceImpl implements AIReviewService {
     }
     
     private void logPullRequestInfo(@Nonnull PullRequest pr) {
-        log.info("Reviewing PR #{} in {}/{}: {}",
-                pr.getId(),
-                pr.getToRef().getRepository().getProject().getKey(),
-                pr.getToRef().getRepository().getSlug(),
-                pr.getTitle());
+        String projectKey = pr.getToRef() != null
+                && pr.getToRef().getRepository() != null
+                && pr.getToRef().getRepository().getProject() != null
+                ? pr.getToRef().getRepository().getProject().getKey()
+                : "unknown";
+        String repositorySlug = pr.getToRef() != null && pr.getToRef().getRepository() != null
+                ? pr.getToRef().getRepository().getSlug()
+                : "unknown";
+        LogSupport.info(log, "review.pr_context", "Reviewing pull request",
+                "pullRequestId", pr.getId(),
+                "projectKey", projectKey,
+                "repositorySlug", repositorySlug,
+                "title", pr.getTitle());
     }
     
     private void recordIssueMetrics(@Nonnull List<ReviewIssue> issues, int invalidIssues, @Nonnull MetricsCollector metrics) {
@@ -771,9 +812,13 @@ public class AIReviewServiceImpl implements AIReviewService {
         metrics.setGauge("issues.medium", mediumCount);
         metrics.setGauge("issues.low", lowCount);
         
-        log.info("Analysis complete: {} valid issues found ({} invalid filtered)", issues.size(), invalidIssues);
-        log.info("Issue breakdown - Critical: {}, High: {}, Medium: {}, Low: {}",
-                criticalCount, highCount, mediumCount, lowCount);
+        LogSupport.info(log, "review.analysis_complete", "Analysis complete",
+                "validIssues", issues.size(),
+                "invalidIssues", invalidIssues,
+                "critical", criticalCount,
+                "high", highCount,
+                "medium", mediumCount,
+                "low", lowCount);
     }
 
     private Map<String, FileChange> buildFileChanges(@Nonnull ReviewContext context,
@@ -807,7 +852,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
         }
         if (duplicates > 0) {
-            log.info("Filtered {} duplicate issue(s) using fingerprinting", duplicates);
+            LogSupport.info(log, "review.duplicates_filtered", "Duplicate issues filtered",
+                    "duplicates", duplicates);
         }
         return new ArrayList<>(unique.values());
     }
@@ -835,12 +881,15 @@ public class AIReviewServiceImpl implements AIReviewService {
             metrics.setGauge("issues.previous", previousIssues.size());
             resolvedIssues = findResolvedIssues(previousIssues, issues);
             newIssues = findNewIssues(previousIssues, issues);
-            log.info("Re-review comparison: {} resolved, {} new out of {} previous and {} current issues",
-                    resolvedIssues.size(), newIssues.size(), previousIssues.size(), issues.size());
+            LogSupport.info(log, "review.rereview_comparison", "Re-review comparison results",
+                    "resolved", resolvedIssues.size(),
+                    "new", newIssues.size(),
+                    "previous", previousIssues.size(),
+                    "current", issues.size());
             metrics.setGauge("issues.resolved", resolvedIssues.size());
             metrics.setGauge("issues.new", newIssues.size());
         } else {
-            log.info("No previous review found - first review for this PR");
+            LogSupport.info(log, "review.rereview_comparison", "First review for pull request");
             metrics.setGauge("issues.previous", 0);
         }
         
@@ -879,7 +928,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                     }
 
                     int posted = postIssueComments(issues, pr, configMap, commenter);
-                    log.info("✓ Posted {} issue comment(s)", posted);
+                    LogSupport.info(log, "comments.posted", "Issue comments posted",
+                            "pullRequestId", pr.getId(),
+                            "count", posted);
 
                     String summaryText = buildSummaryComment(
                             issues,
@@ -891,18 +942,22 @@ public class AIReviewServiceImpl implements AIReviewService {
                             comparison.newIssues,
                             configMap);
                     Comment summaryComment = addPRComment(pr, summaryText, commenter);
-                    log.info("Posted summary comment with ID: {}", summaryComment.getId());
+                    LogSupport.info(log, "comments.summary_posted", "Summary comment posted",
+                            "pullRequestId", pr.getId(),
+                            "commentId", summaryComment.getId());
                     return posted;
                 });
             } catch (Exception e) {
-                log.error("❌ Failed to post comments: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+                LogSupport.error(log, "comments.post_failed", "Failed to post comments", e,
+                        "pullRequestId", pr.getId());
                 if (commentsTimeline != null) {
                     commentsTimeline.failure(e.getMessage());
                     timelineCompleted = true;
                 }
             }
         } else {
-            log.info("No issues found - skipping comment posting");
+            LogSupport.info(log, "comments.skipped", "No issues to comment on",
+                    "pullRequestId", pr.getId());
         }
         metrics.recordEnd("postComments", commentStart);
         metrics.setGauge("comments.posted", commentsPosted);
@@ -920,25 +975,33 @@ public class AIReviewServiceImpl implements AIReviewService {
         boolean approved = false;
 
         if (!shouldApprovePR(issues, config)) {
-            log.info("PR #{} not auto-approved - critical/high issues present or auto-approve disabled", pr.getId());
+            LogSupport.info(log, "autoapprove.skipped", "Auto-approval skipped",
+                    "pullRequestId", pr.getId(),
+                    "reason", "criteria-not-met");
             metrics.setGauge("autoApprove.applied", 0);
             return false;
         }
 
         if (reviewerUser == null) {
-            log.warn("Auto-approve enabled but no AI reviewer user configured; skipping approval for PR #{}", pr.getId());
+            LogSupport.warn(log, "autoapprove.skipped", "Auto-approval skipped",
+                    "pullRequestId", pr.getId(),
+                    "reason", "reviewer-missing");
             metrics.setGauge("autoApprove.applied", 0);
             return false;
         }
 
-        log.info("Attempting to auto-approve PR #{} as {}", pr.getId(), reviewerUser.getDisplayName());
+        LogSupport.info(log, "autoapprove.attempt", "Attempting auto-approval",
+                "pullRequestId", pr.getId(),
+                "reviewer", reviewerUser.getDisplayName());
         approved = approvePR(pr, reviewerUser);
         if (approved) {
-            log.info("✅ PR #{} auto-approved - no critical/high issues found", pr.getId());
+            LogSupport.info(log, "autoapprove.succeeded", "Auto-approval succeeded",
+                    "pullRequestId", pr.getId());
             metrics.setGauge("autoApprove.applied", 1);
             metrics.setGauge("autoApprove.failed", 0);
         } else {
-            log.warn("Failed to auto-approve PR #{}", pr.getId());
+            LogSupport.warn(log, "autoapprove.failed", "Auto-approval failed",
+                    "pullRequestId", pr.getId());
             metrics.setGauge("autoApprove.failed", 1);
         }
 
@@ -1104,12 +1167,11 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     private ReviewResult handleReviewException(long pullRequestId, @Nonnull Exception e, @Nonnull MetricsCollector metrics, @Nonnull Instant overallStart) {
         String correlationId = LogContext.correlationId();
-        log.error("Failed to review pull request: {} correlationId={} type={} message={}",
-                pullRequestId,
-                correlationId,
-                e.getClass().getName(),
-                e.getMessage(),
-                e);
+        LogSupport.error(log, "review.failed", "Review execution failed", e,
+                "pullRequestId", pullRequestId,
+                "correlationId", correlationId,
+                "errorType", e.getClass().getName(),
+                "message", e.getMessage());
 
         metrics.setGauge("error.type", e.getClass().getName());
         metrics.setGauge("error.message", safeTruncate(e.getMessage(), 512));
@@ -1279,22 +1341,23 @@ public class AIReviewServiceImpl implements AIReviewService {
 
     @Override
     public boolean testOllamaConnection() {
-        log.info("Testing Ollama connection");
+        LogSupport.info(log, "ollama.test", "Testing Ollama connection");
 
         try {
             Map<String, Object> config = configService.getConfigurationAsMap();
             String ollamaUrl = (String) config.get("ollamaUrl");
             if (ollamaUrl == null || ollamaUrl.trim().isEmpty()) {
-                log.warn("Ollama URL is not configured; skipping connection test.");
+                LogSupport.warn(log, "ollama.test_skipped", "Ollama URL not configured");
                 return false;
             }
 
             boolean connected = configService.testOllamaConnection(ollamaUrl.trim());
-            log.info("Ollama connection test result: {}", connected);
+            LogSupport.info(log, "ollama.test_result", "Ollama connection test completed",
+                    "connected", connected);
             return connected;
 
         } catch (Exception e) {
-            log.error("Ollama connection test failed", e);
+            LogSupport.error(log, "ollama.test_failed", "Ollama connection test failed", e);
             return false;
         }
     }
@@ -1381,7 +1444,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             // Check ignore paths
             for (String path : ignorePathList) {
                 if (file.contains(path.trim())) {
-                    log.debug("Ignoring file in excluded path: {}", file);
+                    LogSupport.debug(log, "filter.ignore_path", "Ignoring file in excluded path",
+                            "filePath", file);
                     return false;
                 }
             }
@@ -1391,7 +1455,9 @@ public class AIReviewServiceImpl implements AIReviewService {
             for (String pattern : ignorePatternList) {
                 String regex = pattern.trim().replace("*", ".*");
                 if (fileName.matches(regex)) {
-                    log.debug("Ignoring file matching pattern: {}", file);
+                    LogSupport.debug(log, "filter.ignore_pattern", "Ignoring file by pattern",
+                            "filePath", file,
+                            "pattern", pattern);
                     return false;
                 }
             }
@@ -1399,13 +1465,16 @@ public class AIReviewServiceImpl implements AIReviewService {
             // Check extension
             int lastDot = file.lastIndexOf('.');
             if (lastDot == -1) {
-                log.debug("Ignoring file with no extension: {}", file);
+                LogSupport.debug(log, "filter.no_extension", "Ignoring file with no extension",
+                        "filePath", file);
                 return false;
             }
 
             String extension = file.substring(lastDot + 1).toLowerCase();
             if (!allowedExtensions.contains(extension)) {
-                log.debug("Ignoring file with non-reviewable extension: {}", file);
+                LogSupport.debug(log, "filter.unsupported_extension", "Ignoring file with non-reviewable extension",
+                        "filePath", file,
+                        "extension", extension);
                 return false;
             }
 
@@ -1514,10 +1583,13 @@ public class AIReviewServiceImpl implements AIReviewService {
             Comment comment = runAsReviewer(reviewerUser,
                     "AI reviewer summary comment",
                     () -> commentService.addComment(request));
-            log.info("Posted PR comment, ID: {}", comment.getId());
+            LogSupport.info(log, "comments.summary_posted", "Summary comment posted",
+                    "pullRequestId", pullRequest.getId(),
+                    "commentId", comment.getId());
             return comment;
         } catch (Exception e) {
-            log.error("Failed to post PR comment: {}", e.getMessage());
+            LogSupport.error(log, "comments.summary_failed", "Failed to post summary comment", e,
+                    "pullRequestId", pullRequest.getId());
             throw new RuntimeException("Failed to post PR comment: " + e.getMessage(), e);
         }
     }
@@ -1542,8 +1614,13 @@ public class AIReviewServiceImpl implements AIReviewService {
         String toRef = pullRequest.getToRef().getId();
         String repoSlug = pullRequest.getToRef().getRepository().getSlug();
         String projectKey = pullRequest.getToRef().getRepository().getProject().getKey();
-        log.debug("Posting comments for PR #{} in {}/{}: {} ({}->{})",
-                prId, projectKey, repoSlug, prTitle, fromRef, toRef);
+        LogSupport.debug(log, "comments.batch_context", "Posting comments for pull request",
+                "pullRequestId", prId,
+                "projectKey", projectKey,
+                "repositorySlug", repoSlug,
+                "title", prTitle,
+                "fromRef", fromRef,
+                "toRef", toRef);
 
         int maxIssueComments = getNumericConfig(configMap.get("maxIssueComments"), 20);
         int apiDelayMs = getNumericConfig(configMap.get("apiDelayMs"), 100);
@@ -1560,8 +1637,13 @@ public class AIReviewServiceImpl implements AIReviewService {
                 .count();
         long singleLineCount = issuesToPost.size() - multilineCount;
         
-        log.info("Starting to post {} issue comments ({} single-line, {} multiline) limited from {} total issues with {}ms API delay",
-                issuesToPost.size(), singleLineCount, multilineCount, issues.size(), apiDelayMs);
+        LogSupport.info(log, "comments.batch_start", "Posting issue comments",
+                "pullRequestId", prId,
+                "planned", issuesToPost.size(),
+                "singleLine", singleLineCount,
+                "multiline", multilineCount,
+                "totalIssues", issues.size(),
+                "apiDelayMs", apiDelayMs);
 
         int commentsCreated = 0;
         int commentsFailed = 0;
@@ -1571,12 +1653,19 @@ public class AIReviewServiceImpl implements AIReviewService {
             String filePath = issue.getPath();
 
             if (filePath == null || filePath.trim().isEmpty()) {
-                log.warn("Skipping issue comment {}/{} - file path is null or empty", i + 1, issuesToPost.size());
+                LogSupport.warn(log, "comments.skipped_invalid_path", "Skipping comment - missing file path",
+                        "pullRequestId", prId,
+                        "index", i + 1,
+                        "total", issuesToPost.size());
                 commentsFailed++;
                 continue;
             }
 
-            log.info("Processing issue comment {}/{} for file: {}", i + 1, issuesToPost.size(), filePath);
+            LogSupport.debug(log, "comments.processing", "Processing issue comment",
+                    "pullRequestId", prId,
+                    "index", i + 1,
+                    "total", issuesToPost.size(),
+                    "filePath", filePath);
 
             try {
                 // Remove any remaining leading slashes
@@ -1590,8 +1679,12 @@ public class AIReviewServiceImpl implements AIReviewService {
                         : issue.getLineStart();
 
                 if (anchorLine == null || anchorLine <= 0) {
-                    log.warn("Skipping issue comment {}/{} - invalid line number: {} for file: {}",
-                            i + 1, issuesToPost.size(), anchorLine, filePath);
+                    LogSupport.warn(log, "comments.skipped_invalid_line", "Skipping comment - invalid line number",
+                            "pullRequestId", prId,
+                            "index", i + 1,
+                            "total", issuesToPost.size(),
+                            "line", anchorLine,
+                            "filePath", filePath);
                     commentsFailed++;
                     continue;
                 }
@@ -1599,8 +1692,11 @@ public class AIReviewServiceImpl implements AIReviewService {
                 // Map issue severity to comment severity
                 CommentSeverity commentSeverity = mapToCommentSeverity(issue.getSeverity());
 
-                log.info("Creating line comment request for '{}:{}' with severity '{}'",
-                        filePath, anchorLine, commentSeverity);
+                LogSupport.debug(log, "comments.create_request", "Creating line comment request",
+                        "pullRequestId", prId,
+                        "filePath", filePath,
+                        "line", anchorLine,
+                        "severity", commentSeverity);
 
                 // Create multiline-aware comment request for Bitbucket 9.6.5
                 AddLineCommentRequest request = createMultilineCommentRequest(
@@ -1612,7 +1708,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                         anchorLine
                 );
 
-                log.info("Calling Bitbucket API to post line comment {}/{}", i + 1, issuesToPost.size());
+                LogSupport.debug(log, "comments.api_call", "Posting line comment",
+                        "pullRequestId", prId,
+                        "index", i + 1,
+                        "total", issuesToPost.size());
                 Comment comment = runWithUser(commenter, () -> commentService.addComment(request));
                 // Log with multiline information
                 String commentType = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
@@ -1620,8 +1719,15 @@ public class AIReviewServiceImpl implements AIReviewService {
                 String lineInfo = (issue.getLineEnd() != null && !issue.getLineEnd().equals(issue.getLineStart()))
                         ? issue.getLineStart() + "-" + issue.getLineEnd() : String.valueOf(anchorLine);
 
-                log.info("✓ Posted {} {} at {}:{} with ID {} (severity: {})",
-                        commentType, i + 1, filePath, lineInfo, comment.getId(), commentSeverity);
+                LogSupport.info(log, "comments.post_success", "Line comment posted",
+                        "pullRequestId", prId,
+                        "index", i + 1,
+                        "total", issuesToPost.size(),
+                        "type", commentType,
+                        "filePath", filePath,
+                        "line", lineInfo,
+                        "commentId", comment.getId(),
+                        "severity", commentSeverity);
                 commentsCreated++;
 
                 // Rate limiting delay
@@ -1638,21 +1744,34 @@ public class AIReviewServiceImpl implements AIReviewService {
                 Integer lineNumber = issue.getLineEnd() != null && issue.getLineEnd() > 0
                         ? issue.getLineEnd()
                         : issue.getLineStart();
-                log.error("Failed to post line comment {}/{} at {}:{}: {} - {}",
-                         i + 1, issuesToPost.size(), filePath, lineNumber,
-                         e.getClass().getSimpleName(), e.getMessage());
-                log.debug("Full stack trace for line comment failure:", e);
+                LogSupport.error(log, "comments.post_failed", "Failed to post line comment", e,
+                        "pullRequestId", prId,
+                        "index", i + 1,
+                        "total", issuesToPost.size(),
+                        "filePath", filePath,
+                        "line", lineNumber,
+                        "errorType", e.getClass().getSimpleName());
+                LogSupport.debug(log, "comments.post_failed", "Stack trace for comment failure");
                 commentsFailed++;
             }
         }
 
         if (commentsFailed > 0) {
-            log.warn("Posted {}/{} comments ({} failed, {} single-line, {} multiline)", 
-                    commentsCreated, issuesToPost.size(), commentsFailed, singleLineCount, multilineCount);
-        } else {
-            log.info("Posted {}/{} comments ({} failed, {} single-line, {} multiline)", 
-                    commentsCreated, issuesToPost.size(), commentsFailed, singleLineCount, multilineCount);
+            LogSupport.warn(log, "comments.batch_result", "Comment batch completed with failures",
+                    "pullRequestId", prId,
+                    "posted", commentsCreated,
+                    "planned", issuesToPost.size(),
+                    "failed", commentsFailed,
+                    "singleLine", singleLineCount,
+                    "multiline", multilineCount);
         }
+        LogSupport.info(log, "comments.batch_result", "Comment batch completed",
+                "pullRequestId", prId,
+                "posted", commentsCreated,
+                "planned", issuesToPost.size(),
+                "failed", commentsFailed,
+                "singleLine", singleLineCount,
+                "multiline", multilineCount);
         return commentsCreated;
     }
 
@@ -1678,7 +1797,9 @@ public class AIReviewServiceImpl implements AIReviewService {
         
         Integer lineStart = issue.getLineStart();
         
-        log.debug("Creating comment request for {} anchored at line {}", filePath, anchorLine);
+        LogSupport.debug(log, "comments.create_multiline", "Creating multiline comment request",
+                "filePath", filePath,
+                "anchorLine", anchorLine);
         
         // Build the request using the correct constructor
         AddLineCommentRequest.Builder builder = new AddLineCommentRequest.Builder(
@@ -1696,7 +1817,9 @@ public class AIReviewServiceImpl implements AIReviewService {
         if (lineEnd != null && !lineEnd.equals(lineStart)) {
             // Note: lineRange method may not be available in this Bitbucket version
             // For now, we'll just use the single line approach
-            log.debug("Multiline range requested: {}-{}, but using single line due to API limitations", lineStart, lineEnd);
+            LogSupport.debug(log, "comments.multiline_adjusted", "Multiline range adjusted to single line",
+                    "lineStart", lineStart,
+                    "lineEnd", lineEnd);
         }
         
         // Set file type (TO means the new version of the file)
@@ -1710,7 +1833,9 @@ public class AIReviewServiceImpl implements AIReviewService {
         
         String rangeInfo = (lineEnd != null && !lineEnd.equals(lineStart)) 
             ? lineStart + "-" + lineEnd : String.valueOf(lineStart);
-        log.info("Created line comment request for line(s) {} in {}", rangeInfo, filePath);
+        LogSupport.debug(log, "comments.request_created", "Line comment request created",
+                "filePath", filePath,
+                "range", rangeInfo);
         
         return builder.build();
     }
@@ -1785,7 +1910,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         Integer lineStart = issue.getLineStart();
 
         if (path == null || path.trim().isEmpty()) {
-            log.warn("Invalid file path: null or empty");
+            LogSupport.warn(log, "validation.invalid_path", "Issue missing file path");
             return false;
         }
 
@@ -1794,13 +1919,16 @@ public class AIReviewServiceImpl implements AIReviewService {
                 : lineStart;
 
         if (anchorLine == null || anchorLine <= 0) {
-            log.warn("Invalid line number: {} for {}", anchorLine, path);
+            LogSupport.warn(log, "validation.invalid_line", "Issue has invalid line number",
+                    "filePath", path,
+                    "line", anchorLine);
             return false;
         }
 
         String diff = lookupFileDiff(fileDiffs, path);
         if (diff == null || diff.isEmpty()) {
-            log.warn("Invalid file path: {}", path);
+            LogSupport.warn(log, "validation.diff_missing", "Diff not found for issue",
+                    "filePath", path);
             return false;
         }
 
@@ -1809,7 +1937,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                 key -> DiffPositionResolver.index(diff));
 
         if (!index.containsLine(anchorLine)) {
-            log.warn("Line {} not found in diff for {}", anchorLine, path);
+            LogSupport.warn(log, "validation.line_missing", "Line not found in diff",
+                    "filePath", path,
+                    "line", anchorLine);
             return false;
         }
 
@@ -1841,7 +1971,7 @@ public class AIReviewServiceImpl implements AIReviewService {
         boolean autoApprove = (boolean) config.get("autoApprove");
 
         if (!autoApprove) {
-            log.debug("Auto-approve disabled in configuration");
+            LogSupport.debug(log, "autoapprove.disabled", "Auto-approval disabled in configuration");
             return false;
         }
 
@@ -1852,11 +1982,15 @@ public class AIReviewServiceImpl implements AIReviewService {
                 .count();
 
         if (criticalOrHighCount > 0) {
-            log.info("Cannot auto-approve: {} critical/high severity issues found", criticalOrHighCount);
+            LogSupport.info(log, "autoapprove.criteria_failed", "Auto-approval criteria failed",
+                    "pullRequestId", pr.getId(),
+                    "criticalOrHigh", criticalOrHighCount);
             return false;
         }
 
-        log.info("Auto-approve criteria met: no critical/high issues ({} total issues)", issues.size());
+        LogSupport.info(log, "autoapprove.criteria_passed", "Auto-approval criteria met",
+                "pullRequestId", pr.getId(),
+                "issueCount", issues.size());
         return true;
     }
 
@@ -1866,7 +2000,8 @@ public class AIReviewServiceImpl implements AIReviewService {
     private boolean approvePR(@Nonnull PullRequest pullRequest,
                               @Nonnull ApplicationUser reviewerUser) {
         if (securityService == null) {
-            log.warn("SecurityService unavailable; cannot auto-approve PR #{}", pullRequest.getId());
+            LogSupport.warn(log, "autoapprove.security_unavailable", "SecurityService unavailable",
+                    "pullRequestId", pullRequest.getId());
             return false;
         }
 
@@ -1887,8 +2022,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                 return true;
             });
         } catch (Exception e) {
-            log.error("Failed to approve PR #{} as {}: {}",
-                    pullRequest.getId(), reviewerUser.getName(), e.getMessage(), e);
+            LogSupport.error(log, "autoapprove.exception", "Failed to auto-approve", e,
+                    "pullRequestId", pullRequest.getId(),
+                    "reviewer", reviewerUser.getName());
             return false;
         }
     }
@@ -1901,8 +2037,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                 return null;
             });
         } catch (Exception e) {
-            log.debug("Unable to ensure reviewer {} is a participant on PR #{}: {}",
-                    reviewerUser.getSlug(), pullRequest.getId(), e.getMessage());
+            LogSupport.debug(log, "autoapprove.ensure_participant_failed", "Unable to ensure reviewer participant",
+                    "pullRequestId", pullRequest.getId(),
+                    "reviewer", reviewerUser.getSlug(),
+                    "error", e.getMessage());
         }
     }
 
@@ -1914,8 +2052,10 @@ public class AIReviewServiceImpl implements AIReviewService {
                     pullRequest.getId(),
                     reviewerUser.getSlug());
         } catch (Exception e) {
-            log.debug("Reviewer {} may already be associated with PR #{}: {}",
-                    reviewerUser.getSlug(), pullRequest.getId(), e.getMessage());
+            LogSupport.debug(log, "autoapprove.participant_exists", "Reviewer already associated",
+                    "pullRequestId", pullRequest.getId(),
+                    "reviewer", reviewerUser.getSlug(),
+                    "error", e.getMessage());
         }
     }
 
@@ -1949,11 +2089,13 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
         ApplicationUser user = userService.getUserBySlug(slug);
         if (user == null) {
-            log.warn("Configured AI reviewer user '{}' not found", slug);
+            LogSupport.warn(log, "config.reviewer_not_found", "Configured AI reviewer missing",
+                    "reviewerSlug", slug);
             return null;
         }
         if (!userService.isUserActive(user)) {
-            log.warn("Configured AI reviewer user '{}' is inactive", slug);
+            LogSupport.warn(log, "config.reviewer_inactive", "Configured AI reviewer inactive",
+                    "reviewerSlug", slug);
             return null;
         }
         return user;
@@ -2039,12 +2181,12 @@ public class AIReviewServiceImpl implements AIReviewService {
             // For now, we return empty list as we don't store metadata in comments yet.
             // This can be enhanced in a future iteration.
 
-            log.debug("getPreviousIssues not yet implemented - returning empty list");
+            LogSupport.debug(log, "history.previous_issues_not_implemented", "getPreviousIssues returns empty list");
             return previousIssues;
 
         } catch (Exception e) {
-            log.error("Failed to get previous issues for PR #{}: {}",
-                    pullRequest.getId(), e);
+            LogSupport.error(log, "history.previous_issues_failed", "Failed to load previous issues", e,
+                    "pullRequestId", pullRequest.getId());
             return previousIssues;
         }
     }
@@ -2190,12 +2332,14 @@ public class AIReviewServiceImpl implements AIReviewService {
                         chunkEntity.save();
                     }
                 }
-                log.info("Saved review history for PR #{} (ID: {})", pullRequest.getId(), history.getID());
+                LogSupport.info(log, "history.saved", "Review history saved",
+                        "pullRequestId", pullRequest.getId(),
+                        "historyId", history.getID());
                 return null;
             });
         } catch (Exception e) {
-            log.error("Failed to save review history for PR #{}: {}",
-                    pullRequest.getId(), e);
+            LogSupport.error(log, "history.save_failed", "Failed to save review history", e,
+                    "pullRequestId", pullRequest.getId());
         }
     }
 
@@ -2369,9 +2513,9 @@ public class AIReviewServiceImpl implements AIReviewService {
                 EnableRepositoryHookRequest.Builder builder =
                         new EnableRepositoryHookRequest.Builder(scope, AIReviewInProgressMergeCheck.MODULE_KEY);
                 repositoryHookService.enable(builder.build());
-                if (log.isDebugEnabled()) {
-                    log.debug("Enabled AI review merge check for {}/{}", safeProjectKey(repository), safeSlug(repository));
-                }
+                LogSupport.debug(log, "merge_check.enabled", "Enabled AI review merge check",
+                        "projectKey", safeProjectKey(repository),
+                        "repositorySlug", safeSlug(repository));
             }
             return null;
         };
@@ -2385,9 +2529,14 @@ public class AIReviewServiceImpl implements AIReviewService {
                 task.call();
             }
         } catch (FormValidationException e) {
-            log.warn("Unable to enable AI review merge check for {}/{}: {}", safeProjectKey(repository), safeSlug(repository), e.getMessage());
+            LogSupport.warn(log, "merge_check.enable_failed", "Unable to enable AI review merge check",
+                    "projectKey", safeProjectKey(repository),
+                    "repositorySlug", safeSlug(repository),
+                    "error", e.getMessage());
         } catch (Exception e) {
-            log.warn("Failed to ensure AI review merge check for {}/{}", safeProjectKey(repository), safeSlug(repository), e);
+            LogSupport.warn(log, "merge_check.ensure_failed", "Failed to ensure AI review merge check", e,
+                    "projectKey", safeProjectKey(repository),
+                    "repositorySlug", safeSlug(repository));
         }
     }
 

@@ -10,6 +10,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.dto.ReviewResult;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
 import com.teknolojikpanda.bitbucket.aireviewer.util.LogContext;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -47,7 +48,7 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher cannot be null");
         this.reviewService = Objects.requireNonNull(reviewService, "reviewService cannot be null");
         this.configService = Objects.requireNonNull(configService, "configService cannot be null");
-        log.info("PullRequestAIReviewListener constructed");
+        LogSupport.debug(log, "listener.constructed", "PullRequest listener constructed");
     }
 
     /**
@@ -58,9 +59,9 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
     public void afterPropertiesSet() {
         try {
             eventPublisher.register(this);
-            log.info("✅ PullRequestAIReviewListener successfully registered with EventPublisher");
+            LogSupport.info(log, "listener.registered", "Listener registered with EventPublisher");
         } catch (Exception e) {
-            log.error("❌ Failed to register PullRequestAIReviewListener with EventPublisher", e);
+            LogSupport.error(log, "listener.registration_failed", "Failed to register listener", e);
             throw e;
         }
     }
@@ -77,24 +78,27 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
         PullRequest pullRequest = event.getPullRequest();
         try (LogContext ignored = LogContext.forPullRequest(pullRequest);
              LogContext triggerCtx = LogContext.scoped("review.trigger", "event:opened")) {
-            log.info("🚀 PR OPENED EVENT RECEIVED: PR #{} in {}/{} - Title: '{}'",
-                    pullRequest.getId(),
-                    pullRequest.getToRef().getRepository().getProject().getKey(),
-                    pullRequest.getToRef().getRepository().getSlug(),
-                    pullRequest.getTitle());
+            LogSupport.info(log, "event.pull_request_opened", "Pull request opened",
+                    "pullRequestId", pullRequest.getId(),
+                    "projectKey", safeProjectKey(pullRequest),
+                    "repositorySlug", safeRepoSlug(pullRequest),
+                    "title", pullRequest.getTitle());
 
             if (!isReviewEnabled()) {
-                log.info("AI reviews are disabled in configuration - skipping PR #{}", pullRequest.getId());
+                LogSupport.info(log, "review.skipped.disabled", "AI review disabled in configuration",
+                        "pullRequestId", pullRequest.getId());
                 return;
             }
 
             if (isDraftPR(pullRequest)) {
                 boolean reviewDrafts = shouldReviewDraftPRs();
                 if (!reviewDrafts) {
-                    log.info("PR #{} is a draft and reviewDraftPRs=false - skipping", pullRequest.getId());
+                    LogSupport.info(log, "review.skipped.draft", "Draft pull request skipped",
+                            "pullRequestId", pullRequest.getId());
                     return;
                 }
-                log.info("PR #{} is a draft but reviewDraftPRs=true - proceeding with review", pullRequest.getId());
+                LogSupport.info(log, "review.draft_allowed", "Draft pull request review enforced",
+                        "pullRequestId", pullRequest.getId());
             }
 
             executeReview(pullRequest, false);
@@ -113,20 +117,22 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
         PullRequest pullRequest = event.getPullRequest();
         try (LogContext ignored = LogContext.forPullRequest(pullRequest);
              LogContext triggerCtx = LogContext.scoped("review.trigger", "event:rescoped")) {
-            log.info("PR rescoped event received: PR #{} in {}/{}",
-                    pullRequest.getId(),
-                    pullRequest.getToRef().getRepository().getProject().getKey(),
-                    pullRequest.getToRef().getRepository().getSlug());
+            LogSupport.info(log, "event.pull_request_rescoped", "Pull request rescoped",
+                    "pullRequestId", pullRequest.getId(),
+                    "projectKey", safeProjectKey(pullRequest),
+                    "repositorySlug", safeRepoSlug(pullRequest));
 
             if (!isReviewEnabled()) {
-                log.info("AI reviews are disabled in configuration - skipping PR #{}", pullRequest.getId());
+                LogSupport.info(log, "review.skipped.disabled", "AI review disabled in configuration",
+                        "pullRequestId", pullRequest.getId());
                 return;
             }
 
             if (isDraftPR(pullRequest)) {
                 boolean reviewDrafts = shouldReviewDraftPRs();
                 if (!reviewDrafts) {
-                    log.info("PR #{} is a draft and reviewDraftPRs=false - skipping", pullRequest.getId());
+                    LogSupport.info(log, "review.skipped.draft", "Draft pull request skipped",
+                            "pullRequestId", pullRequest.getId());
                     return;
                 }
             }
@@ -144,29 +150,28 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
     private void executeReview(@Nonnull PullRequest pullRequest, boolean isUpdate) {
         try (LogContext ignored = LogContext.forPullRequest(pullRequest);
              LogContext modeCtx = LogContext.scoped("review.mode", isUpdate ? "update" : "initial")) {
-            log.info("Starting {} review for PR #{}",
-                    isUpdate ? "update" : "initial",
-                    pullRequest.getId());
+            LogSupport.info(log, "review.start", "Starting AI review",
+                    "mode", isUpdate ? "update" : "initial",
+                    "pullRequestId", pullRequest.getId());
 
             ReviewResult result = isUpdate
                     ? reviewService.reReviewPullRequest(pullRequest)
                     : reviewService.reviewPullRequest(pullRequest);
 
-            log.info("Review completed for PR #{}: status={}, issues={}, filesReviewed={}",
-                    pullRequest.getId(),
-                    result.getStatus(),
-                    result.getIssueCount(),
-                    result.getFilesReviewed());
+            LogSupport.info(log, "review.complete", "Review completed",
+                    "pullRequestId", pullRequest.getId(),
+                    "status", result.getStatus(),
+                    "issueCount", result.getIssueCount(),
+                    "filesReviewed", result.getFilesReviewed());
 
             if (result.hasCriticalIssues()) {
-                log.warn("PR #{} has critical issues that require attention", pullRequest.getId());
+                LogSupport.warn(log, "review.critical_issues", "Critical issues detected",
+                        "pullRequestId", pullRequest.getId());
             }
 
         } catch (Exception e) {
-            log.error("Failed to review PR #{}: {}",
-                    pullRequest.getId(),
-                    e.getMessage(),
-                    e);
+            LogSupport.error(log, "review.failed", "Review execution failed", e,
+                    "pullRequestId", pullRequest.getId());
         }
     }
 
@@ -184,7 +189,7 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
             }
             return true; // Default to enabled if not configured
         } catch (Exception e) {
-            log.error("Failed to check if reviews are enabled - defaulting to true", e);
+            LogSupport.error(log, "config.read_failed", "Failed to resolve review enablement", e);
             return true;
         }
     }
@@ -203,7 +208,7 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
             }
             return false; // Default to not reviewing drafts
         } catch (Exception e) {
-            log.error("Failed to check reviewDraftPRs setting - defaulting to false", e);
+            LogSupport.error(log, "config.read_failed", "Failed to resolve draft review toggle", e);
             return false;
         }
     }
@@ -254,8 +259,23 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
      */
     @Override
     public void destroy() {
-        log.info("Destroying PullRequestAIReviewListener");
+        LogSupport.info(log, "listener.destroy", "Destroying pull request listener");
         eventPublisher.unregister(this);
-        log.info("PullRequestAIReviewListener destroyed successfully");
+        LogSupport.info(log, "listener.destroyed", "Listener unregistered");
+    }
+
+    private String safeProjectKey(PullRequest pullRequest) {
+        return pullRequest.getToRef() != null
+                && pullRequest.getToRef().getRepository() != null
+                && pullRequest.getToRef().getRepository().getProject() != null
+                ? pullRequest.getToRef().getRepository().getProject().getKey()
+                : "unknown";
+    }
+
+    private String safeRepoSlug(PullRequest pullRequest) {
+        return pullRequest.getToRef() != null
+                && pullRequest.getToRef().getRepository() != null
+                ? pullRequest.getToRef().getRepository().getSlug()
+                : "unknown";
     }
 }

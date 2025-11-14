@@ -10,6 +10,7 @@ import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aireviewer.dto.ReviewResult;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewService;
 import com.teknolojikpanda.bitbucket.aireviewer.util.LogContext;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,7 +65,8 @@ public class ManualReviewResource {
 
         UserProfile profile = userManager.getRemoteUser(request);
         if (!isSystemAdmin(profile)) {
-            log.warn("Manual review denied for non-admin user {}", profile != null ? profile.getUsername() : "anonymous");
+            LogSupport.warn(log, "manual_review.denied", "Manual review denied for non-admin",
+                    "username", profile != null ? profile.getUsername() : "anonymous");
             return Response.status(Response.Status.FORBIDDEN)
                     .entity(error("Access denied. Administrator privileges required."))
                     .build();
@@ -117,20 +119,23 @@ public class ManualReviewResource {
             }
 
             try (LogContext manualCtx = LogContext.scoped(manualMeta)) {
-                log.info("Manual review requested by {} for PR #{} in {}/{} (force={}, treatAsUpdate={})",
-                        profile != null ? profile.getUsername() : "unknown",
-                        prId,
-                        projectKey,
-                        repositorySlug,
-                        force,
-                        treatAsUpdate);
+                LogSupport.info(log, "manual_review.requested", "Manual review requested",
+                        "username", profile != null ? profile.getUsername() : "unknown",
+                        "pullRequestId", prId,
+                        "projectKey", projectKey,
+                        "repositorySlug", repositorySlug,
+                        "force", force,
+                        "treatAsUpdate", treatAsUpdate);
 
                 ReviewResult result = aiReviewService.manualReview(pullRequest, force, treatAsUpdate);
                 Map<String, Object> response = toResultPayload(result, force, treatAsUpdate);
                 return Response.ok(response).build();
             }
         } catch (Exception ex) {
-            log.error("Manual review failed for PR #{} in {}/{}: {}", prId, projectKey, repositorySlug, ex.getMessage(), ex);
+            LogSupport.error(log, "manual_review.failed", "Manual review failed", ex,
+                    "pullRequestId", prId,
+                    "projectKey", projectKey,
+                    "repositorySlug", repositorySlug);
             return Response.serverError()
                     .entity(error("Manual review failed: " + ex.getMessage()))
                     .build();

@@ -6,6 +6,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.LineRange;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewChunk;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewContext;
 import com.teknolojikpanda.bitbucket.aicode.util.Diagnostics;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,9 +57,8 @@ public class SizeFirstChunkStrategy implements ChunkStrategy {
         List<String> filesWithoutHunks = new ArrayList<>();
 
         Map<String, FileDiff> fileDiffs = extractFileDiffs(combinedDiff, candidateFiles);
-        if (log.isDebugEnabled()) {
-            log.debug("Size-first strategy evaluating {} file(s)", fileDiffs.keySet().size());
-        }
+        LogSupport.debug(log, "chunk.plan_start", "Evaluating file diffs",
+                "fileCount", fileDiffs.keySet().size());
         if (Diagnostics.isEnabled()) {
             Diagnostics.log(log, () -> String.format(
                     "Extracted %d file diff(s) for PR #%d: %s",
@@ -76,8 +76,9 @@ public class SizeFirstChunkStrategy implements ChunkStrategy {
         });
 
         if (!filesWithoutHunks.isEmpty()) {
-            log.warn("Size-first chunk strategy skipping {} file(s) with no textual changes: {}",
-                    filesWithoutHunks.size(), filesWithoutHunks);
+            LogSupport.warn(log, "chunk.no_textual_changes", "Skipping files with no textual changes",
+                    "fileCount", filesWithoutHunks.size(),
+                    "files", filesWithoutHunks);
         }
 
         int chunkIndex = 0;
@@ -159,8 +160,10 @@ public class SizeFirstChunkStrategy implements ChunkStrategy {
         }
 
         if (truncated) {
-            log.warn("Chunk planning truncated for PR #{}: reduced to {} chunks (max={})",
-                    context.getPullRequest().getId(), chunks.size(), maxChunks);
+            LogSupport.warn(log, "chunk.truncated", "Chunk planning truncated",
+                    "pullRequestId", context.getPullRequest().getId(),
+                    "chunkCount", chunks.size(),
+                    "maxChunks", maxChunks);
         }
         return new Result(chunks, truncated, filesWithoutHunks);
     }
@@ -290,7 +293,8 @@ public class SizeFirstChunkStrategy implements ChunkStrategy {
 
         Matcher matcher = FULL_HUNK_HEADER.matcher(lines[0]);
         if (!matcher.matches()) {
-            log.debug("Unable to split oversized hunk due to unmatched header: {}", lines[0]);
+            LogSupport.debug(log, "chunk.split_failed", "Unable to split oversized hunk",
+                    "header", lines[0]);
             return Collections.singletonList(hunk);
         }
 

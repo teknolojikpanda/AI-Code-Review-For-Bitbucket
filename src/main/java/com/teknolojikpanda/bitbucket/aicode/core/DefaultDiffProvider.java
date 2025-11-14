@@ -17,6 +17,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewFileMetadata;
 import com.teknolojikpanda.bitbucket.aicode.util.Diagnostics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.teknolojikpanda.bitbucket.aireviewer.util.LogSupport;
 
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
@@ -72,7 +73,8 @@ public class DefaultDiffProvider implements DiffProvider {
 
         String rawDiff = bundle.rawDiff;
         if (rawDiff == null || rawDiff.isEmpty()) {
-            log.info("No diff content for PR #{}", pullRequest.getId());
+            LogSupport.info(log, "diff.empty", "No diff content for pull request",
+                    "pullRequestId", pullRequest.getId());
             metrics.recordMetric("diff.empty", true);
             return ReviewContext.builder()
                     .pullRequest(pullRequest)
@@ -135,11 +137,15 @@ public class DefaultDiffProvider implements DiffProvider {
             accumulator.finish();
             return accumulator.toBundle();
         } catch (DiffTooLargeException e) {
-            log.error("Diff for PR #{} exceeds configured limit ({} bytes > {} bytes)",
-                    pullRequestId, e.actualBytes, e.maxBytes);
+            LogSupport.error(log, "diff.exceeds_limit", "Diff exceeds configured limit",
+                    "pullRequestId", pullRequestId,
+                    "diffBytes", e.actualBytes,
+                    "limitBytes", e.maxBytes);
             throw e;
         } catch (Exception e) {
-            log.error("Failed to stream diff for PR #{}: {}", pullRequestId, e.getMessage(), e);
+            LogSupport.error(log, "diff.stream_failed", "Failed to stream diff", e,
+                    "pullRequestId", pullRequestId,
+                    "error", e.getMessage());
             throw new IllegalStateException("Unable to fetch diff: " + e.getMessage(), e);
         }
     }
@@ -235,7 +241,8 @@ public class DefaultDiffProvider implements DiffProvider {
                 key = pathA != null ? pathA : pathB;
             }
             if (key == null || key.isEmpty()) {
-                log.debug("Skipping diff header with unresolved path: {}", matcher.group(0));
+                LogSupport.debug(log, "diff.skip_header", "Skipping diff header with unresolved path",
+                        "header", matcher.group(0));
                 currentFileKey = null;
                 currentFile = null;
                 return;
