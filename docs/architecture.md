@@ -1,87 +1,86 @@
-# Guardrails Architecture Overview
+# Architecture
 
-This document explains how the Guardrails plugin is wired inside Bitbucket Data Center: the UI entry points, service layers, background jobs, and data stores. Use it as the canonical map when onboarding new contributors or reviewing PRs.
+This document explains how AI Code Reviewer integrates with Bitbucket, how requests flow through the system, and which components store and process data.
 
-## High-level Diagram
+## High-Level Overview
 
-```mermaid
-flowchart TD
-    subgraph UI
-        AdminConfig["Admin Config<br/>(Velocity + JS)"]
-        AdminOps["Operations Dashboard"]
-        RESTClients["guardrails-cli.sh / rollout.sh"]
-    end
-
-    subgraph Bitbucket Plugin
-        REST["REST Resources<br/>(ConfigResource, AutomationResource, ProgressResource)"]
-        Services["Service Layer<br/>(AIReviewServiceImpl, ReviewConcurrencyController, RateLimiter, GuardrailsRolloutService)"]
-        Core["aicode Core<br/>(ChunkPlanner, Orchestrator, Ollama client)"]
-        Background["Schedulers<br/>(ModelHealthProbe, HistoryCleanup, ReviewSchedulerState)"]
-    end
-
-    subgraph DataStores
-        AO["Active Objects Tables"]
-        Runtime["In-memory state<br/>(worker pool, queues, caches)"]
-    end
-
-    AdminConfig --> REST
-    AdminOps --> REST
-    RESTClients --> REST
-    REST --> Services
-    Services --> Core
-    Services --> Background
-    Services --> AO
-    Background --> AO
-    Core --> Runtime
-    Services --> Runtime
+```
+Pull Request Event --> PullRequestAIReviewListener
+                           |
+                           v
+                   AIReviewServiceImpl
+                     |    |      |
+                     |    |      +--> ReviewHistoryService (Active Objects)
+                     |    +--> TwoPassReviewOrchestrator (chunking + AI client)
+                     v
+             CommentService / ProgressRegistry / Guardrails
 ```
 
-## Component Breakdown
+Key modules:
 
-### UI Layer
-- `src/main/resources/templates/admin-config.vm` + `js/ai-reviewer-admin.js`: Configuration screen, scope tree, feature flags.
-- `templates/admin-ops.vm` + `js/ai-reviewer-ops.js`: Operations dashboard (queue, rollout, alert channels, retention tools).
-- Velocity templates only render scaffolding; all dynamic behaviour is in the corresponding JS files that call `rest/ai-reviewer/1.0/*`.
+- **Listener** (`PullRequestAIReviewListener`) subscribes to `PullRequestOpenedEvent` and `PullRequestRescopedEvent`, filters by configuration, and invokes the review service.
+- **Service layer** (`AIReviewServiceImpl`) coordinates diff retrieval, chunk planning, orchestration, comment posting, history persistence, guardrail enforcement, and progress tracking.
+- **Review pipeline** (`TwoPassReviewOrchestrator`, `HeuristicChunkPlanner`, `OllamaAiReviewClient`) prepares prompts, splits diffs into manageable chunks, performs a two-stage model query (overview then chunks), and captures metrics.
+- **Guardrails services** (rate limiting, queue control, worker degradation, burst credits, rollout cohorts) enforce safe concurrency and provide administrative overrides.
+- **Active Objects entities** persist configuration snapshots, review history, cleanup audits, rollout cohorts, limiter incidents, alert channels, and worker state.
+- **REST layer** exposes configuration, progress, automation, metrics, manual triggers, history browsing, and repository overrides under `/rest/ai-reviewer/1.0`.
+- **Admin servlets** render the Configuration, History, Health, and Operations pages using Velocity templates and bundled web resources.
 
-### REST Resources
-- `ConfigResource`: CRUD for reviewer settings, rate-limit overrides, scope management.
-- `ProgressResource`: Queue snapshots, running reviews, filter breakdowns.
-- `AutomationResource`: Scheduler state, alert channels, burst credits, rollout cohorts.
-- `MetricsResource`, `AlertsResource`: Telemetry endpoints consumed by the health UI/CLI.
+## Core Flows
 
-### Service Layer Highlights
-- `AIReviewServiceImpl`: Orchestrates the entire review lifecycle (queue acquisition, worker submission, chunk planning, AI calls, telemetry).
-- `ReviewConcurrencyController`: Global + per-scope queue enforcement, active run tracking, admin cancel actions.
-- `ReviewRateLimiter`: Token bucket limiter backed by AO tables with auto-snooze + burst credits (`GuardrailsBurstCreditService`).
-- `GuardrailsRolloutService`: Cohort evaluation, dark feature integration, telemetry describing which repositories run in enforced/shadow/fallback modes.
-- `GuardrailsTelemetryService`: Aggregates queue/worker/limiter/cleanup/model-health summaries for the Health UI and `/metrics`.
+### Automated Review
 
-### Core AI Modules (`com.teknolojikpanda.bitbucket.aicode`)
-- `HeuristicChunkPlanner` filters files (ignore paths/patterns, skip generated/tests) and splits diffs into `ReviewChunk`s.
-- `TwoPassReviewOrchestrator` combines chunk execution with overview generation and fallback handling.
-- `OllamaAiReviewClient` handles HTTP calls to the configured model endpoints with circuit breaker/retry behaviour.
+1. Event listener receives a PR opened or rescoped event.
+2. Configuration is checked (`enabled`, draft policy, scope, rate limits, queue depth).
+3. Review metadata is enqueued using `ReviewWorkerPool` and tracked through `ProgressRegistry`.
+4. `AIReviewServiceImpl` fetches the diff via `DefaultDiffProvider`, validates size limits, and prepares a `ReviewConfig` from the current global+repository settings.
+5. `TwoPassReviewOrchestrator` runs:
+   - Pass 1: builds an overview prompt (`PromptRenderer`, `OverviewCache`) and posts/updates the summary comment.
+   - Pass 2: plans chunks (`HeuristicChunkPlanner`, `SizeFirstChunkStrategy`), sends each to `OllamaAiReviewClient`, and accumulates `ReviewFinding` objects.
+6. Findings are deduplicated (`IssueFingerprintUtil`), converted into Bitbucket comments via `SummaryCommentRenderer`, and created through `CommentService`.
+7. `ReviewHistoryService` persists the run (`AIReviewHistory`, `AIReviewChunk`) for later inspection, and `ProgressRegistry` broadcasts completion events for the PR progress panel.
+8. Merge check (`AIReviewInProgressMergeCheck`) unblocks once the active review finishes.
 
-### Background Jobs
-- `ModelHealthProbeScheduler`: Periodically pings model endpoints and updates `ModelHealthService` so the reviewer can fail over degraded models.
-- `ReviewHistoryCleanupScheduler` / `MaintenanceService`: Enforce retention policies, export data, repair integrity issues.
-- `ReviewSchedulerStateService`: Persists pause/drain/active state in AO and emits audit records.
+### Manual Review
 
-### Active Objects Schema
-Key tables (all defined under `src/main/java/.../ao`):
-- `AIReviewConfiguration`, `AIReviewRepoConfiguration`: Global and per-repo settings.
-- `AIReviewHistory`, `AIReviewChunk`: Persisted review results + per-chunk metrics.
-- `AIReviewQueueAudit`: Admin queue actions + scheduler changes.
-- Guardrails-specific: `GuardrailsRateBucket`, `GuardrailsRateOverride`, `GuardrailsBurstCredit`, `GuardrailsAlertChannel/Delivery`, `AIReviewRolloutCohort`.
+- System administrators call `/rest/ai-reviewer/1.0/history/manual` or use the Operations console.
+- `ManualReviewResource` validates permissions, resolves the repository and PR, and delegates to `AIReviewService.manualReview` with optional `force` and `treatAsUpdate` flags.
+- The run follows the same pipeline but records `manual = true` in history and telemetry.
 
-### Runtime State
-- Worker pool (`ReviewWorkerPool`) + progress tracker (`ProgressRegistry`) hold active runs, SSE updates, and telemetry timelines.
-- Rate limiter caches (short-lived) keep bucket counters in sync across cluster nodes.
+### Guardrails Automation
 
-## Data Flow Summary
-1. **Config change**: Admin UI → `ConfigResource` → `AIReviewerConfigServiceImpl` → AO tables → distributed caches.
-2. **Review request**: PR hook/manual run → `AIReviewServiceImpl` → queue controller → worker pool → chunk planner → orchestrator → Ollama → history persistence.
-3. **Operations dashboard**: JS polls `/progress/admin/queue` + `/automation/*` + `/monitoring/runtime`.
-4. **Rollout cohort**: `GuardrailsRolloutService` evaluates scope + dark feature + sampling to decide whether guardrails enforce or shadow for a run; telemetry records per-cohort usage.
-5. **Alerts + CLI**: `guardrails-cli.sh` hits REST endpoints; output mirrors same payloads the UI consumes (JSON rendered with `jq` for readability).
+- `ReviewRateLimiter` and `ReviewConcurrencyController` enforce rate/queue limits before the worker pool accepts a job.
+- `GuardrailsRolloutService` manages staged enablement using cohorts stored in `AIReviewRolloutCohort`.
+- `GuardrailsAlertingService` sends notifications through configured channels when limits or health thresholds are breached; acknowledgements are tracked in `GuardrailsAlertDelivery`.
+- Scheduled jobs (`GuardrailsAlertingScheduler`, `ModelHealthProbeScheduler`, `ReviewHistoryCleanupScheduler`, `GuardrailsWorkerHeartbeatScheduler`) run via Atlassian Scheduler to update telemetry, clean history, and probe external dependencies.
 
-Understanding these flows should make it clear where to add new features (e.g., plug another limiter into `ReviewRateLimiter`, extend telemetry via `GuardrailsTelemetryService`, or add UI cards in `admin-ops.vm`).
+## Data Model
+
+Active Objects entities include:
+
+- **AIReviewConfiguration** — global settings snapshot, serialized map of keys.
+- **AIReviewRepoConfiguration** — per-repository override records.
+- **AIReviewHistory / AIReviewChunk** — review executions and per-chunk metadata (status, timings, prompts, findings, metrics).
+- **AIReviewQueueAudit / AIReviewSchedulerState** — admin overrides, scheduler mode (ACTIVE, PAUSED, DRAINING).
+- **AIReviewCleanupStatus / AIReviewCleanupAudit** — lifecycle of cleanup jobs and exported archives.
+- **GuardrailsRateBucket / GuardrailsRateIncident / GuardrailsRateOverride / GuardrailsBurstCredit** — rate limiting state and operator actions.
+- **GuardrailsAlertChannel / GuardrailsAlertDelivery** — alert channel configuration and delivery receipts.
+- **GuardrailsWorkerNodeState** — worker heartbeat and utilisation metrics per cluster node.
+- **AIReviewRolloutCohort** — definitions of staged rollout cohorts.
+
+## Logging, Metrics, and Security
+
+- **Logging**: `LogSupport` wraps SLF4J with structured key-value output. `LogContext` adds pull-request and review metadata to MDC entries for correlation across threads.
+- **Metrics**: `MetricsCollector` and `MetricsRecorderAdapter` capture throughput, chunk timings, and circuit breaker states. `MetricsResource` exposes aggregated metrics to administrators.
+- **Progress tracking**: `ProgressRegistry` stores live snapshots in memory with time-based eviction and surfaces them via REST for the PR panel.
+- **Security**: REST resources rely on `UserManager`, `PermissionService`, and explicit role checks. Privileged endpoints demand system administrator access; repository-scoped endpoints validate project/repository permissions before returning data.
+- **Rate limiting**: `ProgressResource` applies per-user request limits for live polling and history queries to prevent UI abuse.
+- **Error handling**: Exceptions raised during reviews are caught, logged with context, and reflected in history records. Circuit breakers (`CircuitBreaker`, `ReviewWorkerPool`) degrade service gracefully when repeated failures occur.
+
+## Extensibility Points
+
+- New REST endpoints can be added under the existing REST module; reuse `Access` helper patterns found in `ProgressResource` and `AutomationResource` for permission checks.
+- Additional guardrail strategies can integrate with `GuardrailsRateLimitStore` and `ReviewConcurrencyController` to augment queue policies.
+- Prompt customization hooks exist via configuration keys (`prompt.*`) that administrators can supply; they are validated for size and unsafe patterns.
+
+For development workflow details see the [Developer Guide](developer-guide.md).
