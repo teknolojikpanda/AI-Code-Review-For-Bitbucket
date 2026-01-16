@@ -324,11 +324,18 @@
     </web-item>
 
     <!-- Repository Settings Navigation -->
+    <web-section key="ai-reviewer-repo-settings-section"
+                 name="AI Code Reviewer"
+                 location="bitbucket.repository.settings.panel"
+                 weight="200">
+        <label>AI Code Reviewer</label>
+    </web-section>
+
     <web-item key="ai-reviewer-repo-settings-link"
               name="AI Code Reviewer Prompts"
-              section="bitbucket.repository.settings"
-              weight="120">
-        <label>AI Code Reviewer</label>
+              section="bitbucket.repository.settings.panel/ai-reviewer-repo-settings-section"
+              weight="10">
+        <label>Prompt Overrides</label>
         <link>/plugins/servlet/ai-reviewer/repo-config?projectKey=$repository.project.key&amp;repositorySlug=$repository.slug</link>
     </web-item>
 

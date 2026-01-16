@@ -153,6 +153,10 @@ public interface AIReviewConfiguration extends Entity {
     boolean isModelHealthEnabled();
     void setModelHealthEnabled(boolean enabled);
 
+    @Default("false")
+    boolean isVerboseMode();
+    void setVerboseMode(boolean enabled);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();

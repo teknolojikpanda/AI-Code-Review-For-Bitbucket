@@ -28,12 +28,16 @@ import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -518,6 +522,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 chunk,
                 overview,
                 annotatedDiff);
+    writeVerbosePrompt(context, chunk, model, overview, annotatedDiff, templates.getSystemPrompt(), userPrompt, truncated);
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
@@ -533,6 +538,47 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return OBJECT_MAPPER.writeValueAsString(request);
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to serialise request", ex);
+        }
+    }
+
+    private void writeVerbosePrompt(ReviewContext context,
+                                    ReviewChunk chunk,
+                                    String model,
+                                    String overview,
+                                    String annotatedDiff,
+                                    String systemPrompt,
+                                    String userPrompt,
+                                    boolean truncated) {
+        if (context == null || context.getConfig() == null || !context.getConfig().isVerboseMode()) {
+            return;
+        }
+        try {
+            String baseDir = System.getProperty("java.io.tmpdir", "/tmp");
+            String projectKey = context.getPullRequest().getToRef().getRepository().getProject().getKey();
+            String repoSlug = context.getPullRequest().getToRef().getRepository().getSlug();
+            long prId = context.getPullRequest().getId();
+            Path dir = Paths.get(baseDir, "ai-reviewer", "verbose", projectKey, repoSlug, "pr-" + prId);
+            Files.createDirectories(dir);
+            String filename = "chunk-" + chunk.getId() + "-" + System.currentTimeMillis() + ".json";
+            Path target = dir.resolve(filename);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("timestamp", Instant.now().toString());
+            payload.put("projectKey", projectKey);
+            payload.put("repositorySlug", repoSlug);
+            payload.put("pullRequestId", prId);
+            payload.put("chunkId", chunk.getId());
+            payload.put("files", chunk.getFiles());
+            payload.put("model", model);
+            payload.put("truncated", truncated);
+            payload.put("systemPrompt", systemPrompt);
+            payload.put("userPrompt", userPrompt);
+            payload.put("overview", overview);
+            payload.put("annotatedDiff", annotatedDiff);
+
+            OBJECT_MAPPER.writeValue(new File(target.toString()), payload);
+        } catch (Exception ex) {
+            log.warn("Failed to write verbose prompt payload", ex);
         }
     }
 

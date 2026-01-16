@@ -108,7 +108,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "skipGeneratedFiles",
             "skipTests",
             "autoApprove",
-            "workerDegradationEnabled"
+        "workerDegradationEnabled",
+        "verboseMode"
     )));
 
     private static final Set<String> SUPPORTED_KEYS;
@@ -159,6 +160,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final boolean DEFAULT_SKIP_TESTS = false;
     private static final boolean DEFAULT_AUTO_APPROVE = false;
     private static final boolean DEFAULT_WORKER_DEGRADATION_ENABLED = true;
+    private static final boolean DEFAULT_VERBOSE_MODE = false;
     private static final String DEFAULT_PRIORITY_PROJECTS = "";
     private static final String DEFAULT_PRIORITY_REPOSITORIES = "";
     private static final int DEFAULT_REPO_ALERT_PERCENT = 80;
@@ -219,6 +221,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "skipTests",
                 "autoApprove",
                 "workerDegradationEnabled",
+                "verboseMode",
                 "aiReviewerUser",
                 "scopeMode"
         ));
@@ -529,6 +532,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("skipTests", DEFAULT_SKIP_TESTS);
         defaults.put("autoApprove", DEFAULT_AUTO_APPROVE);
         defaults.put("workerDegradationEnabled", DEFAULT_WORKER_DEGRADATION_ENABLED);
+    defaults.put("verboseMode", DEFAULT_VERBOSE_MODE);
         defaults.put("aiReviewerUser", null);
         defaults.put("priorityProjects", DEFAULT_PRIORITY_PROJECTS);
         defaults.put("priorityRepositories", DEFAULT_PRIORITY_REPOSITORIES);
@@ -1215,6 +1219,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setSkipTests(DEFAULT_SKIP_TESTS);
         config.setAutoApprove(DEFAULT_AUTO_APPROVE);
         config.setWorkerDegradationEnabled(DEFAULT_WORKER_DEGRADATION_ENABLED);
+    config.setVerboseMode(DEFAULT_VERBOSE_MODE);
         config.setReviewerUserSlug(null);
     config.setPromptSystemAppend(null);
     config.setPromptChunkOverride(null);
@@ -1384,6 +1389,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("workerDegradationEnabled")) {
             config.setWorkerDegradationEnabled(getBooleanValue(configMap, "workerDegradationEnabled"));
+        }
+        if (configMap.containsKey("verboseMode")) {
+            config.setVerboseMode(getBooleanValue(configMap, "verboseMode"));
         }
         if (configMap.containsKey("aiReviewerUser")) {
             config.setReviewerUserSlug(trimToNull(configMap.get("aiReviewerUser")));
@@ -1807,6 +1815,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("skipTests", defaultBoolean(config.isSkipTests(), DEFAULT_SKIP_TESTS));
         map.put("autoApprove", defaultBoolean(config.isAutoApprove(), DEFAULT_AUTO_APPROVE));
         map.put("workerDegradationEnabled", defaultBoolean(config.isWorkerDegradationEnabled(), DEFAULT_WORKER_DEGRADATION_ENABLED));
+    map.put("verboseMode", defaultBoolean(config.isVerboseMode(), DEFAULT_VERBOSE_MODE));
         map.put("aiReviewerUser", trimToNull(config.getReviewerUserSlug()));
         map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));

@@ -72,6 +72,7 @@ public class ReviewConfigFactory {
 
         builder.profile(buildProfile(config));
         builder.promptTemplates(loadPromptTemplates(config));
+        builder.verboseMode(booleanValue(config.get("verboseMode"), false));
 
         return builder.build();
     }

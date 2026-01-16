@@ -117,6 +117,7 @@
         $('#ignore-paths').val(config.ignorePaths || '');
         $('#auto-approve').prop('checked', config.autoApprove === true);
         $('#worker-degradation-enabled').prop('checked', config.workerDegradationEnabled !== false);
+    $('#verbose-mode').prop('checked', config.verboseMode === true);
 
         // Checkboxes
         $('#enabled').prop('checked', config.enabled !== false);
@@ -1431,6 +1432,7 @@
             skipTests: $('#skip-tests').is(':checked'),
             autoApprove: $('#auto-approve').is(':checked'),
             workerDegradationEnabled: $('#worker-degradation-enabled').is(':checked'),
+            verboseMode: $('#verbose-mode').is(':checked'),
             aiReviewerUser: reviewerUser && reviewerUser.length ? reviewerUser : null
         };
 
@@ -1604,7 +1606,8 @@
             skipGeneratedFiles: true,
             skipTests: false,
             autoApprove: false,
-            workerDegradationEnabled: true
+            workerDegradationEnabled: true,
+            verboseMode: false
         };
 
         defaults.profilePresets = Object.values(profilePresets);

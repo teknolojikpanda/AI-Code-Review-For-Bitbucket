@@ -12,6 +12,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.templaterenderer.TemplateRenderer;
+import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
 
 import javax.inject.Inject;
@@ -82,6 +83,9 @@ public class RepoPromptConfigServlet extends HttpServlet {
             return;
         }
 
+        req.setAttribute("repository", repository);
+        req.setAttribute("project", repository.getProject());
+
         ApplicationUser user = userService.getUserBySlug(profile.getUsername());
         if (user == null) {
             resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unable to resolve current user");
@@ -104,8 +108,11 @@ public class RepoPromptConfigServlet extends HttpServlet {
         context.put("projectName", repository.getProject().getName());
         context.put("repositorySlug", repository.getSlug());
         context.put("repositoryName", repository.getName());
+    context.put("repositoryId", repository.getId());
         context.put("username", profile.getUsername());
         context.put("configServiceAvailable", configService != null);
+    PromptTemplates promptDefaults = PromptTemplates.loadDefaults();
+    context.put("promptChunkDefault", promptDefaults.getChunkInstructionsTemplate());
         templateRenderer.render("/templates/repo-config.vm", context, resp.getWriter());
     }
 
