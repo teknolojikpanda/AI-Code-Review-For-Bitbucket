@@ -153,19 +153,10 @@
         var defaultTemplate = $('#prompt-chunk-default').val() || defaults['prompt.chunk'] || '';
         var globalTemplate = globalConfig['prompt.chunk'];
         var repoTemplate = overrides['prompt.chunk'];
-
-        var activeTemplate = repoTemplate || globalTemplate || defaultTemplate;
-        $('#repo-prompt-template-active').val(activeTemplate || '');
-        if (repoTemplate && repoTemplate.trim().length) {
-            $('#repo-prompt-template-source').text('Source: repository override');
-        } else if (globalTemplate && globalTemplate.trim().length) {
-            $('#repo-prompt-template-source').text('Source: global override');
-        } else {
-            $('#repo-prompt-template-source').text('Source: default template');
-        }
+        var baseTemplate = repoTemplate || globalTemplate || defaultTemplate;
 
         var appendText = effective['prompt.chunk.append'] || '';
-        var effectivePrompt = activeTemplate || '';
+        var effectivePrompt = baseTemplate || '';
         if (appendText && appendText.trim().length) {
             effectivePrompt += (effectivePrompt.endsWith('\n') ? '' : '\n') + appendText;
         }
@@ -174,7 +165,7 @@
     }
 
     function autoResizeAll() {
-        ['#repo-prompt-template-active', '#repo-prompt-effective', '#repo-prompt-override', '#repo-prompt-append']
+        ['#repo-prompt-effective', '#repo-prompt-override', '#repo-prompt-append']
             .forEach(function(selector) {
                 autoResize($(selector));
             });

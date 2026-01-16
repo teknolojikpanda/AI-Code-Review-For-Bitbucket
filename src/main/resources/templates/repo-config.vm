@@ -32,15 +32,6 @@
                     <div id="aui-message-container"></div>
 
                     <form id="ai-reviewer-repo-config-form" class="aui">
-                        <h2>Active Prompt Template</h2>
-                        <p class="description">This is the user prompt template currently applied to this repository.</p>
-
-                        <div class="field-group">
-                            <label for="repo-prompt-template-active">Active user prompt template</label>
-                            <textarea class="text long-field" id="repo-prompt-template-active" rows="12" readonly></textarea>
-                            <div class="description" id="repo-prompt-template-source"></div>
-                        </div>
-
                         <div class="field-group">
                             <label for="repo-prompt-effective">Effective user prompt</label>
                             <textarea class="text long-field" id="repo-prompt-effective" rows="12" readonly></textarea>
