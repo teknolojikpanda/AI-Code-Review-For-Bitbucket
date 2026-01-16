@@ -153,21 +153,58 @@ public class ReviewConfigFactory {
     private PromptTemplates loadPromptTemplates(Map<String, Object> config) {
         PromptTemplates defaults = PromptTemplates.loadDefaults();
         Map<String, String> overrides = new HashMap<>();
-        config.forEach((key, value) -> {
+        String systemAppend = null;
+        String chunkAppend = null;
+        for (Map.Entry<String, Object> entry : config.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
             if (key == null || value == null) {
-                return;
+                continue;
             }
             String lower = key.toLowerCase();
             if (!lower.startsWith("prompt")) {
-                return;
+                continue;
             }
-            if (value instanceof String) {
-                overrides.put(lower, (String) value);
+            if (!(value instanceof String)) {
+                continue;
             }
-        });
-        if (overrides.isEmpty()) {
-            return defaults;
+            String text = (String) value;
+            switch (lower) {
+                case "prompt.system.append":
+                    systemAppend = text;
+                    break;
+                case "prompt.chunk.append":
+                    chunkAppend = text;
+                    break;
+                default:
+                    overrides.put(lower, text);
+            }
         }
-        return defaults.withOverrides(overrides);
+        PromptTemplates resolved = overrides.isEmpty() ? defaults : defaults.withOverrides(overrides);
+        return applyPromptAppends(resolved, systemAppend, chunkAppend);
+    }
+
+    private PromptTemplates applyPromptAppends(PromptTemplates base,
+                                               String systemAppend,
+                                               String chunkAppend) {
+        String updatedSystem = appendPrompt(base.getSystemPrompt(), systemAppend);
+        String updatedChunk = appendPrompt(base.getChunkInstructionsTemplate(), chunkAppend);
+        if (updatedSystem.equals(base.getSystemPrompt()) && updatedChunk.equals(base.getChunkInstructionsTemplate())) {
+            return base;
+        }
+        return PromptTemplates.builder()
+                .systemPrompt(updatedSystem)
+                .chunkInstructionsTemplate(updatedChunk)
+                .overviewTemplate(base.getOverviewTemplate())
+                .overviewFileEntryTemplate(base.getOverviewFileEntryTemplate())
+                .build();
+    }
+
+    private String appendPrompt(String base, String addition) {
+        if (addition == null || addition.trim().isEmpty()) {
+            return base;
+        }
+        String separator = base.endsWith("\n") ? "" : "\n";
+        return base + separator + addition;
     }
 }

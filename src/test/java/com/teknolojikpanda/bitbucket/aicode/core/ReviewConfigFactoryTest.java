@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class ReviewConfigFactoryTest {
 
@@ -46,5 +47,20 @@ public class ReviewConfigFactoryTest {
         assertEquals(4, reviewConfig.getOverviewMaxRetries());
         assertEquals(2500, reviewConfig.getChunkRetryDelayMs());
         assertEquals(2500, reviewConfig.getOverviewRetryDelayMs());
+    }
+
+    @Test
+    public void appliesPromptOverridesAndAppends() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("prompt.chunk", "USER_PROMPT");
+        config.put("prompt.chunk.append", "REPO_APPEND");
+        config.put("prompt.system.append", "SYSTEM_APPEND");
+
+        ReviewConfig reviewConfig = factory.from(config);
+
+        assertEquals("USER_PROMPT\nREPO_APPEND",
+                reviewConfig.getPromptTemplates().getChunkInstructionsTemplate());
+        String systemPrompt = reviewConfig.getPromptTemplates().getSystemPrompt();
+        assertTrue(systemPrompt.endsWith("SYSTEM_APPEND"));
     }
 }

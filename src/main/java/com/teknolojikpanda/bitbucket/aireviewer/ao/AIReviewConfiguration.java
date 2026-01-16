@@ -206,6 +206,18 @@ public interface AIReviewConfiguration extends Entity {
     String getScopeMode();
     void setScopeMode(String scopeMode);
 
+    @StringLength(StringLength.UNLIMITED)
+    String getPromptSystemAppend();
+    void setPromptSystemAppend(String value);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getPromptChunkOverride();
+    void setPromptChunkOverride(String value);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getPromptChunkAppend();
+    void setPromptChunkAppend(String value);
+
     // Configuration Metadata
     @StringLength(100)
     String getConfigurationName();

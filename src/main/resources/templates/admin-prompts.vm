@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Code Reviewer - Prompt Customisation</title>
+    <meta name="decorator" content="atl.admin">
+    <meta name="application-base-url" content="$baseUrl">
+    $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-prompts-resources")
+</head>
+<body>
+    <header class="aui-page-header" style="padding-bottom: 20px;">
+        <div class="aui-page-header-inner">
+            <div class="aui-page-header-main">
+                <h1>AI Code Reviewer Prompt Customisation</h1>
+                <p class="aui-page-header-description">Edit active prompts and review effective values.</p>
+            </div>
+        </div>
+    </header>
+
+    <div class="aui-page-panel">
+        <div class="aui-page-panel-inner">
+            <section class="aui-page-panel-content">
+                <div id="ai-reviewer-prompts-container">
+                    <div id="aui-message-container"></div>
+
+                    <form id="ai-reviewer-prompts-form" class="aui">
+                        <h2>Active Prompts</h2>
+                        <p class="description">These are the prompts currently sent to the model (after applying defaults and append instructions).</p>
+
+                        <div class="field-group">
+                            <label for="prompt-system-effective">Effective System Prompt</label>
+                            <textarea class="text long-field" id="prompt-system-effective" rows="16" readonly>$promptSystemEffective</textarea>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="prompt-chunk-effective">Effective User Prompt</label>
+                            <textarea class="text long-field" id="prompt-chunk-effective" rows="18" readonly>$promptChunkEffective</textarea>
+                        </div>
+
+                        <h2>Modify Prompts</h2>
+                        <p class="description">Override the user prompt or append extra system instructions.</p>
+
+                        <div class="field-group">
+                            <label for="prompt-chunk">User Prompt Override</label>
+                            <textarea class="text long-field" id="prompt-chunk" rows="18">$!promptChunkOverride</textarea>
+                            <div class="description">Leave blank to use the default user prompt template.</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label for="prompt-system-append">System Prompt Additions</label>
+                            <textarea class="text long-field" id="prompt-system-append" rows="10">$!promptSystemAppend</textarea>
+                            <div class="description">Additional text appended to the default system prompt.</div>
+                        </div>
+
+                        <textarea id="prompt-system-default" class="hidden">$promptSystemDefault</textarea>
+                        <textarea id="prompt-chunk-default" class="hidden">$promptChunkDefault</textarea>
+
+                        <div class="buttons-container">
+                            <div class="buttons">
+                                <button type="submit" id="save-prompts-btn" class="aui-button aui-button-primary">
+                                    <span class="aui-icon aui-icon-small aui-iconfont-success"></span> Save Prompts
+                                </button>
+                                <button type="button" id="reset-prompts-btn" class="aui-button">
+                                    <span class="aui-icon aui-icon-small aui-iconfont-undo"></span> Reset to Defaults
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div id="loading-indicator" class="aui-spinner" style="display: none;"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

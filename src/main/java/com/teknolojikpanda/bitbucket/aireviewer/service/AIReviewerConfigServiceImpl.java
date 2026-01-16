@@ -307,11 +307,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
 
         Map<String, String> errors = new LinkedHashMap<>();
 
-        configMap.keySet().stream()
-                .filter(Objects::nonNull)
-                .map(Object::toString)
-                .filter(key -> !SUPPORTED_KEYS.contains(key) && !DERIVED_KEYS.contains(key))
-                .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
+    configMap.keySet().stream()
+        .filter(Objects::nonNull)
+        .map(Object::toString)
+        .filter(key -> !SUPPORTED_KEYS.contains(key)
+            && !DERIVED_KEYS.contains(key)
+            && !isPromptKey(key))
+        .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
 
         validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
             try {
@@ -397,8 +399,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 errors.put(key, "Prompt values must be strings");
                 return;
             }
-            String text = ((String) value).trim();
-            if (text.isEmpty()) {
+            String text = (String) value;
+            if (text.trim().isEmpty()) {
                 errors.put(key, "Prompt overrides cannot be empty");
             } else if (text.length() > 10_000) {
                 errors.put(key, "Prompt overrides must be 10,000 characters or fewer");
@@ -1036,7 +1038,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 return;
             }
             String trimmedKey = key.trim();
-            if (trimmedKey.isEmpty() || !SUPPORTED_KEYS.contains(trimmedKey)) {
+            if (trimmedKey.isEmpty() || (!SUPPORTED_KEYS.contains(trimmedKey) && !isPromptKey(trimmedKey))) {
                 return;
             }
             Object normalizedValue = normalizeOverrideValue(trimmedKey, value);
@@ -1050,6 +1052,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private Object normalizeOverrideValue(String key, Object value) {
         if (value == null) {
             return null;
+        }
+        if (isPromptKey(key)) {
+            if (!(value instanceof String)) {
+                value = String.valueOf(value);
+            }
+            String raw = (String) value;
+            return raw.trim().isEmpty() ? null : raw;
         }
         if (INTEGER_KEYS.contains(key)) {
             return parseInteger(value);
@@ -1207,6 +1216,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setAutoApprove(DEFAULT_AUTO_APPROVE);
         config.setWorkerDegradationEnabled(DEFAULT_WORKER_DEGRADATION_ENABLED);
         config.setReviewerUserSlug(null);
+    config.setPromptSystemAppend(null);
+    config.setPromptChunkOverride(null);
+    config.setPromptChunkAppend(null);
         config.setGlobalDefault(true);
         long now = System.currentTimeMillis();
         config.setCreatedDate(now);
@@ -1379,6 +1391,15 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (configMap.containsKey("scopeMode")) {
             ScopeMode mode = ScopeMode.fromString(String.valueOf(configMap.get("scopeMode")));
             config.setScopeMode(mode.toConfigValue());
+        }
+        if (configMap.containsKey("prompt.system.append")) {
+            config.setPromptSystemAppend(promptValue(configMap.get("prompt.system.append")));
+        }
+        if (configMap.containsKey("prompt.chunk")) {
+            config.setPromptChunkOverride(promptValue(configMap.get("prompt.chunk")));
+        }
+        if (configMap.containsKey("prompt.chunk.append")) {
+            config.setPromptChunkAppend(promptValue(configMap.get("prompt.chunk.append")));
         }
     }
 
@@ -1789,6 +1810,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("aiReviewerUser", trimToNull(config.getReviewerUserSlug()));
         map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
+        map.put("prompt.system.append", config.getPromptSystemAppend());
+        map.put("prompt.chunk", config.getPromptChunkOverride());
+        map.put("prompt.chunk.append", config.getPromptChunkAppend());
         return map;
     }
 
@@ -2042,5 +2066,20 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         String trimmed = ((String) value).trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String promptValue(Object value) {
+        if (!(value instanceof String)) {
+            return null;
+        }
+        String raw = (String) value;
+        return raw.trim().isEmpty() ? null : raw;
+    }
+
+    private boolean isPromptKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        return key.trim().toLowerCase(Locale.ROOT).startsWith("prompt");
     }
 }
