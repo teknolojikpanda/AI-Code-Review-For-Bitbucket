@@ -840,11 +840,18 @@ public class ConfigResource {
             if ("scopeMode".equals(key)) {
                 return;
             }
-            if (allowedKeys.contains(key)) {
+            if (allowedKeys.contains(key) || isPromptKey(key)) {
                 normalized.put(key, value);
             }
         });
         return normalized;
+    }
+
+    private boolean isPromptKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        return key.toLowerCase(Locale.ROOT).startsWith("prompt");
     }
 
     private String stringValue(Object value) {

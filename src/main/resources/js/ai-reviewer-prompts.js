@@ -46,14 +46,26 @@
         var defaultSystem = $('#prompt-system-default').val() || '';
         var defaultChunk = $('#prompt-chunk-default').val() || '';
         $('#prompt-chunk').val(config['prompt.chunk'] || '');
-        $('#prompt-system-append').val(config['prompt.system.append'] || '');
+        var configSystemAppend = typeof config['prompt.system.append'] !== 'undefined'
+            ? config['prompt.system.append']
+            : config.promptSystemAppend;
+        if (typeof configSystemAppend === 'undefined') {
+            configSystemAppend = $('#prompt-system-append').val();
+        }
+        $('#prompt-system-append').val(configSystemAppend || '');
 
         var effectiveSystem = defaultSystem;
-        if (config['prompt.system.append']) {
-            var systemAppend = config['prompt.system.append'];
-            if (systemAppend.trim().length) {
-                effectiveSystem += (effectiveSystem.endsWith('\n') ? '' : '\n') + systemAppend;
+        var systemAppend = configSystemAppend;
+        var placeholder = '{{ADDITIONAL_INSTRUCTIONS}}';
+        if (systemAppend && systemAppend.trim().length) {
+            var replacement = 'ADDITIONAL INSTRUCTIONS:\n' + systemAppend.trim();
+            if (effectiveSystem.indexOf(placeholder) >= 0) {
+                effectiveSystem = effectiveSystem.split(placeholder).join(replacement);
+            } else {
+                effectiveSystem += (effectiveSystem.endsWith('\n') ? '' : '\n') + replacement;
             }
+        } else if (effectiveSystem.indexOf(placeholder) >= 0) {
+            effectiveSystem = effectiveSystem.split(placeholder).join('').trim();
         }
         $('#prompt-system-effective').val(effectiveSystem);
 
@@ -67,9 +79,11 @@
     }
 
     function savePrompts() {
+        var chunkValue = $('#prompt-chunk').val();
+        var systemAppendValue = $('#prompt-system-append').val();
         var payload = {
-            'prompt.chunk': $('#prompt-chunk').val(),
-            'prompt.system.append': $('#prompt-system-append').val()
+            'prompt.chunk': chunkValue && chunkValue.trim().length ? chunkValue : null,
+            'prompt.system.append': systemAppendValue && systemAppendValue.trim().length ? systemAppendValue : null
         };
         showLoading(true);
         $.ajax({

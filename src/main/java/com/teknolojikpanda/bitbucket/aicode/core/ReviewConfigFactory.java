@@ -187,7 +187,7 @@ public class ReviewConfigFactory {
     private PromptTemplates applyPromptAppends(PromptTemplates base,
                                                String systemAppend,
                                                String chunkAppend) {
-        String updatedSystem = appendPrompt(base.getSystemPrompt(), systemAppend);
+        String updatedSystem = appendPrompt(base.getSystemPrompt(), systemAppend, true);
         String updatedChunk = appendPrompt(base.getChunkInstructionsTemplate(), chunkAppend);
         if (updatedSystem.equals(base.getSystemPrompt()) && updatedChunk.equals(base.getChunkInstructionsTemplate())) {
             return base;
@@ -201,10 +201,27 @@ public class ReviewConfigFactory {
     }
 
     private String appendPrompt(String base, String addition) {
-        if (addition == null || addition.trim().isEmpty()) {
+        return appendPrompt(base, addition, false);
+    }
+
+    private String appendPrompt(String base, String addition, boolean withHeader) {
+        String trimmedAddition = addition != null ? addition.trim() : "";
+        boolean hasAddition = !trimmedAddition.isEmpty();
+        if (!hasAddition && base.contains("{{ADDITIONAL_INSTRUCTIONS}}")) {
+            return base.replace("{{ADDITIONAL_INSTRUCTIONS}}", "").trim();
+        }
+        if (!hasAddition) {
             return base;
         }
+        if (base.contains("{{ADDITIONAL_INSTRUCTIONS}}")) {
+            String replacement = withHeader ? "ADDITIONAL INSTRUCTIONS:\n" + trimmedAddition : trimmedAddition;
+            return base.replace("{{ADDITIONAL_INSTRUCTIONS}}", replacement).trim();
+        }
         String separator = base.endsWith("\n") ? "" : "\n";
-        return base + separator + addition;
+        if (!withHeader) {
+            return base + separator + trimmedAddition;
+        }
+        String header = "ADDITIONAL INSTRUCTIONS:\n";
+        return base + separator + header + trimmedAddition;
     }
 }

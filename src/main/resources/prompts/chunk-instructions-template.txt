@@ -21,14 +21,5 @@ SEVERITY GUIDELINES:
 - MEDIUM: Maintainability problems, moderate performance issues, code-quality gaps
 - LOW: Style inconsistencies, documentation gaps, minor optimisations
 
-CRITICAL INSTRUCTIONS:
-1. Hunt for subtle bugs that can trigger runtime failures in NEW code.
-2. Flag any security vulnerabilities introduced on ADDED lines.
-3. Evaluate performance impact of the NEW changes (algorithmic or resource usage).
-4. Skip reporting if confidence is low or evidence is missing.
-5. Never infer line numbers—only use explicit [Line N] tags.
-6. The `problematicCode` object MUST contain the exact added diff lines (including [Line N] markers) that demonstrate the issue.
-7. If no specific lines apply, set `problematicCode.snippet` to an empty string.
-
 Diff chunk:
 {{ANNOTATED_DIFF}}
