@@ -93,6 +93,11 @@ Additional prompt keys:
 - `prompt.system.append` (Global/Repo): Appends additional text to the default system prompt.
 - `prompt.chunk.append` (Repo or Global): Appends repository-specific instructions to the user prompt.
 
+Prompt management is also available in the UI:
+
+- **Administration → AI Code Reviewer → Prompt Customisation** shows effective system/user prompts and lets administrators override `prompt.chunk` and `prompt.system.append`.
+- **Repository settings → AI Code Reviewer Prompt Settings** lets repository admins override `prompt.chunk` and add repository-specific `prompt.chunk.append` instructions.
+
 ### Prompt template placeholders (user prompt overrides)
 
 When you override the user prompt (`prompt.chunk`), you can use these replaceable placeholders. They are replaced at runtime by the prompt renderer.

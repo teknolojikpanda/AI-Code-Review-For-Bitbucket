@@ -52,7 +52,7 @@ All global settings live under **Administration → AI Code Reviewer → Configu
 
 ## Administrative Pages
 
-The plugin installs four administrative screens under **Administration → AI Code Reviewer**. Each page is backed by the correspo
+The plugin installs five administrative screens under **Administration → AI Code Reviewer**. Each page is backed by the correspo
 nding REST resource so you can also integrate the functionality into automation tooling.
 
 ### Configuration
@@ -73,6 +73,20 @@ urrent queue is close to the configured limits the UI displays warning badges so
 he Ollama backend has enough capacity.
   - Use the **Effective settings** fly-out to troubleshoot why a specific repository is behaving differently; it merges global,
  project, and repository overrides in precedence order.
+
+### Prompt Customisation
+
+- **Purpose**: manage the prompts sent to the model and review the effective prompt payloads after defaults and append instructi
+ons are applied.
+- **Key sections**:
+  - **Effective System Prompt**: preview-only view of the final system prompt (including `prompt.system.append`).
+  - **Effective User Prompt**: preview-only view of the final user prompt (including repository append instructions).
+  - **User Prompt Override**: optional replacement for the default user prompt template (`prompt.chunk`).
+  - **System Prompt Additions**: text appended to the system prompt (`prompt.system.append`).
+- **Usage tips**:
+  - Keep changes small and validate results in a staging environment before rolling out globally.
+  - Use the effective previews to confirm that placeholders and append instructions render as expected.
+  - Combine this page with repository-level overrides when a specific repo needs tailored instructions.
 
 ### Review History
 
