@@ -7,6 +7,7 @@
 
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
     var effectiveEditorsReady = false;
+    var pendingEffectivePreview = false;
 
     function init() {
         initMarkupEditors();
@@ -38,6 +39,9 @@
                 lockEffectivePreview($effectiveChunkEditor);
             }
             effectiveEditorsReady = true;
+            if (pendingEffectivePreview) {
+                triggerEffectivePreviews();
+            }
             bindPreviewSpinnerFix($chunkEditor);
             bindPreviewSpinnerFix($systemEditor);
             bindPreviewSpinnerFix($effectiveSystemEditor);
@@ -137,22 +141,33 @@
 
     function triggerEffectivePreviews() {
         if (!effectiveEditorsReady) {
+            pendingEffectivePreview = true;
             return;
         }
+        pendingEffectivePreview = false;
         triggerPreviewFor('#prompt-system-effective-editor');
         triggerPreviewFor('#prompt-chunk-effective-editor');
     }
 
     function triggerPreviewFor(selector) {
         var $editor = $(selector);
-        if (!$editor.length || $editor.hasClass('previewing')) {
+        if (!$editor.length) {
             return;
         }
         var $previewButton = $editor.find('.markup-preview-button');
-        if ($previewButton.length) {
-            $previewButton.trigger('click');
-            stopPreviewSpinner($editor);
+        if (!$previewButton.length) {
+            return;
         }
+        if ($editor.hasClass('previewing')) {
+            $previewButton.trigger('click');
+            setTimeout(function() {
+                $previewButton.trigger('click');
+                stopPreviewSpinner($editor);
+            }, 0);
+            return;
+        }
+        $previewButton.trigger('click');
+        stopPreviewSpinner($editor);
     }
 
     function stopPreviewSpinner($editor) {
@@ -185,8 +200,7 @@
             data: JSON.stringify(payload),
             success: function() {
                 showMessage('success', 'Prompt settings saved.');
-                applyConfig(payload || {});
-                showLoading(false);
+                refreshPrompts();
             },
             error: function(xhr, status, error) {
                 var message = (xhr.responseJSON && xhr.responseJSON.error) || error || 'Unknown error';

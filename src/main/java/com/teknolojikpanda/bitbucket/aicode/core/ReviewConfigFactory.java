@@ -170,6 +170,9 @@ public class ReviewConfigFactory {
                 continue;
             }
             String text = (String) value;
+            if (text.trim().isEmpty()) {
+                continue;
+            }
             switch (lower) {
                 case "prompt.system.append":
                     systemAppend = text;

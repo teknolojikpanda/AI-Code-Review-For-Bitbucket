@@ -240,13 +240,19 @@
             return;
         }
         var $previewButton = $editor.find('.markup-preview-button');
-        if ($editor.hasClass('previewing')) {
+        if (!$previewButton.length) {
             return;
         }
-        if ($previewButton.length) {
+        if ($editor.hasClass('previewing')) {
             $previewButton.trigger('click');
-            stopSpinnerForEditor($editor);
+            setTimeout(function() {
+                $previewButton.trigger('click');
+                stopSpinnerForEditor($editor);
+            }, 0);
+            return;
         }
+        $previewButton.trigger('click');
+        stopSpinnerForEditor($editor);
     }
 
     function autoResizeAll() {
