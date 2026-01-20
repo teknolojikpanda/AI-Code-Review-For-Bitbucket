@@ -188,24 +188,26 @@ public class ReviewConfigFactory {
     private PromptTemplates applyPromptAppends(PromptTemplates base,
                                                String systemAppend,
                                                String chunkAppend) {
-        String updatedSystem = appendPrompt(base.getSystemPrompt(), systemAppend, true);
-        String updatedChunk = appendPrompt(base.getChunkInstructionsTemplate(), chunkAppend, true);
+        String updatedSystem = appendSystemPrompt(base.getSystemPrompt(), systemAppend);
+        String updatedChunk = appendChunkPrompt(base.getChunkInstructionsTemplate(), chunkAppend);
         if (updatedSystem.equals(base.getSystemPrompt()) && updatedChunk.equals(base.getChunkInstructionsTemplate())) {
             return base;
         }
-        return PromptTemplates.builder()
-                .systemPrompt(updatedSystem)
-                .chunkInstructionsTemplate(updatedChunk)
-                .overviewTemplate(base.getOverviewTemplate())
-                .overviewFileEntryTemplate(base.getOverviewFileEntryTemplate())
-                .build();
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put("prompt.system", updatedSystem);
+        overrides.put("prompt.chunk", updatedChunk);
+        return base.withOverrides(overrides);
     }
 
-    private String appendPrompt(String base, String addition) {
-        return appendPrompt(base, addition, false);
+    private String appendSystemPrompt(String base, String addition) {
+        return appendPromptInternal(base, addition, true);
     }
 
-    private String appendPrompt(String base, String addition, boolean withHeader) {
+    private String appendChunkPrompt(String base, String addition) {
+        return appendPromptInternal(base, addition, true);
+    }
+
+    private String appendPromptInternal(String base, String addition, boolean withHeader) {
         String trimmedAddition = addition != null ? addition.trim() : "";
         boolean hasAddition = !trimmedAddition.isEmpty();
         if (!hasAddition && base.contains("{{ADDITIONAL_INSTRUCTIONS}}")) {

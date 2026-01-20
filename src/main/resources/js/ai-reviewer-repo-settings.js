@@ -92,11 +92,23 @@
             return;
         }
         $editor.on('click', '.markup-preview-button, .markup-preview', function() {
-            var $target = $editor.find('textarea').parent();
+            stopSpinnerForEditor($editor);
+        });
+    }
+
+    function stopSpinnerForEditor($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        var $target = $editor.find('textarea').parent();
+        if ($target && $target.spinStop) {
+            $target.spinStop();
+        }
+        setTimeout(function() {
             if ($target && $target.spinStop) {
                 $target.spinStop();
             }
-        });
+        }, 150);
     }
 
     function handleSubmit(event) {
@@ -139,10 +151,7 @@
             type: 'GET',
             dataType: 'json',
             success: function(response) {
-                currentOverrides = response && response.overrides ? response.overrides : {};
-                $('#repo-prompt-override').val(currentOverrides['prompt.chunk'] || '');
-                $('#repo-prompt-append').val(currentOverrides['prompt.chunk.append'] || '');
-                updatePromptPreview(response || {});
+                applyConfigResponse(response);
                 showLoading(false);
             },
             error: function(xhr, status, error) {
@@ -161,10 +170,7 @@
             contentType: 'application/json',
             data: JSON.stringify(overrides || {}),
             success: function(response) {
-                currentOverrides = response && response.overrides ? response.overrides : (overrides || {});
-                $('#repo-prompt-override').val(currentOverrides['prompt.chunk'] || '');
-                $('#repo-prompt-append').val(currentOverrides['prompt.chunk.append'] || '');
-                updatePromptPreview(response || {});
+                applyConfigResponse(response, overrides || {});
                 showMessage('success', 'Repository prompt instructions saved.');
                 showLoading(false);
             },
@@ -195,10 +201,19 @@
         $container.append($message);
     }
 
+    function applyConfigResponse(response, fallbackOverrides) {
+        response = response || {};
+        var overrides = response.overrides || fallbackOverrides || {};
+        currentOverrides = overrides;
+        $('#repo-prompt-override').val(overrides['prompt.chunk'] || '');
+        $('#repo-prompt-append').val(overrides['prompt.chunk.append'] || '');
+        updatePromptPreview(response);
+    }
+
     function updatePromptPreview(response) {
         var defaults = response.defaults || {};
         var globalConfig = response.global || {};
-        var overrides = response.overrides || {};
+        var overrides = response.overrides || currentOverrides || {};
         var effective = response.effective || {};
         var defaultTemplate = $('#prompt-chunk-default').val() || defaults['prompt.chunk'] || '';
         var globalTemplate = globalConfig['prompt.chunk'];
@@ -230,23 +245,8 @@
         }
         if ($previewButton.length) {
             $previewButton.trigger('click');
-            stopEffectiveSpinner($editor);
+            stopSpinnerForEditor($editor);
         }
-    }
-
-    function stopEffectiveSpinner($editor) {
-        if (!$editor || !$editor.length) {
-            return;
-        }
-        var $target = $editor.find('textarea').parent();
-        if ($target && $target.spinStop) {
-            $target.spinStop();
-        }
-        setTimeout(function() {
-            if ($target && $target.spinStop) {
-                $target.spinStop();
-            }
-        }, 150);
     }
 
     function autoResizeAll() {

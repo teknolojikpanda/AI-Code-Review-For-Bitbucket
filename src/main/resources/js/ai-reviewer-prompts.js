@@ -185,7 +185,8 @@
             data: JSON.stringify(payload),
             success: function() {
                 showMessage('success', 'Prompt settings saved.');
-                refreshPrompts();
+                applyConfig(payload || {});
+                showLoading(false);
             },
             error: function(xhr, status, error) {
                 var message = (xhr.responseJSON && xhr.responseJSON.error) || error || 'Unknown error';
@@ -212,7 +213,7 @@
         var $message = $('<div class="aui-message ' + messageClass + ' closeable">')
             .append('<p class="title"><span class="aui-icon icon-' + iconClass + '"></span><strong>' +
                     (type.charAt(0).toUpperCase() + type.slice(1)) + '</strong></p>')
-            .append('<p>' + message + '</p>')
+            .append($('<p></p>').text(message))
             .append('<span class="aui-icon icon-close" role="button" tabindex="0"></span>');
         $container.append($message);
         $message.find('.icon-close').on('click', function() {

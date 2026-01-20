@@ -12,6 +12,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfilePreset;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
+import com.teknolojikpanda.bitbucket.aireviewer.util.PromptKeySupport;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ConfigurationValidationException;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
@@ -840,18 +841,11 @@ public class ConfigResource {
             if ("scopeMode".equals(key)) {
                 return;
             }
-            if (allowedKeys.contains(key) || isPromptKey(key)) {
+            if (allowedKeys.contains(key) || PromptKeySupport.isPromptKey(key)) {
                 normalized.put(key, value);
             }
         });
         return normalized;
-    }
-
-    private boolean isPromptKey(String key) {
-        if (key == null) {
-            return false;
-        }
-        return key.toLowerCase(Locale.ROOT).startsWith("prompt");
     }
 
     private String stringValue(Object value) {

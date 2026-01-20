@@ -18,6 +18,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfilePreset;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.util.HttpClientUtil;
+import com.teknolojikpanda.bitbucket.aireviewer.util.PromptKeySupport;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -310,13 +311,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
 
         Map<String, String> errors = new LinkedHashMap<>();
 
-    configMap.keySet().stream()
-        .filter(Objects::nonNull)
-        .map(Object::toString)
-        .filter(key -> !SUPPORTED_KEYS.contains(key)
-            && !DERIVED_KEYS.contains(key)
-            && !isPromptKey(key))
-        .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
+        configMap.keySet().stream()
+            .filter(Objects::nonNull)
+            .map(Object::toString)
+            .filter(key -> !SUPPORTED_KEYS.contains(key)
+                && !DERIVED_KEYS.contains(key)
+                && !PromptKeySupport.isPromptKey(key))
+            .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
 
         validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
             try {
@@ -1042,7 +1043,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 return;
             }
             String trimmedKey = key.trim();
-            if (trimmedKey.isEmpty() || (!SUPPORTED_KEYS.contains(trimmedKey) && !isPromptKey(trimmedKey))) {
+            if (trimmedKey.isEmpty() || (!SUPPORTED_KEYS.contains(trimmedKey) && !PromptKeySupport.isPromptKey(trimmedKey))) {
                 return;
             }
             Object normalizedValue = normalizeOverrideValue(trimmedKey, value);
@@ -1057,7 +1058,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         if (value == null) {
             return null;
         }
-        if (isPromptKey(key)) {
+        if (PromptKeySupport.isPromptKey(key)) {
             if (!(value instanceof String)) {
                 value = String.valueOf(value);
             }
@@ -2085,10 +2086,5 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         return raw.trim().isEmpty() ? null : raw;
     }
 
-    private boolean isPromptKey(String key) {
-        if (key == null) {
-            return false;
-        }
-        return key.trim().toLowerCase(Locale.ROOT).startsWith("prompt");
-    }
+
 }
