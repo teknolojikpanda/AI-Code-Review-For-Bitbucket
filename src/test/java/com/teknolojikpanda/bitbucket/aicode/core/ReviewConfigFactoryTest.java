@@ -58,7 +58,7 @@ public class ReviewConfigFactoryTest {
 
         ReviewConfig reviewConfig = factory.from(config);
 
-        assertEquals("USER_PROMPT\nREPO_APPEND",
+    assertEquals("USER_PROMPT\nADDITIONAL INSTRUCTIONS:\nREPO_APPEND",
                 reviewConfig.getPromptTemplates().getChunkInstructionsTemplate());
         String systemPrompt = reviewConfig.getPromptTemplates().getSystemPrompt();
         assertTrue(systemPrompt.endsWith("SYSTEM_APPEND"));

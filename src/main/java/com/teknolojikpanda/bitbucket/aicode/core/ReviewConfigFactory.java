@@ -189,7 +189,7 @@ public class ReviewConfigFactory {
                                                String systemAppend,
                                                String chunkAppend) {
         String updatedSystem = appendPrompt(base.getSystemPrompt(), systemAppend, true);
-        String updatedChunk = appendPrompt(base.getChunkInstructionsTemplate(), chunkAppend);
+        String updatedChunk = appendPrompt(base.getChunkInstructionsTemplate(), chunkAppend, true);
         if (updatedSystem.equals(base.getSystemPrompt()) && updatedChunk.equals(base.getChunkInstructionsTemplate())) {
             return base;
         }

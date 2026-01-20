@@ -35,7 +35,7 @@ This reference lists the configuration keys managed by `AIReviewerConfigService`
 | `ignorePaths` | Global/Repo | String CSV | `node_modules/,vendor/,build/,dist/,.git/` | Directory prefixes to ignore. |
 | `aiReviewerUser` | Global/Repo | String | *(empty)* | Optional Bitbucket username used to author AI comments. If blank, the triggering user is impersonated. |
 | `workerDegradationEnabled` | Global | Bool | `true` | Allow worker pool to throttle itself when saturation persists. |
-| `verboseMode` | Global | Bool | `false` | When enabled, prompt payloads are written to `${java.io.tmpdir}/ai-reviewer/verbose/<PROJECT>/<REPO>/pr-<ID>/chunk-<ID>-<timestamp>.json` for troubleshooting. |
+| `verboseMode` | Global | Bool | `false` | When enabled, prompt payloads are written during active AI reviews to `${java.io.tmpdir}/ai-reviewer/verbose/<PROJECT>/<REPO>/pr-<ID>/chunk-<ID>-<timestamp>.json` for troubleshooting. Files are created per chunk; if no review runs, no files are emitted. In containerized deployments, check the JVM temp directory inside the Bitbucket container. |
 
 ## Chunking & Retries
 
