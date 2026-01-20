@@ -158,7 +158,8 @@
         var appendText = effective['prompt.chunk.append'] || '';
         var effectivePrompt = baseTemplate || '';
         if (appendText && appendText.trim().length) {
-            effectivePrompt += (effectivePrompt.endsWith('\n') ? '' : '\n') + appendText;
+            effectivePrompt += (effectivePrompt.endsWith('\n') ? '' : '\n') +
+                '\nADDITIONAL INSTRUCTIONS:\n' + appendText.trim();
         }
         $('#repo-prompt-effective').val(effectivePrompt);
         autoResizeAll();
