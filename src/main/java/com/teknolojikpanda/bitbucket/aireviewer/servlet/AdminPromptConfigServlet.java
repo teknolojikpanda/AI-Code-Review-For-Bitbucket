@@ -2,6 +2,7 @@ package com.teknolojikpanda.bitbucket.aireviewer.servlet;
 
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.auth.LoginUriProvider;
+import com.atlassian.bitbucket.server.ApplicationPropertiesService;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.atlassian.sal.api.user.UserKey;
@@ -35,18 +36,21 @@ public class AdminPromptConfigServlet extends HttpServlet {
     private final TemplateRenderer templateRenderer;
     private final AIReviewerConfigService configService;
     private final ReviewConfigFactory configFactory;
+    private final ApplicationPropertiesService applicationPropertiesService;
 
     @Inject
     public AdminPromptConfigServlet(@ComponentImport UserManager userManager,
                                     @ComponentImport LoginUriProvider loginUriProvider,
                                     @ComponentImport TemplateRenderer templateRenderer,
                                     AIReviewerConfigService configService,
-                                    ReviewConfigFactory configFactory) {
+                                    ReviewConfigFactory configFactory,
+                                    @ComponentImport ApplicationPropertiesService applicationPropertiesService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.loginUriProvider = Objects.requireNonNull(loginUriProvider, "loginUriProvider");
         this.templateRenderer = Objects.requireNonNull(templateRenderer, "templateRenderer");
         this.configService = Objects.requireNonNull(configService, "configService");
         this.configFactory = Objects.requireNonNull(configFactory, "configFactory");
+        this.applicationPropertiesService = Objects.requireNonNull(applicationPropertiesService, "applicationPropertiesService");
     }
 
     @Override
@@ -117,6 +121,10 @@ public class AdminPromptConfigServlet extends HttpServlet {
     }
 
     private String getBaseUrl(HttpServletRequest req) {
+        java.net.URI baseUrl = applicationPropertiesService.getBaseUrl();
+        if (baseUrl != null && !baseUrl.toString().trim().isEmpty()) {
+            return baseUrl.toString();
+        }
         return req.getScheme() + "://" + req.getServerName() +
                ":" + req.getServerPort() + req.getContextPath();
     }

@@ -12,6 +12,8 @@
     var repositorySlug = $container.data('repositorySlug') || $container.data('repository-slug') ||
         AJS.$('meta[name="repositorySlug"]').attr('content');
     var effectivePreviewReady = false;
+    var PROMPT_PLACEHOLDER = '{{ADDITIONAL_INSTRUCTIONS}}';
+    var ADDITIONAL_HEADER = 'ADDITIONAL INSTRUCTIONS:\n';
 
     function resolveContextFromQuery() {
         var params = new URLSearchParams(window.location.search || '');
@@ -62,17 +64,26 @@
             var $overrideEditor = $('#repo-prompt-override-editor');
             var $appendEditor = $('#repo-prompt-append-editor');
             var $effectiveEditor = $('#repo-prompt-effective-editor');
-            MarkupEditor.bindTo($overrideEditor);
-            MarkupEditor.bindTo($appendEditor);
+
+            setupMarkupEditor(MarkupEditor, $overrideEditor);
+            setupMarkupEditor(MarkupEditor, $appendEditor);
+            setupMarkupEditor(MarkupEditor, $effectiveEditor, { lockPreview: true });
+
             if ($effectiveEditor.length) {
-                MarkupEditor.bindTo($effectiveEditor);
-                lockEffectivePreview($effectiveEditor);
                 effectivePreviewReady = true;
             }
-            bindPreviewSpinnerFix($overrideEditor);
-            bindPreviewSpinnerFix($appendEditor);
-            bindPreviewSpinnerFix($effectiveEditor);
         });
+    }
+
+    function setupMarkupEditor(MarkupEditor, $editor, options) {
+        if (!MarkupEditor || !$editor || !$editor.length) {
+            return;
+        }
+        MarkupEditor.bindTo($editor);
+        if (options && options.lockPreview) {
+            lockEffectivePreview($editor);
+        }
+        bindPreviewSpinnerFix($editor);
     }
 
     function lockEffectivePreview($editor) {
@@ -125,19 +136,20 @@
 
     function buildOverridesPayload() {
         var overrides = $.extend({}, currentOverrides || {});
-        var overrideText = $('#repo-prompt-override').val();
-        if (overrideText && overrideText.trim().length) {
-            overrides['prompt.chunk'] = overrideText;
-        } else {
-            delete overrides['prompt.chunk'];
-        }
-        var appendText = $('#repo-prompt-append').val();
-        if (appendText && appendText.trim().length) {
-            overrides['prompt.chunk.append'] = appendText;
-        } else {
-            delete overrides['prompt.chunk.append'];
-        }
+        overrides['prompt.chunk'] = normalizeOverrideValue($('#repo-prompt-override').val());
+        overrides['prompt.chunk.append'] = normalizeOverrideValue($('#repo-prompt-append').val());
+
+        Object.keys(overrides).forEach(function(key) {
+            if (overrides[key] === null) {
+                delete overrides[key];
+            }
+        });
         return overrides;
+    }
+
+    function normalizeOverrideValue(text) {
+        var trimmed = (text || '').trim();
+        return trimmed.length ? text : null;
     }
 
     function loadConfiguration() {
@@ -211,24 +223,42 @@
     }
 
     function updatePromptPreview(response) {
-        var defaults = response.defaults || {};
-        var globalConfig = response.global || {};
-        var overrides = response.overrides || currentOverrides || {};
-        var effective = response.effective || {};
-        var defaultTemplate = $('#prompt-chunk-default').val() || defaults['prompt.chunk'] || '';
-        var globalTemplate = globalConfig['prompt.chunk'];
-        var repoTemplate = overrides['prompt.chunk'];
-        var baseTemplate = repoTemplate || globalTemplate || defaultTemplate;
-
-        var appendText = effective['prompt.chunk.append'] || '';
-        var effectivePrompt = baseTemplate || '';
-        if (appendText && appendText.trim().length) {
-            effectivePrompt += (effectivePrompt.endsWith('\n') ? '' : '\n') +
-                '\nADDITIONAL INSTRUCTIONS:\n' + appendText.trim();
+        var effectivePrompts = response.promptEffective || {};
+        var effectivePrompt = effectivePrompts['prompt.chunk'];
+        if (!effectivePrompt) {
+            var defaults = response.defaults || {};
+            var globalConfig = response.global || {};
+            var overrides = response.overrides || currentOverrides || {};
+            var effective = response.effective || {};
+            var defaultTemplate = $('#prompt-chunk-default').val() || defaults['prompt.chunk'] || '';
+            var globalTemplate = globalConfig['prompt.chunk'];
+            var repoTemplate = overrides['prompt.chunk'];
+            var baseTemplate = repoTemplate || globalTemplate || defaultTemplate;
+            var appendText = effective['prompt.chunk.append'] || '';
+            effectivePrompt = renderAdditionalInstructions(baseTemplate || '', appendText);
         }
-        $('#repo-prompt-effective').val(effectivePrompt);
+        $('#repo-prompt-effective').val(effectivePrompt || '');
         triggerEffectivePreview();
         autoResizeAll();
+    }
+
+    function renderAdditionalInstructions(base, addition) {
+        var trimmedAddition = (addition || '').trim();
+        var hasAddition = trimmedAddition.length > 0;
+        var hasPlaceholder = base.indexOf(PROMPT_PLACEHOLDER) >= 0;
+
+        if (hasPlaceholder) {
+            if (!hasAddition) {
+                return base.split(PROMPT_PLACEHOLDER).join('').trim();
+            }
+            return base.split(PROMPT_PLACEHOLDER).join(ADDITIONAL_HEADER + trimmedAddition).trim();
+        }
+
+        if (!hasAddition) {
+            return base;
+        }
+
+        return base + (base.endsWith('\n') ? '' : '\n') + ADDITIONAL_HEADER + trimmedAddition;
     }
 
     function triggerEffectivePreview() {

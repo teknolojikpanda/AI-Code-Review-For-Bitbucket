@@ -9,6 +9,8 @@ import com.atlassian.bitbucket.user.UserService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
+import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
+import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
 
 import javax.inject.Inject;
@@ -37,18 +39,21 @@ public class RepoConfigResource {
     private final PermissionService permissionService;
     private final UserService userService;
     private final AIReviewerConfigService configService;
+    private final ReviewConfigFactory configFactory;
 
     @Inject
     public RepoConfigResource(@ComponentImport UserManager userManager,
                               @ComponentImport RepositoryService repositoryService,
                               @ComponentImport PermissionService permissionService,
                               @ComponentImport UserService userService,
-                              AIReviewerConfigService configService) {
+                              AIReviewerConfigService configService,
+                              ReviewConfigFactory configFactory) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.repositoryService = Objects.requireNonNull(repositoryService, "repositoryService");
         this.permissionService = Objects.requireNonNull(permissionService, "permissionService");
         this.userService = Objects.requireNonNull(userService, "userService");
         this.configService = Objects.requireNonNull(configService, "configService");
+        this.configFactory = Objects.requireNonNull(configFactory, "configFactory");
     }
 
     @GET
@@ -63,6 +68,7 @@ public class RepoConfigResource {
         }
 
         Map<String, Object> payload = configService.getRepositoryConfiguration(projectKey, repositorySlug);
+        payload.put("promptEffective", buildPromptEffective(payload));
         return Response.ok(payload).build();
     }
 
@@ -107,6 +113,7 @@ public class RepoConfigResource {
                 context.user != null ? context.user.getSlug() : null);
 
         Map<String, Object> payload = configService.getRepositoryConfiguration(projectKey, repositorySlug);
+        payload.put("promptEffective", buildPromptEffective(payload));
         return Response.ok(payload).build();
     }
 
@@ -142,6 +149,7 @@ public class RepoConfigResource {
 
         configService.clearRepositoryConfiguration(projectKey, repositorySlug);
         Map<String, Object> payload = configService.getRepositoryConfiguration(projectKey, repositorySlug);
+        payload.put("promptEffective", buildPromptEffective(payload));
         return Response.ok(payload).build();
     }
 
@@ -198,6 +206,23 @@ public class RepoConfigResource {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("error", message);
         return map;
+    }
+
+    private Map<String, String> buildPromptEffective(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            return Map.of();
+        }
+        Object effective = payload.get("effective");
+        if (!(effective instanceof Map)) {
+            return Map.of();
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> effectiveConfig = (Map<String, Object>) effective;
+        PromptTemplates templates = configFactory.from(effectiveConfig).getPromptTemplates();
+        Map<String, String> promptEffective = new LinkedHashMap<>();
+        promptEffective.put("prompt.system", templates.getSystemPrompt());
+        promptEffective.put("prompt.chunk", templates.getChunkInstructionsTemplate());
+        return promptEffective;
     }
 
     private static final class AccessContext {

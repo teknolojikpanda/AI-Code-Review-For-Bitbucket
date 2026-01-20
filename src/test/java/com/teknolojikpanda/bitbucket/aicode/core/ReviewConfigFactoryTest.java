@@ -109,6 +109,23 @@ public class ReviewConfigFactoryTest {
     }
 
     @Test
+    public void appliesAppendsToDefaultTemplatesWhenNoOverridesProvided() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("prompt.system.append", "SYSTEM APPEND");
+        config.put("prompt.chunk.append", "CHUNK APPEND");
+
+        ReviewConfig reviewConfig = factory.from(config);
+
+        String systemPrompt = reviewConfig.getPromptTemplates().getSystemPrompt();
+        String chunkPrompt = reviewConfig.getPromptTemplates().getChunkInstructionsTemplate();
+
+        assertTrue(systemPrompt.contains("ADDITIONAL INSTRUCTIONS:"));
+        assertTrue(systemPrompt.contains("SYSTEM APPEND"));
+        assertTrue(chunkPrompt.contains("ADDITIONAL INSTRUCTIONS:"));
+        assertTrue(chunkPrompt.contains("CHUNK APPEND"));
+    }
+
+    @Test
     public void onlyChunkAppendDoesNotAffectSystemPrompt() {
         Map<String, Object> baseConfig = new HashMap<>();
         baseConfig.put("prompt.chunk", "BASE CHUNK");

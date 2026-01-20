@@ -8,6 +8,8 @@
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
     var effectiveEditorsReady = false;
     var pendingEffectivePreview = false;
+    var PROMPT_PLACEHOLDER = '{{ADDITIONAL_INSTRUCTIONS}}';
+    var ADDITIONAL_HEADER = 'ADDITIONAL INSTRUCTIONS:\n';
 
     function init() {
         initMarkupEditors();
@@ -28,25 +30,28 @@
             var $systemEditor = $('#prompt-system-append-editor');
             var $effectiveSystemEditor = $('#prompt-system-effective-editor');
             var $effectiveChunkEditor = $('#prompt-chunk-effective-editor');
-            MarkupEditor.bindTo($chunkEditor);
-            MarkupEditor.bindTo($systemEditor);
-            if ($effectiveSystemEditor.length) {
-                MarkupEditor.bindTo($effectiveSystemEditor);
-                lockEffectivePreview($effectiveSystemEditor);
-            }
-            if ($effectiveChunkEditor.length) {
-                MarkupEditor.bindTo($effectiveChunkEditor);
-                lockEffectivePreview($effectiveChunkEditor);
-            }
+
+            setupMarkupEditor(MarkupEditor, $chunkEditor);
+            setupMarkupEditor(MarkupEditor, $systemEditor);
+            setupMarkupEditor(MarkupEditor, $effectiveSystemEditor, { lockPreview: true });
+            setupMarkupEditor(MarkupEditor, $effectiveChunkEditor, { lockPreview: true });
+
             effectiveEditorsReady = true;
             if (pendingEffectivePreview) {
                 triggerEffectivePreviews();
             }
-            bindPreviewSpinnerFix($chunkEditor);
-            bindPreviewSpinnerFix($systemEditor);
-            bindPreviewSpinnerFix($effectiveSystemEditor);
-            bindPreviewSpinnerFix($effectiveChunkEditor);
         });
+    }
+
+    function setupMarkupEditor(MarkupEditor, $editor, options) {
+        if (!MarkupEditor || !$editor || !$editor.length) {
+            return;
+        }
+        MarkupEditor.bindTo($editor);
+        if (options && options.lockPreview) {
+            lockEffectivePreview($editor);
+        }
+        bindPreviewSpinnerFix($editor);
     }
 
     function lockEffectivePreview($editor) {
@@ -103,40 +108,68 @@
     }
 
     function applyConfig(config) {
-        var defaultSystem = $('#prompt-system-default').val() || '';
-        var defaultChunk = $('#prompt-chunk-default').val() || '';
+        var defaults = {
+            system: $('#prompt-system-default').val() || '',
+            chunk: $('#prompt-chunk-default').val() || ''
+        };
+        var currentValues = {
+            systemAppend: $('#prompt-system-append').val()
+        };
+        var effectiveFromServer = config.promptEffective || {};
+        var result = computeEffectivePrompts(config, defaults, currentValues, effectiveFromServer);
+
         $('#prompt-chunk').val(config['prompt.chunk'] || '');
-        var configSystemAppend = typeof config['prompt.system.append'] !== 'undefined'
-            ? config['prompt.system.append']
-            : config.promptSystemAppend;
-        if (typeof configSystemAppend === 'undefined') {
-            configSystemAppend = $('#prompt-system-append').val();
-        }
-        $('#prompt-system-append').val(configSystemAppend || '');
-
-        var effectiveSystem = defaultSystem;
-        var systemAppend = configSystemAppend;
-        var placeholder = '{{ADDITIONAL_INSTRUCTIONS}}';
-        if (systemAppend && systemAppend.trim().length) {
-            var replacement = 'ADDITIONAL INSTRUCTIONS:\n' + systemAppend.trim();
-            if (effectiveSystem.indexOf(placeholder) >= 0) {
-                effectiveSystem = effectiveSystem.split(placeholder).join(replacement);
-            } else {
-                effectiveSystem += (effectiveSystem.endsWith('\n') ? '' : '\n') + replacement;
-            }
-        } else if (effectiveSystem.indexOf(placeholder) >= 0) {
-            effectiveSystem = effectiveSystem.split(placeholder).join('').trim();
-        }
-        $('#prompt-system-effective').val(effectiveSystem);
-
-        var effectiveChunk = config['prompt.chunk'] || defaultChunk;
-        var chunkAppend = config['prompt.chunk.append'];
-        if (chunkAppend && chunkAppend.trim().length) {
-            effectiveChunk += (effectiveChunk.endsWith('\n') ? '' : '\n') + chunkAppend;
-        }
-        $('#prompt-chunk-effective').val(effectiveChunk);
+        $('#prompt-system-append').val(result.systemAppend);
+        $('#prompt-system-effective').val(result.effectiveSystem);
+        $('#prompt-chunk-effective').val(result.effectiveChunk);
         triggerEffectivePreviews();
         autoResizeAll();
+    }
+
+    function computeEffectivePrompts(config, defaults, currentValues, effectiveFromServer) {
+        var systemAppend = resolveSystemAppend(config, currentValues);
+        var effectiveSystem = effectiveFromServer['prompt.system'] ||
+            renderAdditionalInstructions(defaults.system || '', systemAppend);
+
+        var baseChunk = config['prompt.chunk'] || defaults.chunk || '';
+        var chunkAppend = config['prompt.chunk.append'];
+        var effectiveChunk = effectiveFromServer['prompt.chunk'] ||
+            renderAdditionalInstructions(baseChunk, chunkAppend);
+
+        return {
+            systemAppend: systemAppend || '',
+            effectiveSystem: effectiveSystem,
+            effectiveChunk: effectiveChunk
+        };
+    }
+
+    function resolveSystemAppend(config, currentValues) {
+        if (typeof config['prompt.system.append'] !== 'undefined') {
+            return config['prompt.system.append'];
+        }
+        if (typeof config.promptSystemAppend !== 'undefined') {
+            return config.promptSystemAppend;
+        }
+        return (currentValues && currentValues.systemAppend) ? currentValues.systemAppend : '';
+    }
+
+    function renderAdditionalInstructions(base, addition) {
+        var trimmedAddition = (addition || '').trim();
+        var hasAddition = trimmedAddition.length > 0;
+        var hasPlaceholder = base.indexOf(PROMPT_PLACEHOLDER) >= 0;
+
+        if (hasPlaceholder) {
+            if (!hasAddition) {
+                return base.split(PROMPT_PLACEHOLDER).join('').trim();
+            }
+            return base.split(PROMPT_PLACEHOLDER).join(ADDITIONAL_HEADER + trimmedAddition).trim();
+        }
+
+        if (!hasAddition) {
+            return base;
+        }
+
+        return base + (base.endsWith('\n') ? '' : '\n') + ADDITIONAL_HEADER + trimmedAddition;
     }
 
     function triggerEffectivePreviews() {
@@ -198,16 +231,18 @@
             type: 'PUT',
             contentType: 'application/json',
             data: JSON.stringify(payload),
-            success: function() {
-                showMessage('success', 'Prompt settings saved.');
-                refreshPrompts();
-            },
+            success: handleSuccessfulSave,
             error: function(xhr, status, error) {
                 var message = (xhr.responseJSON && xhr.responseJSON.error) || error || 'Unknown error';
                 showMessage('error', 'Failed to save prompt settings: ' + message);
                 showLoading(false);
             }
         });
+    }
+
+    function handleSuccessfulSave() {
+        showMessage('success', 'Prompt settings saved.');
+        refreshPrompts();
     }
 
     function showLoading(show) {

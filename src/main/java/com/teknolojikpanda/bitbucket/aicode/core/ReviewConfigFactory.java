@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
 public class ReviewConfigFactory {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewConfigFactory.class);
+    private static final String ADDITIONAL_INSTRUCTIONS_PLACEHOLDER = "{{ADDITIONAL_INSTRUCTIONS}}";
+    private static final String ADDITIONAL_INSTRUCTIONS_HEADER = "ADDITIONAL INSTRUCTIONS:\n";
 
     @Nonnull
     public ReviewConfig from(@Nonnull Map<String, Object> config) {
@@ -191,8 +193,8 @@ public class ReviewConfigFactory {
     private PromptTemplates applyPromptAppends(PromptTemplates base,
                                                String systemAppend,
                                                String chunkAppend) {
-        String updatedSystem = appendSystemPrompt(base.getSystemPrompt(), systemAppend);
-        String updatedChunk = appendChunkPrompt(base.getChunkInstructionsTemplate(), chunkAppend);
+        String updatedSystem = appendWithAdditionalInstructions(base.getSystemPrompt(), systemAppend);
+        String updatedChunk = appendWithAdditionalInstructions(base.getChunkInstructionsTemplate(), chunkAppend);
         if (updatedSystem.equals(base.getSystemPrompt()) && updatedChunk.equals(base.getChunkInstructionsTemplate())) {
             return base;
         }
@@ -202,32 +204,24 @@ public class ReviewConfigFactory {
         return base.withOverrides(overrides);
     }
 
-    private String appendSystemPrompt(String base, String addition) {
-        return appendPromptInternal(base, addition, true);
-    }
-
-    private String appendChunkPrompt(String base, String addition) {
-        return appendPromptInternal(base, addition, true);
-    }
-
-    private String appendPromptInternal(String base, String addition, boolean withHeader) {
+    private String appendWithAdditionalInstructions(String base, String addition) {
         String trimmedAddition = addition != null ? addition.trim() : "";
         boolean hasAddition = !trimmedAddition.isEmpty();
-        if (!hasAddition && base.contains("{{ADDITIONAL_INSTRUCTIONS}}")) {
-            return base.replace("{{ADDITIONAL_INSTRUCTIONS}}", "").trim();
+        boolean hasPlaceholder = base.contains(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER);
+
+        if (hasPlaceholder) {
+            if (!hasAddition) {
+                return base.replace(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER, "").trim();
+            }
+            String replacement = ADDITIONAL_INSTRUCTIONS_HEADER + trimmedAddition;
+            return base.replace(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER, replacement).trim();
         }
+
         if (!hasAddition) {
             return base;
         }
-        if (base.contains("{{ADDITIONAL_INSTRUCTIONS}}")) {
-            String replacement = withHeader ? "ADDITIONAL INSTRUCTIONS:\n" + trimmedAddition : trimmedAddition;
-            return base.replace("{{ADDITIONAL_INSTRUCTIONS}}", replacement).trim();
-        }
+
         String separator = base.endsWith("\n") ? "" : "\n";
-        if (!withHeader) {
-            return base + separator + trimmedAddition;
-        }
-        String header = "ADDITIONAL INSTRUCTIONS:\n";
-        return base + separator + header + trimmedAddition;
+        return base + separator + ADDITIONAL_INSTRUCTIONS_HEADER + trimmedAddition;
     }
 }

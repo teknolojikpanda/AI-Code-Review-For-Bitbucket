@@ -615,9 +615,17 @@ public class OllamaAiReviewClient implements AiReviewClient {
             }
 
             if (maxFiles > 0) {
-                int excess = files.size() - maxFiles;
+                List<Path> remaining = Files.list(dir)
+                        .filter(Files::isRegularFile)
+                        .sorted((left, right) -> {
+                            long leftTime = lastModifiedMillis(left);
+                            long rightTime = lastModifiedMillis(right);
+                            return Long.compare(leftTime, rightTime);
+                        })
+                        .toList();
+                int excess = remaining.size() - maxFiles;
                 for (int i = 0; i < excess; i++) {
-                    Files.deleteIfExists(files.get(i));
+                    Files.deleteIfExists(remaining.get(i));
                 }
             }
         } catch (Exception ex) {

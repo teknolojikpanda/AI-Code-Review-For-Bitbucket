@@ -8,6 +8,7 @@ import com.atlassian.bitbucket.user.ApplicationUser;
 import com.atlassian.bitbucket.user.UserService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.auth.LoginUriProvider;
+import com.atlassian.bitbucket.server.ApplicationPropertiesService;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.atlassian.sal.api.user.UserKey;
@@ -37,6 +38,7 @@ public class RepoPromptConfigServlet extends HttpServlet {
     private final PermissionService permissionService;
     private final UserService userService;
     private final AIReviewerConfigService configService;
+    private final ApplicationPropertiesService applicationPropertiesService;
 
     @Inject
     public RepoPromptConfigServlet(@ComponentImport UserManager userManager,
@@ -45,7 +47,8 @@ public class RepoPromptConfigServlet extends HttpServlet {
                                    @ComponentImport RepositoryService repositoryService,
                                    @ComponentImport PermissionService permissionService,
                                    @ComponentImport UserService userService,
-                                   AIReviewerConfigService configService) {
+                                   AIReviewerConfigService configService,
+                                   @ComponentImport ApplicationPropertiesService applicationPropertiesService) {
         this.userManager = Objects.requireNonNull(userManager, "userManager");
         this.loginUriProvider = Objects.requireNonNull(loginUriProvider, "loginUriProvider");
         this.templateRenderer = Objects.requireNonNull(templateRenderer, "templateRenderer");
@@ -53,6 +56,7 @@ public class RepoPromptConfigServlet extends HttpServlet {
         this.permissionService = Objects.requireNonNull(permissionService, "permissionService");
         this.userService = Objects.requireNonNull(userService, "userService");
         this.configService = Objects.requireNonNull(configService, "configService");
+        this.applicationPropertiesService = Objects.requireNonNull(applicationPropertiesService, "applicationPropertiesService");
     }
 
     @Override
@@ -130,6 +134,10 @@ public class RepoPromptConfigServlet extends HttpServlet {
     }
 
     private String getBaseUrl(HttpServletRequest req) {
+        java.net.URI baseUrl = applicationPropertiesService.getBaseUrl();
+        if (baseUrl != null && !baseUrl.toString().trim().isEmpty()) {
+            return baseUrl.toString();
+        }
         return req.getScheme() + "://" + req.getServerName() +
                ":" + req.getServerPort() + req.getContextPath();
     }
