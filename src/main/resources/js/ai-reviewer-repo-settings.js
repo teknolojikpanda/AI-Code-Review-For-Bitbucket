@@ -11,6 +11,7 @@
         AJS.$('meta[name="projectKey"]').attr('content');
     var repositorySlug = $container.data('repositorySlug') || $container.data('repository-slug') ||
         AJS.$('meta[name="repositorySlug"]').attr('content');
+    var effectivePreviewReady = false;
 
     function resolveContextFromQuery() {
         var params = new URLSearchParams(window.location.search || '');
@@ -44,9 +45,58 @@
 
     function init() {
         resolveContextFromQuery();
+        initMarkupEditors();
         $('#ai-reviewer-repo-config-form').on('submit', handleSubmit);
         $('#reset-repo-prompt-btn').on('click', handleReset);
         loadConfiguration();
+    }
+
+    function initMarkupEditors() {
+        if (typeof require !== 'function') {
+            return;
+        }
+        require(['bitbucket/internal/widget/markup-editor/markup-editor'], function(MarkupEditor) {
+            if (!MarkupEditor || !MarkupEditor.bindTo) {
+                return;
+            }
+            var $overrideEditor = $('#repo-prompt-override-editor');
+            var $appendEditor = $('#repo-prompt-append-editor');
+            var $effectiveEditor = $('#repo-prompt-effective-editor');
+            MarkupEditor.bindTo($overrideEditor);
+            MarkupEditor.bindTo($appendEditor);
+            if ($effectiveEditor.length) {
+                MarkupEditor.bindTo($effectiveEditor);
+                lockEffectivePreview($effectiveEditor);
+                effectivePreviewReady = true;
+            }
+            bindPreviewSpinnerFix($overrideEditor);
+            bindPreviewSpinnerFix($appendEditor);
+            bindPreviewSpinnerFix($effectiveEditor);
+        });
+    }
+
+    function lockEffectivePreview($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        $editor.off('click', '.markup-preview');
+        $editor.off('click', 'textarea');
+        $editor.on('click', '.markup-preview, textarea', function(event) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        });
+    }
+
+    function bindPreviewSpinnerFix($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        $editor.on('click', '.markup-preview-button, .markup-preview', function() {
+            var $target = $editor.find('textarea').parent();
+            if ($target && $target.spinStop) {
+                $target.spinStop();
+            }
+        });
     }
 
     function handleSubmit(event) {
@@ -162,11 +212,45 @@
                 '\nADDITIONAL INSTRUCTIONS:\n' + appendText.trim();
         }
         $('#repo-prompt-effective').val(effectivePrompt);
+        triggerEffectivePreview();
         autoResizeAll();
     }
 
+    function triggerEffectivePreview() {
+        if (!effectivePreviewReady) {
+            return;
+        }
+        var $editor = $('#repo-prompt-effective-editor');
+        if (!$editor.length) {
+            return;
+        }
+        var $previewButton = $editor.find('.markup-preview-button');
+        if ($editor.hasClass('previewing')) {
+            return;
+        }
+        if ($previewButton.length) {
+            $previewButton.trigger('click');
+            stopEffectiveSpinner($editor);
+        }
+    }
+
+    function stopEffectiveSpinner($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        var $target = $editor.find('textarea').parent();
+        if ($target && $target.spinStop) {
+            $target.spinStop();
+        }
+        setTimeout(function() {
+            if ($target && $target.spinStop) {
+                $target.spinStop();
+            }
+        }, 150);
+    }
+
     function autoResizeAll() {
-        ['#repo-prompt-effective', '#repo-prompt-override', '#repo-prompt-append']
+        ['#repo-prompt-effective']
             .forEach(function(selector) {
                 autoResize($(selector));
             });

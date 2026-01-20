@@ -402,6 +402,7 @@
         <description>Resources for the admin prompt configuration page</description>
         <dependency>com.atlassian.auiplugin:ajs</dependency>
         <dependency>com.atlassian.auiplugin:aui-flag</dependency>
+        <dependency>com.atlassian.bitbucket.server.bitbucket-webpack-INTERNAL:markup-editor</dependency>
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
         <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
         <resource type="download" name="ai-reviewer-prompts.js" location="/js/ai-reviewer-prompts.js"/>
@@ -412,6 +413,7 @@
         <description>Resources for the repository prompt settings page</description>
         <dependency>com.atlassian.auiplugin:ajs</dependency>
         <dependency>com.atlassian.auiplugin:aui-flag</dependency>
+        <dependency>com.atlassian.bitbucket.server.bitbucket-webpack-INTERNAL:markup-editor</dependency>
         <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
         <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
         <resource type="download" name="ai-reviewer-repo-settings.js" location="/js/ai-reviewer-repo-settings.js"/>

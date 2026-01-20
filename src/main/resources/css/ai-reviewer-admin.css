@@ -53,6 +53,7 @@
     gap: 10px;
 }
 
+
 #test-connection-result {
     margin-left: 10px;
     display: inline-block;
@@ -769,6 +770,81 @@
 
 #test-connection-btn:hover {
     background-color: #f4f5f7;
+}
+
+/* Native Bitbucket markup editor alignment in prompt settings */
+#ai-reviewer-prompts-container .markup-editor,
+#ai-reviewer-repo-config .markup-editor {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+#ai-reviewer-prompts-container .markup-editor textarea,
+#ai-reviewer-repo-config .markup-editor textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    display: block;
+}
+
+#ai-reviewer-prompts-container .markup-editor .markup-toolbar,
+#ai-reviewer-repo-config .markup-editor .markup-toolbar {
+    padding: 8px 10px;
+    min-height: 38px;
+    box-sizing: border-box;
+    display: flow-root;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+#ai-reviewer-prompts-container .markup-editor.preview-only .markup-toolbar,
+#ai-reviewer-repo-config .markup-editor.preview-only .markup-toolbar {
+    display: none;
+}
+
+#ai-reviewer-prompts-container .markup-editor.preview-only textarea,
+#ai-reviewer-repo-config .markup-editor.preview-only textarea {
+    display: none !important;
+}
+
+#ai-reviewer-prompts-container .markup-editor.preview-only .markup-preview,
+#ai-reviewer-repo-config .markup-editor.preview-only .markup-preview {
+    display: block !important;
+    min-height: 220px;
+    border: 1px solid #dfe1e6;
+    border-radius: 4px;
+    padding: 12px 14px;
+    background: #ffffff;
+}
+
+#ai-reviewer-prompts-container .markup-editor.preview-only .markup-preview,
+#ai-reviewer-prompts-container .markup-editor.preview-only textarea,
+#ai-reviewer-repo-config .markup-editor.preview-only .markup-preview,
+#ai-reviewer-repo-config .markup-editor.preview-only textarea {
+    cursor: default;
+}
+
+#ai-reviewer-prompts-container .markup-editor.preview-only .aui-spinner,
+#ai-reviewer-prompts-container .markup-editor.preview-only .spinner,
+#ai-reviewer-repo-config .markup-editor.preview-only .aui-spinner,
+#ai-reviewer-repo-config .markup-editor.preview-only .spinner {
+    display: none !important;
+}
+
+#ai-reviewer-prompts-container .markup-editor.preview-only .expandingText,
+#ai-reviewer-prompts-container .markup-editor.preview-only .expandingText *,
+#ai-reviewer-repo-config .markup-editor.preview-only .expandingText,
+#ai-reviewer-repo-config .markup-editor.preview-only .expandingText * {
+    display: none !important;
+}
+
+#ai-reviewer-prompts-container .markup-editor .markup-toolbar .secondary,
+#ai-reviewer-repo-config .markup-editor .markup-toolbar .secondary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 /* Icon Styling */

@@ -28,12 +28,46 @@
 
                         <div class="field-group">
                             <label for="prompt-system-effective">Effective System Prompt</label>
-                            <textarea class="text long-field" id="prompt-system-effective" rows="16" readonly>$promptSystemEffective</textarea>
+                            <div class="markup-editor preview-only" id="prompt-system-effective-editor">
+                                <div class="markup-preview markup"></div>
+                                <textarea class="text expanding" id="prompt-system-effective" rows="16" readonly>$promptSystemEffective</textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary"></div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="field-group">
                             <label for="prompt-chunk-effective">Effective User Prompt</label>
-                            <textarea class="text long-field" id="prompt-chunk-effective" rows="18" readonly>$promptChunkEffective</textarea>
+                            <div class="markup-editor preview-only" id="prompt-chunk-effective-editor">
+                                <div class="markup-preview markup"></div>
+                                <textarea class="text expanding" id="prompt-chunk-effective" rows="18" readonly>$promptChunkEffective</textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary"></div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                         </div>
 
                         <h2>Modify Prompts</h2>
@@ -41,13 +75,57 @@
 
                         <div class="field-group">
                             <label for="prompt-chunk">User Prompt Override</label>
-                            <textarea class="text long-field" id="prompt-chunk" rows="18">$!promptChunkOverride</textarea>
+                            <div class="markup-editor" id="prompt-chunk-editor">
+                                <div class="markup-preview markup" title="Click to edit"></div>
+                                <textarea class="text expanding" id="prompt-chunk" rows="18">$!promptChunkOverride</textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary">
+                                        <label class="aui-button-subtle aui-button-compact markup-attachments-button"
+                                               title="Attach file" role="button" tabindex="0">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-attachment"></span>
+                                        </label>
+                                    </div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                             <div class="description">Leave blank to use the default user prompt template.</div>
                         </div>
 
                         <div class="field-group">
                             <label for="prompt-system-append">System Prompt Additions</label>
-                            <textarea class="text long-field" id="prompt-system-append" rows="10">$!promptSystemAppend</textarea>
+                            <div class="markup-editor" id="prompt-system-append-editor">
+                                <div class="markup-preview markup" title="Click to edit"></div>
+                                <textarea class="text expanding" id="prompt-system-append" rows="10">$!promptSystemAppend</textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary">
+                                        <label class="aui-button-subtle aui-button-compact markup-attachments-button"
+                                               title="Attach file" role="button" tabindex="0">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-attachment"></span>
+                                        </label>
+                                    </div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                             <div class="description">Additional text appended to the default system prompt.</div>
                         </div>
 

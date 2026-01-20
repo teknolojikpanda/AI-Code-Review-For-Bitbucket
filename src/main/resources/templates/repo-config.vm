@@ -34,7 +34,24 @@
                     <form id="ai-reviewer-repo-config-form" class="aui">
                         <div class="field-group">
                             <label for="repo-prompt-effective">Effective user prompt</label>
-                            <textarea class="text long-field" id="repo-prompt-effective" rows="12" readonly></textarea>
+                            <div class="markup-editor preview-only" id="repo-prompt-effective-editor">
+                                <div class="markup-preview markup"></div>
+                                <textarea class="text expanding" id="repo-prompt-effective" rows="12" readonly></textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary"></div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                             <div class="description">Includes any repository or global append instructions.</div>
                         </div>
 
@@ -45,7 +62,29 @@
 
                         <div class="field-group">
                             <label for="repo-prompt-override">Repository-specific user prompt</label>
-                            <textarea class="text long-field" id="repo-prompt-override" rows="12"></textarea>
+                            <div class="markup-editor" id="repo-prompt-override-editor">
+                                <div class="markup-preview markup" title="Click to edit"></div>
+                                <textarea class="text expanding" id="repo-prompt-override" rows="12"></textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary">
+                                        <label class="aui-button-subtle aui-button-compact markup-attachments-button"
+                                               title="Attach file" role="button" tabindex="0">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-attachment"></span>
+                                        </label>
+                                    </div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                             <div class="description">Leave blank to use the global user prompt template.</div>
                         </div>
 
@@ -59,7 +98,29 @@
 
                         <div class="field-group">
                             <label for="repo-prompt-append">Repository-specific instructions</label>
-                            <textarea class="text long-field" id="repo-prompt-append" rows="8"></textarea>
+                            <div class="markup-editor" id="repo-prompt-append-editor">
+                                <div class="markup-preview markup" title="Click to edit"></div>
+                                <textarea class="text expanding" id="repo-prompt-append" rows="8"></textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary">
+                                        <label class="aui-button-subtle aui-button-compact markup-attachments-button"
+                                               title="Attach file" role="button" tabindex="0">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-attachment"></span>
+                                        </label>
+                                    </div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
                             <div class="description">Leave blank to inherit the global prompt without repository-specific instructions.</div>
                         </div>
 

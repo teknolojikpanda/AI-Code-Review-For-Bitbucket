@@ -6,11 +6,67 @@
         window.location.origin + (AJS.contextPath() || '');
 
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
+    var effectiveEditorsReady = false;
 
     function init() {
+        initMarkupEditors();
         $('#ai-reviewer-prompts-form').on('submit', handleSubmit);
         $('#reset-prompts-btn').on('click', handleReset);
         refreshPrompts();
+    }
+
+    function initMarkupEditors() {
+        if (typeof require !== 'function') {
+            return;
+        }
+        require(['bitbucket/internal/widget/markup-editor/markup-editor'], function(MarkupEditor) {
+            if (!MarkupEditor || !MarkupEditor.bindTo) {
+                return;
+            }
+            var $chunkEditor = $('#prompt-chunk-editor');
+            var $systemEditor = $('#prompt-system-append-editor');
+            var $effectiveSystemEditor = $('#prompt-system-effective-editor');
+            var $effectiveChunkEditor = $('#prompt-chunk-effective-editor');
+            MarkupEditor.bindTo($chunkEditor);
+            MarkupEditor.bindTo($systemEditor);
+            if ($effectiveSystemEditor.length) {
+                MarkupEditor.bindTo($effectiveSystemEditor);
+                lockEffectivePreview($effectiveSystemEditor);
+            }
+            if ($effectiveChunkEditor.length) {
+                MarkupEditor.bindTo($effectiveChunkEditor);
+                lockEffectivePreview($effectiveChunkEditor);
+            }
+            effectiveEditorsReady = true;
+            bindPreviewSpinnerFix($chunkEditor);
+            bindPreviewSpinnerFix($systemEditor);
+            bindPreviewSpinnerFix($effectiveSystemEditor);
+            bindPreviewSpinnerFix($effectiveChunkEditor);
+        });
+    }
+
+    function lockEffectivePreview($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        $editor.off('click', '.markup-preview');
+        $editor.off('click', 'textarea');
+        $editor.on('click', '.markup-preview, textarea', function(event) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        });
+    }
+
+    function bindPreviewSpinnerFix($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        $editor.on('click', '.markup-preview-button, .markup-preview', function() {
+            var $target = $editor.find('textarea').parent();
+            if ($target && $target.spinStop) {
+                $target.spinStop();
+            }
+        });
     }
 
     function handleSubmit(event) {
@@ -75,7 +131,43 @@
             effectiveChunk += (effectiveChunk.endsWith('\n') ? '' : '\n') + chunkAppend;
         }
         $('#prompt-chunk-effective').val(effectiveChunk);
+        triggerEffectivePreviews();
         autoResizeAll();
+    }
+
+    function triggerEffectivePreviews() {
+        if (!effectiveEditorsReady) {
+            return;
+        }
+        triggerPreviewFor('#prompt-system-effective-editor');
+        triggerPreviewFor('#prompt-chunk-effective-editor');
+    }
+
+    function triggerPreviewFor(selector) {
+        var $editor = $(selector);
+        if (!$editor.length || $editor.hasClass('previewing')) {
+            return;
+        }
+        var $previewButton = $editor.find('.markup-preview-button');
+        if ($previewButton.length) {
+            $previewButton.trigger('click');
+            stopPreviewSpinner($editor);
+        }
+    }
+
+    function stopPreviewSpinner($editor) {
+        if (!$editor || !$editor.length) {
+            return;
+        }
+        var $target = $editor.find('textarea').parent();
+        if ($target && $target.spinStop) {
+            $target.spinStop();
+        }
+        setTimeout(function() {
+            if ($target && $target.spinStop) {
+                $target.spinStop();
+            }
+        }, 150);
     }
 
     function savePrompts() {
@@ -131,7 +223,7 @@
     }
 
     function autoResizeAll() {
-        ['#prompt-system-effective', '#prompt-chunk-effective', '#prompt-chunk', '#prompt-system-append']
+        ['#prompt-system-effective', '#prompt-chunk-effective']
             .forEach(function(selector) {
                 autoResize($(selector));
             });
