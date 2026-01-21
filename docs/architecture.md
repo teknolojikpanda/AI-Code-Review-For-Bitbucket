@@ -95,7 +95,7 @@ flowchart TB
         F --> F1[Overview]
         F --> F2[Impact summary pass]
         F --> F3[Chunk review]
-        F --> F4[Context enrichment (expanded)]
+                F --> F4[Context enrichment expanded]
 
         Q2 --> QC[Summary comment]
         S2 --> SC[Summary comment]
