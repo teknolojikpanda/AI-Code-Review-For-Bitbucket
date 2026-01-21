@@ -1,0 +1,15 @@
+{{OVERVIEW}}
+
+Review mode: {{REVIEW_MODE}}
+Mode focus:
+{{MODE_INSTRUCTIONS}}
+
+Analyze the full diff below and produce an impact summary focused on risks, regression areas, and cross-file dependencies.
+
+Guidelines:
+- Keep it concise (max 8 bullets).
+- Highlight any missing updates (docs, tests, configs, callers).
+- Emphasize security, reliability, and data integrity risks.
+
+Full diff:
+{{RAW_DIFF}}

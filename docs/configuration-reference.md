@@ -27,15 +27,26 @@ This reference lists the configuration keys managed by `AIReviewerConfigService`
 | `skipGeneratedFiles` | Global/Repo | Bool | `true` | Skip files matching generated artefact patterns. |
 | `skipTests` | Global/Repo | Bool | `false` | Skip files identified as tests (matching keywords). |
 | `autoApprove` | Global/Repo | Bool | `false` | Automatically approve PRs when no issues meet approval thresholds. |
+| `impactSummaryInline` | Global/Repo | Bool | `false` | When enabled, Deep/Full impact summaries are appended to the main summary comment instead of a separate comment. |
 | `minSeverity` | Global/Repo | String | `medium` | Lowest severity (`low`, `medium`, `high`, `critical`) that is surfaced. |
 | `requireApprovalFor` | Global/Repo | String CSV | `critical,high` | Severities that require at least one human approval. |
 | `reviewProfile` | Global/Repo | String | `balanced` | Key of a preset defined in `ReviewProfilePreset`. |
+| `reviewMode` | Global/Repo | String | `standard` | Review scope preset that tunes chunking limits and profile defaults (`quick`, `standard`, `deep`, `full`). Deep/Full modes also emit an impact summary comment. |
 | `reviewExtensions` | Global/Repo | String CSV | `java,groovy,js,ts,tsx,jsx,py,go,rs,cpp,c,cs,php,rb,kt,swift,scala` | File extensions included in reviews. |
 | `ignorePatterns` | Global/Repo | String CSV | `*.min.js,*.generated.*,package-lock.json,yarn.lock,*.map` | Glob patterns excluded from analysis. |
 | `ignorePaths` | Global/Repo | String CSV | `node_modules/,vendor/,build/,dist/,.git/` | Directory prefixes to ignore. |
 | `aiReviewerUser` | Global/Repo | String | *(empty)* | Optional Bitbucket username used to author AI comments. If blank, the triggering user is impersonated. |
 | `workerDegradationEnabled` | Global | Bool | `true` | Allow worker pool to throttle itself when saturation persists. |
 | `verboseMode` | Global | Bool | `false` | When enabled, prompt payloads are written during active AI reviews to `${java.io.tmpdir}/ai-reviewer/verbose/<PROJECT>/<REPO>/pr-<ID>/chunk-<ID>-<timestamp>.json` for troubleshooting. Files are created per chunk; if no review runs, no files are emitted. The plugin prunes verbose payloads after 200 files per PR or 7 days (override with JVM properties `ai.reviewer.verbose.maxFiles` and `ai.reviewer.verbose.maxAgeDays`). In containerized deployments, check the JVM temp directory inside the Bitbucket container. |
+
+Mode guidance:
+
+- `quick`: Faster scan focused on high-severity findings.
+- `standard`: Balanced scan aligned with current thresholds.
+- `deep`: Broader coverage, including tests and lower severities.
+- `full`: Maximum coverage with larger chunk budgets and impact focus.
+
+When `reviewMode` is set to anything other than `standard`, the mode’s defaults override chunking limits and review profile thresholds for the review run.
 
 ## Chunking & Retries
 
@@ -92,6 +103,7 @@ Additional prompt keys:
 
 - `prompt.system.append` (Global/Repo): Appends additional text to the default system prompt.
 - `prompt.chunk.append` (Repo or Global): Appends repository-specific instructions to the user prompt.
+- `prompt.impact` (Global/Repo): Overrides the impact summary prompt used in Deep/Full modes.
 
 Prompt management is also available in the UI:
 
@@ -106,8 +118,22 @@ When you override the user prompt (`prompt.chunk`), you can use these replaceabl
 | --- | --- |
 | `{{OVERVIEW}}` | Repository + pull request overview summary for the review run. |
 | `{{MIN_SEVERITY}}` | The minimum severity string derived from the active review profile (e.g. `low`, `medium`). |
-| `{{CHUNK_CONTEXT}}` | Context block describing the current chunk (file names and metadata for the chunk). |
+| `{{CHUNK_CONTEXT}}` | Context block describing the current chunk (file names and metadata). In `deep`/`full` modes it also includes a global change summary, full diff context for chunk files, and related-change snippets from other files in the PR. |
 | `{{ANNOTATED_DIFF}}` | The current diff chunk with line markers (e.g. `[Line 42]`) that the model should reference. |
+| `{{REVIEW_MODE}}` | Human-readable review mode label (for example `Quick`, `Standard`). |
+| `{{MODE_INSTRUCTIONS}}` | Mode-specific focus instructions applied by the selected review mode. |
+| `{{IMPACT_SUMMARY}}` | Impact summary produced in Deep/Full modes and injected into the chunk prompt. |
+
+### Impact summary prompt placeholders
+
+When you override the impact summary prompt (`prompt.impact`), you can use:
+
+| Placeholder | Description |
+| --- | --- |
+| `{{OVERVIEW}}` | Repository + pull request overview summary for the review run. |
+| `{{REVIEW_MODE}}` | Human-readable review mode label. |
+| `{{MODE_INSTRUCTIONS}}` | Mode-specific focus instructions. |
+| `{{RAW_DIFF}}` | The full diff payload (truncated in Deep/Full modes to stay within size limits). |
 
 Notes:
 

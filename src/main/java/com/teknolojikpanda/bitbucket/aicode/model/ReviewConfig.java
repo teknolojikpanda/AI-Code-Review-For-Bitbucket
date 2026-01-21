@@ -34,6 +34,7 @@ public final class ReviewConfig {
     private final ReviewProfile profile;
     private final PromptTemplates promptTemplates;
     private final boolean verboseMode;
+    private final ReviewMode reviewMode;
 
     private ReviewConfig(Builder builder) {
         this.primaryModelEndpoint = builder.primaryModelEndpoint;
@@ -58,6 +59,7 @@ public final class ReviewConfig {
         this.profile = builder.profile;
         this.promptTemplates = builder.promptTemplates;
         this.verboseMode = builder.verboseMode;
+    this.reviewMode = builder.reviewMode;
     }
 
     @Nonnull
@@ -165,6 +167,11 @@ public final class ReviewConfig {
         return verboseMode;
     }
 
+    @Nonnull
+    public ReviewMode getReviewMode() {
+        return reviewMode;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -191,7 +198,8 @@ public final class ReviewConfig {
         private int maxDiffBytes = 10_000_000;
         private ReviewProfile profile = ReviewProfile.builder().build();
         private PromptTemplates promptTemplates = PromptTemplates.loadDefaults();
-    private boolean verboseMode = false;
+        private boolean verboseMode = false;
+        private ReviewMode reviewMode = ReviewMode.STANDARD;
 
         public Builder primaryModelEndpoint(@Nonnull URI uri) {
             this.primaryModelEndpoint = Objects.requireNonNull(uri, "uri");
@@ -316,6 +324,11 @@ public final class ReviewConfig {
 
         public Builder promptTemplates(@Nonnull PromptTemplates value) {
             this.promptTemplates = Objects.requireNonNull(value, "value");
+            return this;
+        }
+
+        public Builder reviewMode(@Nonnull ReviewMode value) {
+            this.reviewMode = Objects.requireNonNull(value, "value");
             return this;
         }
 

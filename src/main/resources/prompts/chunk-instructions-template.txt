@@ -2,6 +2,13 @@
 
 Minimum severity to report: {{MIN_SEVERITY}}
 
+Review mode: {{REVIEW_MODE}}
+Mode focus:
+{{MODE_INSTRUCTIONS}}
+
+Impact summary:
+{{IMPACT_SUMMARY}}
+
 Chunk context:
 {{CHUNK_CONTEXT}}
 

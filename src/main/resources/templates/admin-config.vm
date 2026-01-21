@@ -207,6 +207,37 @@
                         <!-- Review Profile -->
                         <h2>Review Profile</h2>
                         <div class="field-group">
+                            <label for="review-mode">Review Mode</label>
+                            <select id="review-mode" name="reviewMode" class="select">
+                                #if($reviewModeOptions)
+                                    #foreach($mode in $reviewModeOptions)
+                                        <option value="$mode.key"#if($mode.key == $reviewMode) selected#end>$mode.name</option>
+                                    #end
+                                #else
+                                    <option value="standard">Standard</option>
+                                    <option value="quick">Quick</option>
+                                    <option value="deep">Deep</option>
+                                    <option value="full">Full Impact</option>
+                                #end
+                            </select>
+                            <div class="description">Controls review depth by tuning chunking limits and profile defaults.</div>
+                        </div>
+                        <div class="field-group">
+                            <label for="impact-summary-inline">
+                                <input type="checkbox" id="impact-summary-inline" name="impactSummaryInline"#if($impactSummaryInline) checked#end>
+                                Embed Impact Summary in main comment
+                            </label>
+                            <div class="description">Available for Deep/Full modes. When enabled, the impact summary is appended to the main summary comment.</div>
+                        </div>
+                        <div class="field-group">
+                            <label for="impact-summary-inline">Impact Summary Placement</label>
+                            <div class="checkbox">
+                                <input type="checkbox" id="impact-summary-inline" name="impactSummaryInline"#if($impactSummaryInline) checked#end>
+                                <label for="impact-summary-inline">Embed impact summary inside the main summary comment</label>
+                            </div>
+                            <div class="description">When enabled, Deep/Full modes append the impact summary to the main summary comment instead of posting a separate comment.</div>
+                        </div>
+                        <div class="field-group">
                             <label for="review-profile">Profile Preset</label>
                             <select id="review-profile" name="reviewProfile" class="select">
                                 <option value="custom"#if($selectedProfile == "custom") selected#end>Custom (manual)</option>

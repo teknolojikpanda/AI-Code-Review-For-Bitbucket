@@ -18,17 +18,20 @@ public final class PromptTemplates {
     private static final String DEFAULT_CHUNK_PATH = "prompts/chunk-instructions-template.txt";
     private static final String DEFAULT_OVERVIEW_PATH = "prompts/overview-template.txt";
     private static final String DEFAULT_FILE_ENTRY_PATH = "prompts/overview-file-entry.txt";
+    private static final String DEFAULT_IMPACT_PATH = "prompts/impact-summary-template.txt";
 
     private final String systemPrompt;
     private final String chunkInstructionsTemplate;
     private final String overviewTemplate;
     private final String overviewFileEntryTemplate;
+    private final String impactSummaryTemplate;
 
     private PromptTemplates(Builder builder) {
         this.systemPrompt = builder.systemPrompt;
         this.chunkInstructionsTemplate = builder.chunkInstructionsTemplate;
         this.overviewTemplate = builder.overviewTemplate;
         this.overviewFileEntryTemplate = builder.overviewFileEntryTemplate;
+    this.impactSummaryTemplate = builder.impactSummaryTemplate;
     }
 
     @Nonnull
@@ -52,12 +55,18 @@ public final class PromptTemplates {
     }
 
     @Nonnull
+    public String getImpactSummaryTemplate() {
+        return impactSummaryTemplate;
+    }
+
+    @Nonnull
     public PromptTemplates withOverrides(@Nonnull Map<String, String> overrides) {
         Builder builder = new Builder()
                 .systemPrompt(systemPrompt)
                 .chunkInstructionsTemplate(chunkInstructionsTemplate)
                 .overviewTemplate(overviewTemplate)
-                .overviewFileEntryTemplate(overviewFileEntryTemplate);
+                .overviewFileEntryTemplate(overviewFileEntryTemplate)
+                .impactSummaryTemplate(impactSummaryTemplate);
         overrides.forEach((key, value) -> {
             if (value == null) {
                 return;
@@ -82,6 +91,11 @@ public final class PromptTemplates {
                 case "prompt.overviewfile":
                     builder.overviewFileEntryTemplate(value);
                     break;
+                case "impact":
+                case "impactsummary":
+                case "prompt.impact":
+                    builder.impactSummaryTemplate(value);
+                    break;
                 default:
                     // ignore unknown keys
             }
@@ -96,6 +110,7 @@ public final class PromptTemplates {
                 .chunkInstructionsTemplate(readResource(DEFAULT_CHUNK_PATH))
                 .overviewTemplate(readResource(DEFAULT_OVERVIEW_PATH))
                 .overviewFileEntryTemplate(readResource(DEFAULT_FILE_ENTRY_PATH))
+                .impactSummaryTemplate(readResource(DEFAULT_IMPACT_PATH))
                 .build();
     }
 
@@ -122,6 +137,7 @@ public final class PromptTemplates {
         private String chunkInstructionsTemplate;
         private String overviewTemplate;
         private String overviewFileEntryTemplate;
+    private String impactSummaryTemplate;
 
         public Builder systemPrompt(@Nonnull String value) {
             this.systemPrompt = Objects.requireNonNull(value, "value");
@@ -143,11 +159,17 @@ public final class PromptTemplates {
             return this;
         }
 
+        public Builder impactSummaryTemplate(@Nonnull String value) {
+            this.impactSummaryTemplate = Objects.requireNonNull(value, "value");
+            return this;
+        }
+
         public PromptTemplates build() {
             Objects.requireNonNull(systemPrompt, "systemPrompt");
             Objects.requireNonNull(chunkInstructionsTemplate, "chunkInstructionsTemplate");
             Objects.requireNonNull(overviewTemplate, "overviewTemplate");
             Objects.requireNonNull(overviewFileEntryTemplate, "overviewFileEntryTemplate");
+            Objects.requireNonNull(impactSummaryTemplate, "impactSummaryTemplate");
             return new PromptTemplates(this);
         }
     }

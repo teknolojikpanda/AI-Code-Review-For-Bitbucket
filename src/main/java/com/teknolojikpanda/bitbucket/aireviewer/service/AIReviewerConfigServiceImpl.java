@@ -15,6 +15,7 @@ import com.atlassian.bitbucket.user.UserService;
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfilePreset;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.util.HttpClientUtil;
@@ -109,6 +110,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "skipGeneratedFiles",
             "skipTests",
             "autoApprove",
+            "impactSummaryInline",
         "workerDegradationEnabled",
         "verboseMode"
     )));
@@ -154,12 +156,14 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final String DEFAULT_IGNORE_PATTERNS = "*.min.js,*.generated.*,package-lock.json,yarn.lock,*.map";
     private static final String DEFAULT_IGNORE_PATHS = "node_modules/,vendor/,build/,dist/,.git/";
     private static final String DEFAULT_REVIEW_PROFILE_KEY = ReviewProfilePreset.BALANCED.getKey();
+    private static final String DEFAULT_REVIEW_MODE = ReviewMode.STANDARD.toConfigValue();
     private static final String DEFAULT_SCOPE_MODE = ScopeMode.ALL.toConfigValue();
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_REVIEW_DRAFT_PRS = false;
     private static final boolean DEFAULT_SKIP_GENERATED = true;
     private static final boolean DEFAULT_SKIP_TESTS = false;
     private static final boolean DEFAULT_AUTO_APPROVE = false;
+    private static final boolean DEFAULT_IMPACT_SUMMARY_INLINE = false;
     private static final boolean DEFAULT_WORKER_DEGRADATION_ENABLED = true;
     private static final boolean DEFAULT_VERBOSE_MODE = false;
     private static final String DEFAULT_PRIORITY_PROJECTS = "";
@@ -216,11 +220,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "ignorePatterns",
                 "ignorePaths",
                 "reviewProfile",
+                "reviewMode",
                 "enabled",
                 "reviewDraftPRs",
                 "skipGeneratedFiles",
                 "skipTests",
                 "autoApprove",
+                "impactSummaryInline",
                 "workerDegradationEnabled",
                 "verboseMode",
                 "aiReviewerUser",
@@ -379,6 +385,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             errors.put("reviewProfile", "Unknown profile preset '" + profileKey + "'");
         }
 
+        String reviewMode = trimToNull(configMap.get("reviewMode"));
+        if (reviewMode != null && ReviewMode.fromConfigValue(reviewMode).isEmpty()) {
+            errors.put("reviewMode", "Unknown review mode '" + reviewMode + "'. Allowed values: quick, standard, deep, full");
+        }
+
         String requireApproval = trimToNull(configMap.get("requireApprovalFor"));
         if (requireApproval != null) {
             List<String> invalid = Arrays.stream(requireApproval.split(","))
@@ -527,11 +538,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("ignorePatterns", DEFAULT_IGNORE_PATTERNS);
         defaults.put("ignorePaths", DEFAULT_IGNORE_PATHS);
         defaults.put("reviewProfile", DEFAULT_REVIEW_PROFILE_KEY);
+    defaults.put("reviewMode", DEFAULT_REVIEW_MODE);
         defaults.put("enabled", DEFAULT_ENABLED);
         defaults.put("reviewDraftPRs", DEFAULT_REVIEW_DRAFT_PRS);
         defaults.put("skipGeneratedFiles", DEFAULT_SKIP_GENERATED);
         defaults.put("skipTests", DEFAULT_SKIP_TESTS);
         defaults.put("autoApprove", DEFAULT_AUTO_APPROVE);
+    defaults.put("impactSummaryInline", DEFAULT_IMPACT_SUMMARY_INLINE);
         defaults.put("workerDegradationEnabled", DEFAULT_WORKER_DEGRADATION_ENABLED);
     defaults.put("verboseMode", DEFAULT_VERBOSE_MODE);
         defaults.put("aiReviewerUser", null);
@@ -1214,11 +1227,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setIgnorePatterns(DEFAULT_IGNORE_PATTERNS);
         config.setIgnorePaths(DEFAULT_IGNORE_PATHS);
         config.setReviewProfileKey(DEFAULT_REVIEW_PROFILE_KEY);
+    config.setReviewMode(DEFAULT_REVIEW_MODE);
         config.setEnabled(DEFAULT_ENABLED);
         config.setReviewDraftPRs(DEFAULT_REVIEW_DRAFT_PRS);
         config.setSkipGeneratedFiles(DEFAULT_SKIP_GENERATED);
         config.setSkipTests(DEFAULT_SKIP_TESTS);
         config.setAutoApprove(DEFAULT_AUTO_APPROVE);
+    config.setImpactSummaryInline(DEFAULT_IMPACT_SUMMARY_INLINE);
         config.setWorkerDegradationEnabled(DEFAULT_WORKER_DEGRADATION_ENABLED);
     config.setVerboseMode(DEFAULT_VERBOSE_MODE);
         config.setReviewerUserSlug(null);
@@ -1373,6 +1388,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             String key = (String) configMap.get("reviewProfile");
             config.setReviewProfileKey(defaultString(key, DEFAULT_REVIEW_PROFILE_KEY));
         }
+        if (configMap.containsKey("reviewMode")) {
+            String mode = (String) configMap.get("reviewMode");
+            config.setReviewMode(defaultString(mode, DEFAULT_REVIEW_MODE));
+        }
         if (configMap.containsKey("enabled")) {
             config.setEnabled(getBooleanValue(configMap, "enabled"));
         }
@@ -1387,6 +1406,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("autoApprove")) {
             config.setAutoApprove(getBooleanValue(configMap, "autoApprove"));
+        }
+        if (configMap.containsKey("impactSummaryInline")) {
+            config.setImpactSummaryInline(getBooleanValue(configMap, "impactSummaryInline"));
         }
         if (configMap.containsKey("workerDegradationEnabled")) {
             config.setWorkerDegradationEnabled(getBooleanValue(configMap, "workerDegradationEnabled"));
@@ -1612,6 +1634,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             updated = true;
         }
 
+        if (isBlank(config.getReviewMode())) {
+            config.setReviewMode(DEFAULT_REVIEW_MODE);
+            updated = true;
+        }
+
         if (config.getCreatedDate() == 0L) {
             config.setCreatedDate(timestamp);
             updated = true;
@@ -1810,11 +1837,13 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("ignorePatterns", defaultString(config.getIgnorePatterns(), DEFAULT_IGNORE_PATTERNS));
         map.put("ignorePaths", defaultString(config.getIgnorePaths(), DEFAULT_IGNORE_PATHS));
         map.put("reviewProfile", defaultString(config.getReviewProfileKey(), DEFAULT_REVIEW_PROFILE_KEY));
+    map.put("reviewMode", defaultString(config.getReviewMode(), DEFAULT_REVIEW_MODE));
         map.put("enabled", defaultBoolean(config.isEnabled(), DEFAULT_ENABLED));
         map.put("reviewDraftPRs", defaultBoolean(config.isReviewDraftPRs(), DEFAULT_REVIEW_DRAFT_PRS));
         map.put("skipGeneratedFiles", defaultBoolean(config.isSkipGeneratedFiles(), DEFAULT_SKIP_GENERATED));
         map.put("skipTests", defaultBoolean(config.isSkipTests(), DEFAULT_SKIP_TESTS));
         map.put("autoApprove", defaultBoolean(config.isAutoApprove(), DEFAULT_AUTO_APPROVE));
+    map.put("impactSummaryInline", defaultBoolean(config.isImpactSummaryInline(), DEFAULT_IMPACT_SUMMARY_INLINE));
         map.put("workerDegradationEnabled", defaultBoolean(config.isWorkerDegradationEnabled(), DEFAULT_WORKER_DEGRADATION_ENABLED));
     map.put("verboseMode", defaultBoolean(config.isVerboseMode(), DEFAULT_VERBOSE_MODE));
         map.put("aiReviewerUser", trimToNull(config.getReviewerUserSlug()));

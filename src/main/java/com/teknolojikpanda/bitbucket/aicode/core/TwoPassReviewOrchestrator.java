@@ -11,6 +11,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewFinding;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewChunk;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewPreparation;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewSummary;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
 import com.teknolojikpanda.bitbucket.aicode.model.SeverityLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,12 +58,21 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
             return ReviewSummary.builder()
                     .findings(new ArrayList<>())
                     .truncated(preparation.isTruncated())
+                    .impactSummary("")
                     .build();
         }
 
         Instant overviewStart = metrics.recordStart("ai.overview");
         String overview = aiClient.generateOverview(preparation, metrics);
         metrics.recordEnd("ai.overview", overviewStart);
+
+    String impactSummary = "";
+        ReviewMode mode = preparation.getContext().getConfig().getReviewMode();
+        if (mode == ReviewMode.DEEP || mode == ReviewMode.FULL) {
+            Instant impactStart = metrics.recordStart("ai.impact");
+            impactSummary = aiClient.generateImpactSummary(preparation, overview, metrics);
+            metrics.recordEnd("ai.impact", impactStart);
+        }
 
         int totalChunks = preparation.getChunks().size();
         int parallelism = Math.max(1, Math.min(
@@ -77,7 +87,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
         try {
             for (int i = 0; i < preparation.getChunks().size(); i++) {
                 final int index = i;
-                futures.add(executor.submit(new ChunkTask(index, totalChunks, preparation, overview, metrics, chunkListener)));
+                futures.add(executor.submit(new ChunkTask(index, totalChunks, preparation, overview, impactSummary, metrics, chunkListener)));
             }
 
             List<ReviewFinding> findings = new ArrayList<>();
@@ -106,9 +116,10 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 }
             }
 
-            ReviewSummary.Builder builder = ReviewSummary.builder()
+        ReviewSummary.Builder builder = ReviewSummary.builder()
                     .findings(findings)
-                    .truncated(preparation.isTruncated());
+            .truncated(preparation.isTruncated())
+            .impactSummary(impactSummary);
             counts.forEach(builder::addCount);
             return builder.build();
         } finally {
@@ -121,6 +132,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
         private final int total;
         private final ReviewPreparation preparation;
         private final String overview;
+    private final String impactSummary;
         private final MetricsRecorder metrics;
         private final ChunkProgressListener chunkListener;
 
@@ -128,12 +140,14 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                           int total,
                           ReviewPreparation preparation,
                           String overview,
+                          String impactSummary,
                           MetricsRecorder metrics,
                           @Nullable ChunkProgressListener chunkListener) {
             this.index = index;
             this.total = total;
             this.preparation = preparation;
             this.overview = overview;
+            this.impactSummary = impactSummary;
             this.metrics = metrics;
             this.chunkListener = chunkListener;
         }
@@ -160,6 +174,7 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 ChunkReviewResult result = aiClient.reviewChunk(
                         chunk,
                         overview,
+                        impactSummary,
                         preparation.getContext(),
                         metrics);
                 metrics.recordEnd("ai.chunk." + index, start);

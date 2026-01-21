@@ -739,8 +739,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             recordIssueMetrics(validated, invalidIssues, metrics);
 
             ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
-            int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
-                    overallStart, comparison, metrics, timeline, configMap, reviewerUser, actingUser);
+        int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
+            overallStart, comparison, summary.getImpactSummary(), metrics, timeline, configMap, reviewerUser, actingUser);
             recordProgress("comments.completed", 85, progressDetails(
                     "commentsPosted", commentsPosted,
                     "issuesCommented", validated.isEmpty() ? 0 : validated.size()));
@@ -901,6 +901,7 @@ public class AIReviewServiceImpl implements AIReviewService {
                                      @Nonnull PullRequest pr,
                                      @Nonnull Instant overallStart,
                                      @Nonnull ReviewComparison comparison,
+                                     @Nonnull String impactSummary,
                                      @Nonnull MetricsCollector metrics,
                                      @Nullable TimelineRecorder timeline,
                                      @Nonnull Map<String, Object> configMap,
@@ -914,7 +915,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                 progressDetails("issueCount", issues.size()))
                 : null;
         Instant commentStart = metrics.recordStart("postComments");
-        int commentsPosted = 0;
+    int commentsPosted = 0;
+    final int[] summaryComments = {0};
 
         boolean timelineCompleted = false;
         if (!issues.isEmpty()) {
@@ -932,7 +934,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                             "pullRequestId", pr.getId(),
                             "count", posted);
 
-                    String summaryText = buildSummaryComment(
+            boolean inlineImpact = getBooleanConfig(configMap.get("impactSummaryInline"), false);
+            String summaryText = buildSummaryComment(
                             issues,
                             fileChanges,
                             pr,
@@ -940,12 +943,24 @@ public class AIReviewServiceImpl implements AIReviewService {
                             0,
                             comparison.resolvedIssues,
                             comparison.newIssues,
-                            configMap);
+                configMap,
+                impactSummary,
+                inlineImpact);
                     Comment summaryComment = addPRComment(pr, summaryText, commenter);
                     LogSupport.info(log, "comments.summary_posted", "Summary comment posted",
                             "pullRequestId", pr.getId(),
                             "commentId", summaryComment.getId());
-                    return posted;
+                    summaryComments[0]++;
+
+                    if (!inlineImpact && impactSummary != null && !impactSummary.isBlank()) {
+                        String impactText = buildImpactSummaryComment(impactSummary);
+                        Comment impactComment = addPRComment(pr, impactText, commenter);
+                        LogSupport.info(log, "comments.impact_posted", "Impact summary comment posted",
+                                "pullRequestId", pr.getId(),
+                                "commentId", impactComment.getId());
+                        summaryComments[0]++;
+                    }
+                    return posted + summaryComments[0];
                 });
             } catch (Exception e) {
                 LogSupport.error(log, "comments.post_failed", "Failed to post comments", e,
@@ -965,6 +980,18 @@ public class AIReviewServiceImpl implements AIReviewService {
             commentsTimeline.success(progressDetails("commentsPosted", commentsPosted, "issueCount", issues.size()));
         }
         return commentsPosted;
+    }
+
+    private String buildImpactSummaryComment(@Nonnull String impactSummary) {
+        String trimmed = impactSummary.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        builder.append("## AI Impact Summary\n\n");
+        builder.append(trimmed);
+        builder.append("\n");
+        return builder.toString();
     }
     
     private boolean handleAutoApproval(@Nonnull List<ReviewIssue> issues,
@@ -1033,8 +1060,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                 : ReviewResult.Status.SUCCESS;
 
         String approvalStatus = approved ? " (auto-approved)" : "";
-        String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
-                issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted + (issues.isEmpty() ? 0 : 1), approvalStatus);
+    String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
+        issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted, approvalStatus);
 
         return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
@@ -1533,10 +1560,12 @@ public class AIReviewServiceImpl implements AIReviewService {
                                         int failedChunks,
                                         @Nonnull List<ReviewIssue> resolvedIssues,
                                         @Nonnull List<ReviewIssue> newIssues,
-                                        @Nonnull Map<String, Object> config) {
+                                        @Nonnull Map<String, Object> config,
+                                        @Nullable String impactSummary,
+                                        boolean inlineImpact) {
         String model = (String) config.getOrDefault("ollamaModel", "");
 
-        return SummaryCommentRenderer.render(
+        String summary = SummaryCommentRenderer.render(
                 issues,
                 fileChanges,
                 resolvedIssues,
@@ -1545,6 +1574,20 @@ public class AIReviewServiceImpl implements AIReviewService {
                 elapsedSeconds,
                 failedChunks,
                 this::getSeverityIcon);
+        if (inlineImpact && impactSummary != null && !impactSummary.isBlank()) {
+            return summary + "\n\n" + buildImpactSummaryComment(impactSummary);
+        }
+        return summary;
+    }
+
+    private boolean getBooleanConfig(Object value, boolean defaultValue) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            return Boolean.parseBoolean(((String) value).trim());
+        }
+        return defaultValue;
     }
 
     /**

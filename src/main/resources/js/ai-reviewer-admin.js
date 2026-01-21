@@ -48,6 +48,7 @@
         $('#test-connection-btn').on('click', testOllamaConnection);
         $('#reset-config-btn').on('click', resetToDefaults);
         $('#review-profile').on('change', handleProfileChange);
+    $('#review-mode').on('change', updateImpactSummaryInlineAvailability);
         $('#auto-approve-apply-btn').on('click', applyAutoApproveToggle);
         $('#auto-approve').on('change', updateReviewerAccountAvailability);
         $('#repository-scope-tree').on('click', '.scope-node-toggle', handleNodeToggle);
@@ -115,9 +116,12 @@
         $('#review-extensions').val(config.reviewExtensions || '');
         $('#ignore-patterns').val(config.ignorePatterns || '');
         $('#ignore-paths').val(config.ignorePaths || '');
+    $('#review-mode').val(config.reviewMode || 'standard');
+    $('#impact-summary-inline').prop('checked', config.impactSummaryInline === true);
         $('#auto-approve').prop('checked', config.autoApprove === true);
         $('#worker-degradation-enabled').prop('checked', config.workerDegradationEnabled !== false);
     $('#verbose-mode').prop('checked', config.verboseMode === true);
+    updateImpactSummaryInlineAvailability();
 
         // Checkboxes
         $('#enabled').prop('checked', config.enabled !== false);
@@ -1426,6 +1430,8 @@
             ignorePatterns: $('#ignore-patterns').val().trim(),
             ignorePaths: $('#ignore-paths').val().trim(),
             reviewProfile: $('#review-profile').val(),
+            reviewMode: $('#review-mode').val(),
+            impactSummaryInline: $('#impact-summary-inline').is(':checked'),
             enabled: $('#enabled').is(':checked'),
             reviewDraftPRs: $('#review-draft-prs').is(':checked'),
             skipGeneratedFiles: $('#skip-generated-files').is(':checked'),
@@ -1601,6 +1607,8 @@
             ignorePatterns: '*.min.js,*.generated.*,package-lock.json,yarn.lock,*.map',
             ignorePaths: 'node_modules/,vendor/,build/,dist/,.git/',
             reviewProfile: 'balanced',
+            reviewMode: 'standard',
+            impactSummaryInline: false,
             enabled: true,
             reviewDraftPRs: false,
             skipGeneratedFiles: true,
@@ -1614,6 +1622,16 @@
 
         populateForm(defaults);
         showMessage('info', 'Form reset to default values. Click "Save Configuration" to apply.');
+    }
+
+    function updateImpactSummaryInlineAvailability() {
+        var mode = ($('#review-mode').val() || '').toLowerCase();
+        var enabled = mode === 'deep' || mode === 'full';
+        var $checkbox = $('#impact-summary-inline');
+        $checkbox.prop('disabled', !enabled);
+        if (!enabled) {
+            $checkbox.prop('checked', false);
+        }
     }
 
     /**

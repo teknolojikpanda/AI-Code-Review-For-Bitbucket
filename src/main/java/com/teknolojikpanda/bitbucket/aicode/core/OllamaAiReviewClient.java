@@ -90,14 +90,40 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
     @Nonnull
     @Override
+    public String generateImpactSummary(@Nonnull ReviewPreparation preparation,
+                                        @Nonnull String overview,
+                                        @Nonnull MetricsRecorder metrics) {
+        ReviewConfig config = preparation.getContext().getConfig();
+        PromptTemplates templates = config.getPromptTemplates();
+        String prompt = PromptRenderer.renderImpactSummary(preparation, templates, overview);
+        try {
+            metrics.increment("ai.impact.attempt");
+            String request = buildImpactSummaryRequest(prompt, templates.getSystemPrompt(), config.getPrimaryModel());
+            ChatResponse response = executeChat(config.getPrimaryModelEndpoint().toString(),
+                    request.getBytes(StandardCharsets.UTF_8),
+                    config);
+            String content = extractTextContent(response.body, "impact-summary");
+            metrics.increment("ai.impact.success");
+            return content != null ? content : "";
+        } catch (Exception ex) {
+            LogSupport.warn(log, "ollama.impact_summary_failed", "Impact summary generation failed",
+                    "error", ex.getMessage());
+            metrics.increment("ai.impact.failed");
+            return "";
+        }
+    }
+
+    @Nonnull
+    @Override
     public ChunkReviewResult reviewChunk(@Nonnull ReviewChunk chunk,
                                          @Nonnull String overview,
+                                         @Nonnull String impactSummary,
                                          @Nonnull ReviewContext context,
                                          @Nonnull MetricsRecorder metrics) {
         ReviewConfig config = context.getConfig();
         Instant start = metrics.recordStart("ai.chunk.call");
         try {
-            ChunkReviewResult result = circuitBreaker.execute(() -> doReview(chunk, overview, context, config, metrics));
+            ChunkReviewResult result = circuitBreaker.execute(() -> doReview(chunk, overview, impactSummary, context, config, metrics));
             metrics.recordEnd("ai.chunk.call", start);
             return result;
         } catch (CircuitBreakerOpenException ex) {
@@ -133,6 +159,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
     private ChunkReviewResult doReview(ReviewChunk chunk,
                                        String overview,
+                                       String impactSummary,
                                        ReviewContext context,
                                        ReviewConfig config,
                                        MetricsRecorder metrics) {
@@ -156,6 +183,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
             findings = invokeModelWithRetry(
                     chunk,
                     overview,
+            impactSummary,
                     context,
                     config.getPrimaryModelEndpoint().toString(),
                     config.getPrimaryModel(),
@@ -169,6 +197,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
             findings = invokeModelWithRetry(
                     chunk,
                     overview,
+            impactSummary,
                     context,
                     config.getFallbackModelEndpoint().toString(),
                     config.getFallbackModel(),
@@ -194,6 +223,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
     private List<ReviewFinding> invokeModelWithRetry(ReviewChunk chunk,
                                                      String overview,
+                                                     String impactSummary,
                                                      ReviewContext context,
                                                      String baseUrl,
                                                      String model,
@@ -233,7 +263,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
             try {
                 attempts++;
                 metrics.increment("ai.chunk.attempt");
-                String payload = buildChunkRequest(chunk, overview, context, model, diffContent, false);
+                String payload = buildChunkRequest(chunk, overview, impactSummary, context, model, diffContent, false);
                 byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
                 lastRequestBytes = payloadBytes.length;
 
@@ -504,6 +534,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
 
     private String buildChunkRequest(ReviewChunk chunk,
                                      String overview,
+                                     String impactSummary,
                                      ReviewContext context,
                                      String model,
                                      String diffContent,
@@ -522,6 +553,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 context,
                 chunk,
                 overview,
+                impactSummary != null ? impactSummary : "",
                 annotatedDiff);
     writeVerbosePrompt(context, chunk, model, overview, annotatedDiff, templates.getSystemPrompt(), userPrompt, truncated);
 
@@ -539,6 +571,23 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return OBJECT_MAPPER.writeValueAsString(request);
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to serialise request", ex);
+        }
+    }
+
+    private String buildImpactSummaryRequest(String prompt, String systemPrompt, String model) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("model", model);
+        request.put("stream", Boolean.FALSE);
+
+        List<Map<String, Object>> messages = new ArrayList<>();
+        messages.add(message("system", systemPrompt));
+        messages.add(message("user", prompt));
+        request.put("messages", messages);
+
+        try {
+            return OBJECT_MAPPER.writeValueAsString(request);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to serialise impact summary request", ex);
         }
     }
 
@@ -1044,6 +1093,48 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return (String) content;
         }
         return null;
+    }
+
+    private String extractTextContent(String response, String context) throws JsonProcessingException {
+        Map<String, Object> envelope = parseJsonMap(response, context);
+        if (envelope.isEmpty()) {
+            return null;
+        }
+        String content = extractContent(envelope);
+        return content != null ? content.trim() : null;
+    }
+
+    private Map<String, Object> parseJsonMap(String raw,
+                                             String context) throws JsonProcessingException {
+        if (raw == null) {
+            return Collections.emptyMap();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(raw, MAP_TYPE);
+        } catch (JsonProcessingException first) {
+            String sanitized = sanitizeJson(raw);
+            if (sanitized.equals(raw)) {
+                throw first;
+            }
+            if (sanitized.isEmpty()) {
+                LogSupport.warn(log, "ollama.sanitized_empty", "Sanitization produced empty payload",
+                        "context", context);
+                return Collections.emptyMap();
+            }
+            try {
+                Map<String, Object> parsed = OBJECT_MAPPER.readValue(sanitized, MAP_TYPE);
+                LogSupport.debug(log, "ollama.sanitized", "Sanitized payload prior to parsing",
+                        "context", context,
+                        "rawChars", raw.length(),
+                        "sanitizedChars", sanitized.length());
+                return parsed;
+            } catch (JsonProcessingException second) {
+                LogSupport.warn(log, "ollama.sanitized_parse_failed", "Failed to parse sanitized content",
+                        "context", context,
+                        "error", second.getOriginalMessage());
+                throw second;
+            }
+        }
     }
 
     private Map<String, Object> parseJsonMap(String raw,

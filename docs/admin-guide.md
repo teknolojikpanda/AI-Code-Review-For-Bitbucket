@@ -34,6 +34,8 @@ All global settings live under **Administration → AI Code Reviewer → Configu
 - **Retry policy**: `maxRetries`, `chunkMaxRetries`, `overviewMaxRetries`, and associated delays manage resilience when Ollama is slow.
 - **Content filters**: `skipGeneratedFiles`, `skipTests`, `reviewExtensions`, `ignorePatterns`, and `ignorePaths` limit which files are reviewed.
 - **Severity thresholds**: `minSeverity` filters findings; `requireApprovalFor` lists severities that must receive a human approval before merge.
+- **Review mode**: `reviewMode` selects a preset review scope (`quick`, `standard`, `deep`, `full`) that tunes chunking and profile defaults. Deep/Full modes enrich chunk context with global change summaries, full diff context for chunk files, related-change snippets across the PR, and an impact summary comment.
+- **Impact summary placement**: `impactSummaryInline` controls whether the impact summary is embedded into the main summary comment or posted as its own comment.
 - **Service identity**: `aiReviewerUser` sets the Bitbucket account used to author comments. If blank, the plugin impersonates the triggering user.
 
 ### Guardrails & Capacity

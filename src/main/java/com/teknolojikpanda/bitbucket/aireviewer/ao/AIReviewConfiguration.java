@@ -170,6 +170,11 @@ public interface AIReviewConfiguration extends Entity {
     String getReviewProfileKey();
     void setReviewProfileKey(String profileKey);
 
+    @Default("standard")
+    @StringLength(20)
+    String getReviewMode();
+    void setReviewMode(String mode);
+
     boolean isSkipGeneratedFiles();
     void setSkipGeneratedFiles(boolean skip);
 
@@ -198,6 +203,10 @@ public interface AIReviewConfiguration extends Entity {
 
     boolean isAutoApprove();
     void setAutoApprove(boolean autoApprove);
+
+    @Default("false")
+    boolean isImpactSummaryInline();
+    void setImpactSummaryInline(boolean inline);
 
     boolean isProgressPanelEnabled();
     void setProgressPanelEnabled(boolean enabled);

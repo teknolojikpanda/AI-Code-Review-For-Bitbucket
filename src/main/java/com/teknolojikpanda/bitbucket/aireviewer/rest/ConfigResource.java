@@ -12,6 +12,7 @@ import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
 import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfilePreset;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
 import com.teknolojikpanda.bitbucket.aireviewer.util.PromptKeySupport;
@@ -129,6 +130,7 @@ public class ConfigResource {
             Object defaultApiDelay = defaults.get("apiDelayMs");
             config.putIfAbsent("apiDelay", config.getOrDefault("apiDelayMs", defaultApiDelay));
             config.put("profilePresets", ReviewProfilePreset.descriptors());
+            config.put("reviewModes", ReviewMode.descriptors());
             config.put("repositoryOverrides", configService.listRepositoryConfigurations());
             config.put("limiter", limiterSnapshot());
             config.put("rateLimitOverrides", overridesToList(overrideService.listOverrides(false)));

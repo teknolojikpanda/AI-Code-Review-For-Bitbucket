@@ -16,8 +16,14 @@ public interface AiReviewClient {
     String generateOverview(@Nonnull ReviewPreparation preparation, @Nonnull MetricsRecorder metrics);
 
     @Nonnull
+    String generateImpactSummary(@Nonnull ReviewPreparation preparation,
+                                 @Nonnull String overview,
+                                 @Nonnull MetricsRecorder metrics);
+
+    @Nonnull
     ChunkReviewResult reviewChunk(@Nonnull ReviewChunk chunk,
                                   @Nonnull String overview,
+                                  @Nonnull String impactSummary,
                                   @Nonnull ReviewContext context,
                                   @Nonnull MetricsRecorder metrics);
 }

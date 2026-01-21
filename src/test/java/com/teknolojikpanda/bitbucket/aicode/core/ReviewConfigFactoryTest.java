@@ -1,6 +1,8 @@
 package com.teknolojikpanda.bitbucket.aicode.core;
 
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewConfig;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
+import com.teknolojikpanda.bitbucket.aicode.model.SeverityLevel;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -180,5 +182,22 @@ public class ReviewConfigFactoryTest {
         ReviewConfig reviewConfig = factory.from(config);
 
         assertTrue(reviewConfig.isVerboseMode());
+    }
+
+    @Test
+    public void reviewModeFullOverridesChunkingAndProfile() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("reviewMode", "full");
+
+        ReviewConfig reviewConfig = factory.from(config);
+
+        assertEquals(ReviewMode.FULL, reviewConfig.getReviewMode());
+        assertEquals(100000, reviewConfig.getMaxCharsPerChunk());
+        assertEquals(6, reviewConfig.getMaxFilesPerChunk());
+        assertEquals(40, reviewConfig.getMaxChunks());
+        assertEquals(SeverityLevel.LOW, reviewConfig.getProfile().getMinSeverity());
+        assertTrue(reviewConfig.getProfile().isReviewTests());
+        assertFalse(reviewConfig.getProfile().isSkipGeneratedFiles());
+        assertEquals(100, reviewConfig.getProfile().getMaxIssuesPerFile());
     }
 }

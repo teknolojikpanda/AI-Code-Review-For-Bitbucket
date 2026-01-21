@@ -14,11 +14,13 @@ public final class ReviewSummary {
     private final Map<SeverityLevel, Integer> counts;
     private final boolean truncated;
     private final List<ReviewFinding> findings;
+    private final String impactSummary;
 
     private ReviewSummary(Builder builder) {
         this.counts = new EnumMap<>(builder.counts);
         this.truncated = builder.truncated;
         this.findings = java.util.Collections.unmodifiableList(builder.findings);
+    this.impactSummary = builder.impactSummary;
     }
 
     @Nonnull
@@ -39,6 +41,11 @@ public final class ReviewSummary {
         return findings.size();
     }
 
+    @Nonnull
+    public String getImpactSummary() {
+        return impactSummary;
+    }
+
     public int countFor(@Nonnull SeverityLevel severity) {
         return counts.getOrDefault(Objects.requireNonNull(severity, "severity"), 0);
     }
@@ -51,6 +58,7 @@ public final class ReviewSummary {
         private final Map<SeverityLevel, Integer> counts = new EnumMap<>(SeverityLevel.class);
         private boolean truncated;
         private List<ReviewFinding> findings = new java.util.ArrayList<>();
+    private String impactSummary = "";
 
         public Builder addCount(@Nonnull SeverityLevel severity, int count) {
             counts.merge(Objects.requireNonNull(severity, "severity"), count, Integer::sum);
@@ -64,6 +72,11 @@ public final class ReviewSummary {
 
         public Builder findings(@Nonnull List<ReviewFinding> value) {
             this.findings = new java.util.ArrayList<>(Objects.requireNonNull(value, "value"));
+            return this;
+        }
+
+        public Builder impactSummary(@Nonnull String value) {
+            this.impactSummary = Objects.requireNonNull(value, "value");
             return this;
         }
 

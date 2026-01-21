@@ -3,6 +3,7 @@ package com.teknolojikpanda.bitbucket.aicode.core;
 import com.atlassian.plugin.spring.scanner.annotation.export.ExportAsService;
 import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewConfig;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfile;
 import com.teknolojikpanda.bitbucket.aicode.model.SeverityLevel;
 import org.slf4j.Logger;
@@ -72,14 +73,19 @@ public class ReviewConfigFactory {
         builder.ignorePaths(splitToList(config.get("ignorePaths")));
         builder.skipPrimaryModel(booleanValue(config.get("skipPrimaryModel"), false));
 
-        builder.profile(buildProfile(config));
+    ReviewMode reviewMode = ReviewMode.fromConfigValueOrDefault(stringValue(config.get("reviewMode"), null));
+    builder.reviewMode(reviewMode);
+
+    ReviewProfile.Builder profileBuilder = buildProfileBuilder(config);
+    reviewMode.applyTo(builder, profileBuilder);
+    builder.profile(profileBuilder.build());
         builder.promptTemplates(loadPromptTemplates(config));
         builder.verboseMode(booleanValue(config.get("verboseMode"), false));
 
         return builder.build();
     }
 
-    private ReviewProfile buildProfile(Map<String, Object> config) {
+    private ReviewProfile.Builder buildProfileBuilder(Map<String, Object> config) {
         ReviewProfile.Builder builder = ReviewProfile.builder();
 
         String minSeverity = stringValue(config.get("minSeverity"), "medium");
@@ -93,7 +99,7 @@ public class ReviewConfigFactory {
         builder.maxIssuesPerFile(intValue(config.get("maxIssuesPerFile"), 50));
         builder.skipGeneratedFiles(booleanValue(config.get("skipGeneratedFiles"), true));
         builder.reviewTests(!booleanValue(config.get("skipTests"), false));
-        return builder.build();
+        return builder;
     }
 
     private URI toUri(Object value) {

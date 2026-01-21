@@ -19,6 +19,8 @@ This guide explains how reviewers and pull request authors interact with AI Code
 
 Draft pull requests are skipped unless administrators enable “Review draft PRs” in the configuration.
 
+Administrators can also select a **review mode** (Quick, Standard, Deep, Full Impact) to balance review depth against turnaround time. Modes tune chunking limits and severity defaults, so broader modes may take longer but surface more issues. Deep and Full Impact modes additionally add a global change summary, full diff context for each chunk file, related-change snippets from other files in the PR, and an AI-generated impact summary comment (optionally embedded into the main summary comment).
+
 ## Live Progress Panel
 
 The panel polls `/rest/ai-reviewer/1.0/progress` to surface the latest information:
