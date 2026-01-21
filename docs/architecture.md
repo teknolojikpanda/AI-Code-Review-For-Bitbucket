@@ -28,6 +28,91 @@ Key modules:
 
 ## Core Flows
 
+### Review Modes (Quick/Standard/Deep/Full)
+
+Review modes control how much context the model sees and how aggressively it scans for issues. They layer on top of the base two-pass pipeline and tune chunking limits, profiles, and extra context stages.
+
+#### Quick
+
+- **Goal**: Fast feedback on critical/high risks with minimal cost.
+- **Context inputs**:
+        - Overview summary
+        - Chunk diff only
+- **Chunking**: Smaller chunk budgets to prioritize speed.
+- **Profile defaults**: Lightweight thresholds (higher min severity, fewer findings per file).
+- **Output**: Short list of high-confidence issues.
+
+#### Standard
+
+- **Goal**: Balanced review that respects configured thresholds.
+- **Context inputs**:
+        - Overview summary
+        - Chunk diff + per-file metadata
+- **Chunking**: Defaults from configuration.
+- **Profile defaults**: Balanced preset unless overridden.
+- **Output**: Full issue list within configured severity thresholds.
+
+#### Deep
+
+- **Goal**: Thorough review with cross-file awareness and regression detection.
+- **Context inputs**:
+        - Overview summary
+        - **Global change summary** (all files touched)
+        - **Full diff context** for each chunk file
+        - **Related-change snippets** from other files in the PR
+        - **Impact summary pass** (separate model call)
+- **Chunking**: Larger chunk budgets to include more context.
+- **Profile defaults**: Security-first preset and higher issue caps.
+- **Output**: Findings plus an impact summary comment (separate or inline, based on config).
+
+#### Full
+
+- **Goal**: Maximum coverage and lowest false-negative risk.
+- **Context inputs**: Everything from Deep with expanded limits and “full impact” guidance.
+- **Chunking**: Largest chunk budgets and file limits to maximize context.
+- **Profile defaults**: Security-first with higher caps, expecting more findings.
+- **Output**: Most comprehensive issue list plus impact summary.
+
+```mermaid
+flowchart TB
+        A[Review Mode] --> B{Mode}
+
+        B -->|Quick| Q[Quick pipeline]
+        Q --> Q1[Overview]
+        Q --> Q2[Chunk review]\n
+        B -->|Standard| S[Standard pipeline]
+        S --> S1[Overview]
+        S --> S2[Chunk review]
+
+        B -->|Deep| D[Deep pipeline]
+        D --> D1[Overview]
+        D --> D2[Impact summary pass]
+        D --> D3[Chunk review]
+        D --> D4[Context enrichment]
+
+        B -->|Full| F[Full pipeline]
+        F --> F1[Overview]
+        F --> F2[Impact summary pass]
+        F --> F3[Chunk review]
+        F --> F4[Context enrichment (expanded)]
+
+        Q2 --> QC[Summary comment]
+        S2 --> SC[Summary comment]
+        D2 --> DC[Impact summary comment]
+        D3 --> DSC[Summary comment]
+        F2 --> FC[Impact summary comment]
+        F3 --> FSC[Summary comment]
+
+        D4 --> D4A[Global change summary]
+        D4 --> D4B[Full diff context per chunk file]
+        D4 --> D4C[Related-change snippets]
+
+        F4 --> F4A[Global change summary]
+        F4 --> F4B[Full diff context per chunk file]
+        F4 --> F4C[Related-change snippets]
+        F4 --> F4D[Larger chunk budgets]
+```
+
 ### Automated Review
 
 1. Event listener receives a PR opened or rescoped event.
