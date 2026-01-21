@@ -79,7 +79,8 @@ flowchart TB
 
         B -->|Quick| Q[Quick pipeline]
         Q --> Q1[Overview]
-        Q --> Q2[Chunk review]\n
+        Q --> Q2[Chunk review]
+
         B -->|Standard| S[Standard pipeline]
         S --> S1[Overview]
         S --> S2[Chunk review]
