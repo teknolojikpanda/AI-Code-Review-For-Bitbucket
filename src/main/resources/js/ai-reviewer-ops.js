@@ -123,7 +123,7 @@
                 cancelActiveRun(runId);
             }
         });
-        $('.queue-panel').on('click', '.queue-bulk-btn', function(event) {
+        $('#ai-reviewer-ops-container').on('click', '.queue-bulk-btn', function(event) {
             event.preventDefault();
             var action = $(this).data('action');
             if (action === 'cancel-all') {
