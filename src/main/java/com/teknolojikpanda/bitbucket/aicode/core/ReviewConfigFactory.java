@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
 public class ReviewConfigFactory {
 
     private static final Logger log = LoggerFactory.getLogger(ReviewConfigFactory.class);
+    private static final String ADDITIONAL_INSTRUCTIONS_PLACEHOLDER = "{{ADDITIONAL_INSTRUCTIONS}}";
+    private static final String ADDITIONAL_INSTRUCTIONS_HEADER = "ADDITIONAL INSTRUCTIONS:\n";
 
     @Nonnull
     public ReviewConfig from(@Nonnull Map<String, Object> config) {
@@ -72,6 +74,7 @@ public class ReviewConfigFactory {
 
         builder.profile(buildProfile(config));
         builder.promptTemplates(loadPromptTemplates(config));
+        builder.verboseMode(booleanValue(config.get("verboseMode"), false));
 
         return builder.build();
     }
@@ -153,21 +156,72 @@ public class ReviewConfigFactory {
     private PromptTemplates loadPromptTemplates(Map<String, Object> config) {
         PromptTemplates defaults = PromptTemplates.loadDefaults();
         Map<String, String> overrides = new HashMap<>();
-        config.forEach((key, value) -> {
+        String systemAppend = null;
+        String chunkAppend = null;
+        for (Map.Entry<String, Object> entry : config.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
             if (key == null || value == null) {
-                return;
+                continue;
             }
             String lower = key.toLowerCase();
             if (!lower.startsWith("prompt")) {
-                return;
+                continue;
             }
-            if (value instanceof String) {
-                overrides.put(lower, (String) value);
+            if (!(value instanceof String)) {
+                continue;
             }
-        });
-        if (overrides.isEmpty()) {
-            return defaults;
+            String text = (String) value;
+            if (text.trim().isEmpty()) {
+                continue;
+            }
+            switch (lower) {
+                case "prompt.system.append":
+                    systemAppend = text;
+                    break;
+                case "prompt.chunk.append":
+                    chunkAppend = text;
+                    break;
+                default:
+                    overrides.put(lower, text);
+            }
         }
-        return defaults.withOverrides(overrides);
+        PromptTemplates resolved = overrides.isEmpty() ? defaults : defaults.withOverrides(overrides);
+        return applyPromptAppends(resolved, systemAppend, chunkAppend);
+    }
+
+    private PromptTemplates applyPromptAppends(PromptTemplates base,
+                                               String systemAppend,
+                                               String chunkAppend) {
+        String updatedSystem = appendWithAdditionalInstructions(base.getSystemPrompt(), systemAppend);
+        String updatedChunk = appendWithAdditionalInstructions(base.getChunkInstructionsTemplate(), chunkAppend);
+        if (updatedSystem.equals(base.getSystemPrompt()) && updatedChunk.equals(base.getChunkInstructionsTemplate())) {
+            return base;
+        }
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put("prompt.system", updatedSystem);
+        overrides.put("prompt.chunk", updatedChunk);
+        return base.withOverrides(overrides);
+    }
+
+    private String appendWithAdditionalInstructions(String base, String addition) {
+        String trimmedAddition = addition != null ? addition.trim() : "";
+        boolean hasAddition = !trimmedAddition.isEmpty();
+        boolean hasPlaceholder = base.contains(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER);
+
+        if (hasPlaceholder) {
+            if (!hasAddition) {
+                return base.replace(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER, "").trim();
+            }
+            String replacement = ADDITIONAL_INSTRUCTIONS_HEADER + trimmedAddition;
+            return base.replace(ADDITIONAL_INSTRUCTIONS_PLACEHOLDER, replacement).trim();
+        }
+
+        if (!hasAddition) {
+            return base;
+        }
+
+        String separator = base.endsWith("\n") ? "" : "\n";
+        return base + separator + ADDITIONAL_INSTRUCTIONS_HEADER + trimmedAddition;
     }
 }

@@ -52,44 +52,57 @@ All global settings live under **Administration → AI Code Reviewer → Configu
 
 ## Administrative Pages
 
-The plugin installs four administrative screens under **Administration → AI Code Reviewer**. Each page is backed by the correspo
-nding REST resource so you can also integrate the functionality into automation tooling.
+The plugin installs five administrative screens under **Administration → AI Code Reviewer**. Each page is backed by the corresponding
+REST resource so you can also integrate the functionality into automation tooling.
 
 ### Configuration
 
 - **Purpose**: establish global defaults, manage model connectivity, and define guardrails that apply across all projects.
 - **Layout**:
-  - **Connection card**: configure primary and fallback Ollama endpoints, transport timeouts, and the service account used to po
-st comments. The **Test connection** action validates credentials and latency before you commit changes.
-  - **Review behaviour card**: tune chunking limits, retry policies, and severity filters. Inline validation warns when values e
-xceed supported thresholds or conflict with project overrides.
-  - **Guardrails card**: manage concurrency ceilings, queue limits, and repository scope (all/allow list/block list). When the c
-urrent queue is close to the configured limits the UI displays warning badges so you can react before requests are rejected.
+  - **Connection card**: configure primary and fallback Ollama endpoints, transport timeouts, and the service account used to post
+  comments. The **Test connection** action validates credentials and latency before you commit changes.
+  - **Review behaviour card**: tune chunking limits, retry policies, and severity filters. Inline validation warns when values exceed
+  supported thresholds or conflict with project overrides.
+  - **Guardrails card**: manage concurrency ceilings, queue limits, and repository scope (all/allow list/block list). When the current
+  queue is close to the configured limits the UI displays warning badges so you can react before requests are rejected.
   - **Overrides table**: lists repositories with custom settings and highlights keys that deviate from the global defaults. From
- here you can open the repository override dialog or navigate to the REST endpoint for scripted updates.
+  here you can open the repository override dialog or navigate to the REST endpoint for scripted updates.
 - **Usage tips**:
   - Save changes in small batches and export the configuration JSON afterwards for audit purposes.
-  - When enabling review of draft pull requests or increasing chunk limits, coordinate with the infrastructure team to ensure t
-he Ollama backend has enough capacity.
+  - When enabling review of draft pull requests or increasing chunk limits, coordinate with the infrastructure team to ensure the
+  Ollama backend has enough capacity.
   - Use the **Effective settings** fly-out to troubleshoot why a specific repository is behaving differently; it merges global,
- project, and repository overrides in precedence order.
+  project, and repository overrides in precedence order.
+
+### Prompt Customisation
+
+- **Purpose**: manage the prompts sent to the model and review the effective prompt payloads after defaults and append instructions are applied.
+- **Key sections**:
+  - **Effective System Prompt**: preview-only view of the final system prompt (including `prompt.system.append`).
+  - **Effective User Prompt**: preview-only view of the final user prompt (including repository append instructions).
+  - **User Prompt Override**: optional replacement for the default user prompt template (`prompt.chunk`).
+  - **System Prompt Additions**: text appended to the system prompt (`prompt.system.append`).
+- **Usage tips**:
+  - Keep changes small and validate results in a staging environment before rolling out globally.
+  - Use the effective previews to confirm that placeholders and append instructions render as expected.
+  - Combine this page with repository-level overrides when a specific repo needs tailored instructions.
 
 ### Review History
 
 - **Purpose**: audit review execution and re-run analyses outside the pull request context.
 - **Key sections**:
-  - **Filters**: slice by project, repository, status, trigger type, reviewer cohort, or date range. Filters persist across sess
-ions per administrator to speed up investigations.
-  - **Timeline table**: lists the last 90 days of runs with timestamps, duration, triggering actor, commit hash, and the count o
-f findings posted. Status badges highlight guardrail skips versus provider failures.
-  - **Detail drawer**: selecting a run reveals chunk-level telemetry, retry attempts, and links to raw provider transcripts (obf
-uscated for PII) for compliance review.
+  - **Filters**: slice by project, repository, status, trigger type, reviewer cohort, or date range. Filters persist across sessions
+  per administrator to speed up investigations.
+  - **Timeline table**: lists the last 90 days of runs with timestamps, duration, triggering actor, commit hash, and the count of
+  findings posted. Status badges highlight guardrail skips versus provider failures.
+  - **Detail drawer**: selecting a run reveals chunk-level telemetry, retry attempts, and links to raw provider transcripts (obfuscated for PII)
+  for compliance review.
   - **Actions**: rerun a review, cancel an in-progress execution, or purge stored artifacts for the selected pull request. These
- actions call the `/history/manual`, `/progress/admin/cancel`, and `/history/purge` REST routes respectively.
+  actions call the `/history/manual`, `/progress/admin/cancel`, and `/history/purge` REST routes respectively.
 - **Usage tips**:
   - Use the history table during incident response to quantify impact (number of failed runs, repositories affected).
   - Export CSV snapshots when preparing change management records or audits; exports include the configuration checksum applied
- to each run.
+  to each run.
   - When comparing runs, sort by commit hash to confirm that regressions correspond to specific pushes.
 
 ### Health Dashboard
@@ -97,30 +110,27 @@ uscated for PII) for compliance review.
 - **Purpose**: monitor the health of the AI review service and its dependencies.
 - **Widgets**:
   - **Service connectivity**: shows the last successful call to each configured model, average latency, and failure trends. The
- UI flags HTTP error codes, TLS negotiation issues, or authentication failures.
-  - **Worker pool utilisation**: visualises queue depth, active workers, and throttle states aggregated from `GuardrailsWorkerNo
-deState` records.
-  - **Guardrail status**: summarises rate-limit enforcement, repository allow/block list hits, and burst credit consumption so y
-ou can identify systemic throttling.
-  - **Event log**: stream of notable events (fallback activation, circuit breaker trips, manual pauses) with links to related re
-st endpoints for quick remediation.
+  UI flags HTTP error codes, TLS negotiation issues, or authentication failures.
+  - **Worker pool utilisation**: visualises queue depth, active workers, and throttle states aggregated from `GuardrailsWorkerNodeState` records.
+  - **Guardrail status**: summarises rate-limit enforcement, repository allow/block list hits, and burst credit consumption so you
+  can identify systemic throttling.
+  - **Event log**: stream of notable events (fallback activation, circuit breaker trips, manual pauses) with links to related REST
+  endpoints for quick remediation.
 - **Usage tips**:
-  - Investigate spikes in request latency before developers encounter timeouts. The chart retains 24 hours of history for trend
- analysis.
+  - Investigate spikes in request latency before developers encounter timeouts. The chart retains 24 hours of history for trend analysis.
   - Use the **Download diagnostics** button to collect the latest health snapshot and attach it to support tickets.
-  - If a node stops reporting heartbeats, drain the scheduler and failover traffic before restarting the affected application no
-de.
+  - If a node stops reporting heartbeats, drain the scheduler and failover traffic before restarting the affected application node.
 
 ### Operations Console
 
 - **Purpose**: perform privileged actions that affect the scheduler, queue, and rollout cadence.
 - **Capabilities**:
-  - **Scheduler controls**: pause, resume, or drain the review scheduler. Pausing prevents new runs while letting active jobs fi
-nish; draining stops scheduling and cancels remaining queue entries.
-  - **Rollout management**: assign repositories or projects to rollout cohorts, set cohort-specific guardrails, and schedule gra
-dual enablement windows. The console surfaces the REST payloads so you can mirror changes in infrastructure-as-code.
-  - **Alerting and burst credits**: configure webhook or e-mail alert channels, acknowledge incident notifications, and grant bu
-rst credits when teams need temporary capacity boosts.
+  - **Scheduler controls**: pause, resume, or drain the review scheduler. Pausing prevents new runs while letting active jobs finish;
+  draining stops scheduling and cancels remaining queue entries.
+  - **Rollout management**: assign repositories or projects to rollout cohorts, set cohort-specific guardrails, and schedule gradual
+  enablement windows. The console surfaces the REST payloads so you can mirror changes in infrastructure-as-code.
+  - **Alerting and burst credits**: configure webhook or e-mail alert channels, acknowledge incident notifications, and grant burst
+  credits when teams need temporary capacity boosts.
   - **Data hygiene**: trigger cleanup jobs, purge stale history, or archive AI responses to S3 via configured automations.
 - **Usage tips**:
   - Always pause the scheduler before performing Bitbucket maintenance or rotating Ollama credentials to avoid partial runs.

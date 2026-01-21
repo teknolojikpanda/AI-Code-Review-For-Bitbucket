@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Code Reviewer - Repository Prompt Settings</title>
+    <meta name="decorator" content="bitbucket.repository.settings">
+    <meta name="projectKey" content="$projectKey">
+    <meta name="repositorySlug" content="$repositorySlug">
+    <meta name="activeTab" content="ai-reviewer-repo-settings-link">
+    <meta name="application-base-url" content="$baseUrl">
+    $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-repo-settings-resources")
+</head>
+<body>
+    <header class="aui-page-header" style="padding-bottom: 20px;">
+        <div class="aui-page-header-inner">
+            <div class="aui-page-header-main">
+                <h1>AI Code Reviewer Prompt Settings</h1>
+                <p class="aui-page-header-description">
+                    $projectName / $repositoryName
+                </p>
+            </div>
+        </div>
+    </header>
+
+    <div class="aui-page-panel">
+        <div class="aui-page-panel-inner">
+            <section class="aui-page-panel-content">
+                <div id="ai-reviewer-repo-config"
+                     data-project-key="$projectKey"
+                 data-repository-slug="$repositorySlug"
+                 data-repository-id="$repositoryId">
+
+                    <div id="aui-message-container"></div>
+
+                    <form id="ai-reviewer-repo-config-form" class="aui">
+                        <div class="field-group">
+                            <label for="repo-prompt-effective">Effective user prompt</label>
+                            <div class="markup-editor preview-only" id="repo-prompt-effective-editor">
+                                <div class="markup-preview markup"></div>
+                                <textarea class="text expanding" id="repo-prompt-effective" rows="12" readonly></textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary"></div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
+                            <div class="description">Includes any repository or global append instructions.</div>
+                        </div>
+
+                        <h2>User Prompt Override</h2>
+                        <p class="description">
+                            Override the user prompt for this repository only. Leave blank to inherit the global prompt template.
+                        </p>
+
+                        <div class="field-group">
+                            <label for="repo-prompt-override">Repository-specific user prompt</label>
+                            <div class="markup-editor" id="repo-prompt-override-editor">
+                                <div class="markup-preview markup" title="Click to edit"></div>
+                                <textarea class="text expanding" id="repo-prompt-override" rows="12"></textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary">
+                                        <label class="aui-button-subtle aui-button-compact markup-attachments-button"
+                                               title="Attach file" role="button" tabindex="0">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-attachment"></span>
+                                        </label>
+                                    </div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
+                            <div class="description">Leave blank to use the global user prompt template.</div>
+                        </div>
+
+                        <textarea id="prompt-chunk-default" class="hidden">$promptChunkDefault</textarea>
+
+                        <h2>Additional User Prompt Instructions</h2>
+                        <p class="description">
+                            These instructions are appended to the user prompt for this repository only. The base prompt comes from the global
+                            configuration and bundled templates.
+                        </p>
+
+                        <div class="field-group">
+                            <label for="repo-prompt-append">Repository-specific instructions</label>
+                            <div class="markup-editor" id="repo-prompt-append-editor">
+                                <div class="markup-preview markup" title="Click to edit"></div>
+                                <textarea class="text expanding" id="repo-prompt-append" rows="8"></textarea>
+                                <div class="markup-toolbar">
+                                    <div class="secondary">
+                                        <a class="aui-button aui-button-subtle aui-button-compact markup-preview-help"
+                                           href="https://confluence.atlassian.com/bitbucketserver/markdown-syntax-guide-776639995.html"
+                                           target="_blank"
+                                           title="Markdown syntax guide">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-question-circle"></span>
+                                        </a>
+                                        <button type="button" class="aui-button aui-button-compact markup-preview-button"
+                                                data-preview-tooltip="Preview">Preview</button>
+                                    </div>
+                                    <div class="primary">
+                                        <label class="aui-button-subtle aui-button-compact markup-attachments-button"
+                                               title="Attach file" role="button" tabindex="0">
+                                            <span class="aui-icon aui-icon-small aui-iconfont-attachment"></span>
+                                        </label>
+                                    </div>
+                                    <div class="tertiary"></div>
+                                </div>
+                            </div>
+                            <div class="description">Leave blank to inherit the global prompt without repository-specific instructions.</div>
+                        </div>
+
+                        <div class="buttons-container">
+                            <div class="buttons">
+                                <button type="submit" id="save-repo-prompt-btn" class="aui-button aui-button-primary">
+                                    <span class="aui-icon aui-icon-small aui-iconfont-success"></span> Save Prompt Instructions
+                                </button>
+                                <button type="button" id="reset-repo-prompt-btn" class="aui-button">
+                                    <span class="aui-icon aui-icon-small aui-iconfont-undo"></span> Reset to Global Prompt
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div id="loading-indicator" class="aui-spinner" style="display: none;"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+</body>
+</html>

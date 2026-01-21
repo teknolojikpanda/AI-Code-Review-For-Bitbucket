@@ -153,6 +153,10 @@ public interface AIReviewConfiguration extends Entity {
     boolean isModelHealthEnabled();
     void setModelHealthEnabled(boolean enabled);
 
+    @Default("false")
+    boolean isVerboseMode();
+    void setVerboseMode(boolean enabled);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();
@@ -205,6 +209,18 @@ public interface AIReviewConfiguration extends Entity {
     @StringLength(20)
     String getScopeMode();
     void setScopeMode(String scopeMode);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getPromptSystemAppend();
+    void setPromptSystemAppend(String value);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getPromptChunkOverride();
+    void setPromptChunkOverride(String value);
+
+    @StringLength(StringLength.UNLIMITED)
+    String getPromptChunkAppend();
+    void setPromptChunkAppend(String value);
 
     // Configuration Metadata
     @StringLength(100)

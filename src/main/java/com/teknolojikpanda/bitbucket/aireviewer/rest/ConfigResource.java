@@ -10,8 +10,11 @@ import com.atlassian.plugin.spring.scanner.annotation.imports.ComponentImport;
 import com.atlassian.sal.api.user.UserKey;
 import com.atlassian.sal.api.user.UserManager;
 import com.atlassian.sal.api.user.UserProfile;
+import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
+import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfilePreset;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService;
+import com.teknolojikpanda.bitbucket.aireviewer.util.PromptKeySupport;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.ScopeMode;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ConfigurationValidationException;
 import com.teknolojikpanda.bitbucket.aireviewer.service.AIReviewerConfigService.RepositoryCatalogPage;
@@ -78,6 +81,7 @@ public class ConfigResource {
     private final UserManager userManager;
     private final UserService userService;
     private final AIReviewerConfigService configService;
+    private final ReviewConfigFactory configFactory;
     private final ReviewRateLimiter rateLimiter;
     private final GuardrailsRateLimitOverrideService overrideService;
     private final GuardrailsRateLimitStore rateLimitStore;
@@ -87,12 +91,14 @@ public class ConfigResource {
             @ComponentImport UserManager userManager,
             @ComponentImport UserService userService,
             AIReviewerConfigService configService,
+            ReviewConfigFactory configFactory,
             ReviewRateLimiter rateLimiter,
             GuardrailsRateLimitOverrideService overrideService,
             GuardrailsRateLimitStore rateLimitStore) {
         this.userManager = userManager;
         this.userService = userService;
         this.configService = configService;
+        this.configFactory = Objects.requireNonNull(configFactory, "configFactory");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
         this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
         this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
@@ -127,6 +133,7 @@ public class ConfigResource {
             config.put("limiter", limiterSnapshot());
             config.put("rateLimitOverrides", overridesToList(overrideService.listOverrides(false)));
             config.put("rateLimitIncidents", incidentsToList(rateLimitStore.fetchRecentIncidents(RECENT_LIMITER_INCIDENTS)));
+            config.put("promptEffective", buildPromptEffective(config));
             return Response.ok(config).build();
         } catch (Exception e) {
             log.error("Error getting configuration", e);
@@ -811,6 +818,17 @@ public class ConfigResource {
         return error;
     }
 
+    private Map<String, String> buildPromptEffective(Map<String, Object> config) {
+        if (config == null || config.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        PromptTemplates templates = configFactory.from(config).getPromptTemplates();
+        Map<String, String> effective = new LinkedHashMap<>();
+        effective.put("prompt.system", templates.getSystemPrompt());
+        effective.put("prompt.chunk", templates.getChunkInstructionsTemplate());
+        return effective;
+    }
+
     /**
      * Create success response
      */
@@ -840,7 +858,7 @@ public class ConfigResource {
             if ("scopeMode".equals(key)) {
                 return;
             }
-            if (allowedKeys.contains(key)) {
+            if (allowedKeys.contains(key) || PromptKeySupport.isPromptKey(key)) {
                 normalized.put(key, value);
             }
         });

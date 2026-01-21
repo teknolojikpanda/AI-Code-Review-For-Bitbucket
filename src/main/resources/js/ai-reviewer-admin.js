@@ -117,6 +117,7 @@
         $('#ignore-paths').val(config.ignorePaths || '');
         $('#auto-approve').prop('checked', config.autoApprove === true);
         $('#worker-degradation-enabled').prop('checked', config.workerDegradationEnabled !== false);
+    $('#verbose-mode').prop('checked', config.verboseMode === true);
 
         // Checkboxes
         $('#enabled').prop('checked', config.enabled !== false);
@@ -1382,6 +1383,13 @@
         }
     }
 
+    function normalizePromptText(text) {
+        if (!text) {
+            return '';
+        }
+        return text.trim();
+    }
+
     /**
      * Collect form data into configuration object
      */
@@ -1391,7 +1399,7 @@
         var overviewRetryDelay = parseInt($('#overview-retry-delay').val());
         var chunkMaxRetries = parseInt($('#chunk-max-retries').val());
         var chunkRetryDelay = parseInt($('#chunk-retry-delay').val());
-        return {
+        var config = {
             ollamaUrl: $('#ollama-url').val().trim(),
             ollamaModel: $('#ollama-model').val().trim(),
             fallbackModel: $('#fallback-model').val().trim(),
@@ -1424,8 +1432,28 @@
             skipTests: $('#skip-tests').is(':checked'),
             autoApprove: $('#auto-approve').is(':checked'),
             workerDegradationEnabled: $('#worker-degradation-enabled').is(':checked'),
+            verboseMode: $('#verbose-mode').is(':checked'),
             aiReviewerUser: reviewerUser && reviewerUser.length ? reviewerUser : null
         };
+
+        var promptChunk = $('#prompt-chunk').val();
+        var promptChunkDefault = $('#prompt-chunk-default').val() || '';
+        if (promptChunk && normalizePromptText(promptChunk).length) {
+            if (normalizePromptText(promptChunk) === normalizePromptText(promptChunkDefault)) {
+                config['prompt.chunk'] = null;
+            } else {
+                config['prompt.chunk'] = promptChunk;
+            }
+        } else {
+            config['prompt.chunk'] = null;
+        }
+
+        var promptSystemAppend = $('#prompt-system-append').val();
+        config['prompt.system.append'] = normalizePromptText(promptSystemAppend).length
+            ? promptSystemAppend
+            : null;
+
+        return config;
     }
 
     function synchronizeRepositoryScope() {
@@ -1578,7 +1606,8 @@
             skipGeneratedFiles: true,
             skipTests: false,
             autoApprove: false,
-            workerDegradationEnabled: true
+            workerDegradationEnabled: true,
+            verboseMode: false
         };
 
         defaults.profilePresets = Object.values(profilePresets);

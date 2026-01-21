@@ -35,6 +35,7 @@ This reference lists the configuration keys managed by `AIReviewerConfigService`
 | `ignorePaths` | Global/Repo | String CSV | `node_modules/,vendor/,build/,dist/,.git/` | Directory prefixes to ignore. |
 | `aiReviewerUser` | Global/Repo | String | *(empty)* | Optional Bitbucket username used to author AI comments. If blank, the triggering user is impersonated. |
 | `workerDegradationEnabled` | Global | Bool | `true` | Allow worker pool to throttle itself when saturation persists. |
+| `verboseMode` | Global | Bool | `false` | When enabled, prompt payloads are written during active AI reviews to `${java.io.tmpdir}/ai-reviewer/verbose/<PROJECT>/<REPO>/pr-<ID>/chunk-<ID>-<timestamp>.json` for troubleshooting. Files are created per chunk; if no review runs, no files are emitted. The plugin prunes verbose payloads after 200 files per PR or 7 days (override with JVM properties `ai.reviewer.verbose.maxFiles` and `ai.reviewer.verbose.maxAgeDays`). In containerized deployments, check the JVM temp directory inside the Bitbucket container. |
 
 ## Chunking & Retries
 
@@ -86,6 +87,32 @@ Repository overrides implicitly define scope membership when `scopeMode` is not 
 ## Prompt Customisation
 
 Keys beginning with `prompt` (for example `prompt.system`, `prompt.overview`, `prompt.chunk`) accept multi-line strings to override the bundled templates stored in `src/main/resources/prompts`. They are validated for size and for unsafe placeholders before saving.
+
+Additional prompt keys:
+
+- `prompt.system.append` (Global/Repo): Appends additional text to the default system prompt.
+- `prompt.chunk.append` (Repo or Global): Appends repository-specific instructions to the user prompt.
+
+Prompt management is also available in the UI:
+
+- **Administration → AI Code Reviewer → Prompt Customisation** shows effective system/user prompts and lets administrators override `prompt.chunk` and `prompt.system.append`.
+- **Repository settings → AI Code Reviewer Prompt Settings** lets repository admins override `prompt.chunk` and add repository-specific `prompt.chunk.append` instructions.
+
+### Prompt template placeholders (user prompt overrides)
+
+When you override the user prompt (`prompt.chunk`), you can use these replaceable placeholders. They are replaced at runtime by the prompt renderer.
+
+| Placeholder | Description |
+| --- | --- |
+| `{{OVERVIEW}}` | Repository + pull request overview summary for the review run. |
+| `{{MIN_SEVERITY}}` | The minimum severity string derived from the active review profile (e.g. `low`, `medium`). |
+| `{{CHUNK_CONTEXT}}` | Context block describing the current chunk (file names and metadata for the chunk). |
+| `{{ANNOTATED_DIFF}}` | The current diff chunk with line markers (e.g. `[Line 42]`) that the model should reference. |
+
+Notes:
+
+- These placeholders are intended for the user prompt template (`prompt.chunk`).
+- The system prompt uses `{{ADDITIONAL_INSTRUCTIONS}}` internally when system prompt additions are configured.
 
 ## Derived Metadata
 

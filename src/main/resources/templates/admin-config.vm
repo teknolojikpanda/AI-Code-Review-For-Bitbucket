@@ -400,6 +400,18 @@
 
                         <div class="field-group">
                             <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="verbose-mode"
+                                       name="verboseMode"
+                                       #if($verboseMode)checked="checked"#end>
+                                <label for="verbose-mode">Enable Verbose Mode</label>
+                            </div>
+                            <div class="description">
+                                When enabled, prompt payloads and related metadata are written to the filesystem for troubleshooting.
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
                                 <input class="checkbox" type="checkbox" id="auto-approve" name="autoApprove"
                                        #if($autoApprove)checked#end>
                                 <label for="auto-approve">Auto-approve when only low severity issues remain</label>

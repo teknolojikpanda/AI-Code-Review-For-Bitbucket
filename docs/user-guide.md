@@ -48,6 +48,16 @@ For repository-level configuration details and administrative tooling (Configura
 - Push a new commit: the listener automatically reschedules a differential review of the new changes.
 - Ask a system administrator to trigger a manual run via the Operations page or the `/rest/ai-reviewer/1.0/history/manual` endpoint.
 
+## Repository Prompt Settings
+
+Repository administrators can fine-tune prompts for a single repository via **Repository settings → AI Code Reviewer Prompt Settings**.
+
+- **Effective user prompt**: preview-only view of the final user prompt after global defaults and repository append instructions are applied.
+- **User prompt override**: replace the global user prompt template for this repository only.
+- **Additional instructions**: append repository-specific guidance to the user prompt. These appear under the `ADDITIONAL INSTRUCTIONS:` heading in the effective prompt.
+
+Use this page when a repository needs specialized review guidance without changing global settings.
+
 ## Best Practices
 
 - Keep pull requests under the configured size limits (files, diff size, chunk count) to avoid guardrail throttling.

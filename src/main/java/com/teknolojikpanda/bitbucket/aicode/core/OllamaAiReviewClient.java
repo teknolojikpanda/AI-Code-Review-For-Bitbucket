@@ -34,6 +34,9 @@ import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -60,6 +63,8 @@ public class OllamaAiReviewClient implements AiReviewClient {
             .configure(JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature(), true);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<Map<String, Object>>() {};
     private static final Pattern LINE_MARKER_PATTERN = Pattern.compile("\\[Line\\s+(\\d+)]");
+    private static final int VERBOSE_MAX_FILES = Integer.getInteger("ai.reviewer.verbose.maxFiles", 200);
+    private static final long VERBOSE_MAX_AGE_DAYS = Long.getLong("ai.reviewer.verbose.maxAgeDays", 7L);
 
     private final CircuitBreaker circuitBreaker = new CircuitBreaker("ollama-client", 5, Duration.ofMinutes(1));
     private final RateLimiter rateLimiter = new RateLimiter("ollama-client", 10, Duration.ofSeconds(1));
@@ -518,6 +523,7 @@ public class OllamaAiReviewClient implements AiReviewClient {
                 chunk,
                 overview,
                 annotatedDiff);
+    writeVerbosePrompt(context, chunk, model, overview, annotatedDiff, templates.getSystemPrompt(), userPrompt, truncated);
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
@@ -533,6 +539,105 @@ public class OllamaAiReviewClient implements AiReviewClient {
             return OBJECT_MAPPER.writeValueAsString(request);
         } catch (Exception ex) {
             throw new IllegalStateException("Failed to serialise request", ex);
+        }
+    }
+
+    private void writeVerbosePrompt(ReviewContext context,
+                                    ReviewChunk chunk,
+                                    String model,
+                                    String overview,
+                                    String annotatedDiff,
+                                    String systemPrompt,
+                                    String userPrompt,
+                                    boolean truncated) {
+        if (context == null || context.getConfig() == null || !context.getConfig().isVerboseMode()) {
+            return;
+        }
+        try {
+            String baseDir = System.getProperty("java.io.tmpdir", "/tmp");
+            String projectKey = context.getPullRequest().getToRef().getRepository().getProject().getKey();
+            String repoSlug = context.getPullRequest().getToRef().getRepository().getSlug();
+            long prId = context.getPullRequest().getId();
+            Path dir = Paths.get(baseDir, "ai-reviewer", "verbose", projectKey, repoSlug, "pr-" + prId);
+            Files.createDirectories(dir);
+            String filename = "chunk-" + chunk.getId() + "-" + System.currentTimeMillis() + ".json";
+            Path target = dir.resolve(filename);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("timestamp", Instant.now().toString());
+            payload.put("projectKey", projectKey);
+            payload.put("repositorySlug", repoSlug);
+            payload.put("pullRequestId", prId);
+            payload.put("chunkId", chunk.getId());
+            payload.put("files", chunk.getFiles());
+            payload.put("model", model);
+            payload.put("truncated", truncated);
+            payload.put("systemPrompt", systemPrompt);
+            payload.put("userPrompt", userPrompt);
+            payload.put("overview", overview);
+            payload.put("annotatedDiff", annotatedDiff);
+
+            OBJECT_MAPPER.writeValue(target.toFile(), payload);
+            pruneVerboseDir(dir);
+        } catch (Exception ex) {
+            log.warn("Failed to write verbose prompt payload", ex);
+        }
+    }
+
+    private void pruneVerboseDir(Path dir) {
+        if (dir == null || (!Files.exists(dir))) {
+            return;
+        }
+        int maxFiles = VERBOSE_MAX_FILES;
+        long maxAgeDays = VERBOSE_MAX_AGE_DAYS;
+        if (maxFiles <= 0 && maxAgeDays <= 0) {
+            return;
+        }
+        Instant cutoff = maxAgeDays > 0 ? Instant.now().minus(Duration.ofDays(maxAgeDays)) : null;
+        try {
+            List<Path> files = Files.list(dir)
+                    .filter(Files::isRegularFile)
+                    .sorted((left, right) -> {
+                        long leftTime = lastModifiedMillis(left);
+                        long rightTime = lastModifiedMillis(right);
+                        return Long.compare(leftTime, rightTime);
+                    })
+                    .toList();
+
+            for (Path file : files) {
+                if (cutoff == null) {
+                    break;
+                }
+                Instant modified = Instant.ofEpochMilli(lastModifiedMillis(file));
+                if (modified.isBefore(cutoff)) {
+                    Files.deleteIfExists(file);
+                }
+            }
+
+            if (maxFiles > 0) {
+                List<Path> remaining = Files.list(dir)
+                        .filter(Files::isRegularFile)
+                        .sorted((left, right) -> {
+                            long leftTime = lastModifiedMillis(left);
+                            long rightTime = lastModifiedMillis(right);
+                            return Long.compare(leftTime, rightTime);
+                        })
+                        .toList();
+                int excess = remaining.size() - maxFiles;
+                for (int i = 0; i < excess; i++) {
+                    Files.deleteIfExists(remaining.get(i));
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("Failed to prune verbose prompt payloads", ex);
+        }
+    }
+
+    private long lastModifiedMillis(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (Exception ex) {
+            return 0L;
         }
     }
 

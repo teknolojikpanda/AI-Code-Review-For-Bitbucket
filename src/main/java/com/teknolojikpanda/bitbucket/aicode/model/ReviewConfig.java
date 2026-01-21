@@ -33,6 +33,7 @@ public final class ReviewConfig {
     private final int maxDiffBytes;
     private final ReviewProfile profile;
     private final PromptTemplates promptTemplates;
+    private final boolean verboseMode;
 
     private ReviewConfig(Builder builder) {
         this.primaryModelEndpoint = builder.primaryModelEndpoint;
@@ -56,6 +57,7 @@ public final class ReviewConfig {
         this.maxDiffBytes = builder.maxDiffBytes;
         this.profile = builder.profile;
         this.promptTemplates = builder.promptTemplates;
+        this.verboseMode = builder.verboseMode;
     }
 
     @Nonnull
@@ -159,6 +161,10 @@ public final class ReviewConfig {
         return promptTemplates;
     }
 
+    public boolean isVerboseMode() {
+        return verboseMode;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -185,6 +191,7 @@ public final class ReviewConfig {
         private int maxDiffBytes = 10_000_000;
         private ReviewProfile profile = ReviewProfile.builder().build();
         private PromptTemplates promptTemplates = PromptTemplates.loadDefaults();
+    private boolean verboseMode = false;
 
         public Builder primaryModelEndpoint(@Nonnull URI uri) {
             this.primaryModelEndpoint = Objects.requireNonNull(uri, "uri");
@@ -253,6 +260,11 @@ public final class ReviewConfig {
 
         public Builder overviewRetryDelayMs(int value) {
             this.overviewRetryDelayMs = value;
+            return this;
+        }
+
+        public Builder verboseMode(boolean value) {
+            this.verboseMode = value;
             return this;
         }
 

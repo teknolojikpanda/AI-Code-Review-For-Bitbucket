@@ -291,6 +291,14 @@
         <link>/plugins/servlet/ai-reviewer/admin</link>
     </web-item>
 
+    <web-item key="ai-reviewer-prompts-link"
+              name="AI Code Reviewer Prompts"
+              section="atl.admin/ai-reviewer-admin-section"
+              weight="15">
+        <label>Prompt Customisation</label>
+        <link>/plugins/servlet/ai-reviewer/prompts</link>
+    </web-item>
+
     <web-item key="ai-reviewer-history-link"
               name="AI Review History"
               section="atl.admin/ai-reviewer-admin-section"
@@ -315,12 +323,42 @@
         <link>/plugins/servlet/ai-reviewer/operations</link>
     </web-item>
 
+    <!-- Repository Settings Navigation -->
+    <web-section key="ai-reviewer-repo-settings-section"
+                 name="AI Code Reviewer"
+                 location="bitbucket.repository.settings.panel"
+                 weight="200">
+        <label>AI Code Reviewer</label>
+    </web-section>
+
+    <web-item key="ai-reviewer-repo-settings-link"
+              name="AI Code Reviewer Prompts"
+              section="bitbucket.repository.settings.panel/ai-reviewer-repo-settings-section"
+              weight="10">
+        <label>Prompt Overrides</label>
+        <link>/plugins/servlet/ai-reviewer/repo-config?projectKey=$repository.project.key&amp;repositorySlug=$repository.slug</link>
+    </web-item>
+
     <!-- Admin Configuration Servlet -->
     <servlet key="ai-reviewer-admin-servlet"
              name="AI Reviewer Admin Servlet"
              class="com.teknolojikpanda.bitbucket.aireviewer.servlet.AdminConfigServlet">
         <description>Admin configuration page for AI Code Reviewer</description>
         <url-pattern>/ai-reviewer/admin</url-pattern>
+    </servlet>
+
+    <servlet key="ai-reviewer-prompts-servlet"
+             name="AI Reviewer Prompt Servlet"
+             class="com.teknolojikpanda.bitbucket.aireviewer.servlet.AdminPromptConfigServlet">
+        <description>Admin prompt configuration page for AI Code Reviewer</description>
+        <url-pattern>/ai-reviewer/prompts</url-pattern>
+    </servlet>
+
+    <servlet key="ai-reviewer-repo-config-servlet"
+             name="AI Reviewer Repository Prompt Servlet"
+             class="com.teknolojikpanda.bitbucket.aireviewer.servlet.RepoPromptConfigServlet">
+        <description>Repository prompt configuration page for AI Code Reviewer</description>
+        <url-pattern>/ai-reviewer/repo-config</url-pattern>
     </servlet>
 
     <servlet key="ai-reviewer-history-servlet"
@@ -358,6 +396,28 @@
         <resource type="download" name="ai-reviewer-scope-tree.js" location="/js/ai-reviewer-scope-tree.js"/>
         <resource type="download" name="ai-reviewer-admin.js" location="/js/ai-reviewer-admin.js"/>
         <context>ai-reviewer-admin</context>
+    </web-resource>
+
+    <web-resource key="ai-reviewer-prompts-resources" name="AI Reviewer Prompt Resources">
+        <description>Resources for the admin prompt configuration page</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>com.atlassian.auiplugin:aui-flag</dependency>
+        <dependency>com.atlassian.bitbucket.server.bitbucket-webpack-INTERNAL:markup-editor</dependency>
+        <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-prompts.js" location="/js/ai-reviewer-prompts.js"/>
+        <context>ai-reviewer-prompts</context>
+    </web-resource>
+
+    <web-resource key="ai-reviewer-repo-settings-resources" name="AI Reviewer Repository Settings Resources">
+        <description>Resources for the repository prompt settings page</description>
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+        <dependency>com.atlassian.auiplugin:aui-flag</dependency>
+        <dependency>com.atlassian.bitbucket.server.bitbucket-webpack-INTERNAL:markup-editor</dependency>
+        <resource type="download" name="ai-reviewer-admin.css" location="/css/ai-reviewer-admin.css"/>
+        <resource type="download" name="ai-reviewer-common.js" location="/js/ai-reviewer-common.js"/>
+        <resource type="download" name="ai-reviewer-repo-settings.js" location="/js/ai-reviewer-repo-settings.js"/>
+        <context>ai-reviewer-repo-settings</context>
     </web-resource>
 
     <web-resource key="ai-reviewer-history-resources" name="AI Reviewer History Resources">
