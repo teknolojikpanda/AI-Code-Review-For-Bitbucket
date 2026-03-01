@@ -31,7 +31,7 @@
         <spring.version>5.3.23</spring.version>
         <javax.inject.version>1</javax.inject.version>
         <slf4j.version>1.7.36</slf4j.version>
-        <jackson.version>2.17.1</jackson.version>
+        <jackson.version>2.18.6</jackson.version>
 
         <httpclient.version>4.5.13</httpclient.version>
 
