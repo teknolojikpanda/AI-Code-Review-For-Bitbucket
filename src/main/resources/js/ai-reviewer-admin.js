@@ -99,7 +99,7 @@
         $('#ollama-url').val(config.ollamaUrl || '');
         $('#ollama-model').attr('data-selected', config.ollamaModel || '');
         $('#fallback-model').attr('data-selected', config.fallbackModel || '');
-        $('#rag-embedding-model').attr('data-selected', config.ragEmbeddingModel || 'nomic-embed-text');
+        $('#rag-embedding-model').attr('data-selected', config.ragEmbeddingModel || '');
         $('#max-chars-per-chunk').val(config.maxCharsPerChunk || 60000);
         $('#max-files-per-chunk').val(config.maxFilesPerChunk || 3);
         $('#max-chunks').val(config.maxChunks || 20);
@@ -190,7 +190,7 @@
     function renderModelDropdowns() {
         var selectedPrimary = $('#ollama-model').val() || $('#ollama-model').attr('data-selected') || '';
         var selectedFallback = $('#fallback-model').val() || $('#fallback-model').attr('data-selected') || '';
-        var selectedEmbedding = $('#rag-embedding-model').val() || $('#rag-embedding-model').attr('data-selected') || 'nomic-embed-text';
+        var selectedEmbedding = $('#rag-embedding-model').val() || $('#rag-embedding-model').attr('data-selected') || '';
 
         var allModelNames = availableOllamaModels.map(function(m) { return m.name; });
         var embeddingModelNames = availableOllamaModels
@@ -204,7 +204,7 @@
         });
         populateSelectOptions($('#fallback-model'), fallbackNames, selectedFallback, 'No fallback model', false);
 
-        populateSelectOptions($('#rag-embedding-model'), embeddingModelNames, selectedEmbedding, 'No embedding model found', true);
+        populateSelectOptions($('#rag-embedding-model'), embeddingModelNames, selectedEmbedding, 'No embedding model found', false);
 
         $('#ollama-model').attr('data-selected', $('#ollama-model').val() || selectedPrimary);
         $('#fallback-model').attr('data-selected', $('#fallback-model').val() || selectedFallback);
@@ -1683,7 +1683,7 @@
             ollamaUrl: 'http://10.152.98.37:11434',
             ollamaModel: 'qwen3-coder:30b',
             fallbackModel: 'qwen3-coder:7b',
-            ragEmbeddingModel: 'nomic-embed-text',
+            ragEmbeddingModel: '',
             maxCharsPerChunk: 60000,
             maxFilesPerChunk: 3,
             maxChunks: 20,

@@ -19,10 +19,21 @@
     </div>
 </header>
 
+<div class="ai-reviewer-subnav" role="navigation" aria-label="AI Code Reviewer admin pages">
+    <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/admin">Configuration</a>
+    <a class="ai-reviewer-subnav__link is-active" href="$baseUrl/plugins/servlet/ai-reviewer/history">Review History</a>
+    <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/health">Health Dashboard</a>
+    <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/operations">Operations</a>
+</div>
+
 <div class="aui-page-panel">
     <div class="aui-page-panel-inner">
         <section class="aui-page-panel-content">
             <div id="ai-reviewer-history-container">
+                <div class="ai-reviewer-page-intro aui-message aui-message-info">
+                    <p><strong>Category:</strong> Review analytics and audit trail</p>
+                    <p>Use filters to inspect review outcomes, model behavior, timing trends, and queue pressure over time.</p>
+                </div>
                 <div class="aui-toolbar2">
                     <div class="aui-toolbar2-inner">
                         <div class="aui-toolbar2-primary">
@@ -54,6 +65,36 @@
                 </div>
 
                 <div id="history-message" class="aui-message info" style="display:none;"></div>
+
+                <section id="queue-section" class="queue-section" style="display:none;">
+                    <header class="queue-header">
+                        <h2>Queue Snapshot</h2>
+                        <span id="queue-updated" class="queue-updated">—</span>
+                    </header>
+                    <div class="queue-grid">
+                        <div class="queue-card">
+                            <span class="queue-label">Active</span>
+                            <span class="queue-value" id="queue-active">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Available Slots</span>
+                            <span class="queue-value" id="queue-available">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Waiting</span>
+                            <span class="queue-value" id="queue-waiting">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Max Concurrent</span>
+                            <span class="queue-value" id="queue-max-concurrent">—</span>
+                        </div>
+                        <div class="queue-card">
+                            <span class="queue-label">Max Queued</span>
+                            <span class="queue-value" id="queue-max-queued">—</span>
+                        </div>
+                    </div>
+                    <div class="queue-note" id="queue-note">—</div>
+                </section>
 
                 <section id="metrics-section" class="metrics-section" style="display:none;">
                     <header class="metrics-header">

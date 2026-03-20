@@ -15,10 +15,21 @@
         </div>
     </header>
 
+    <div class="ai-reviewer-subnav" role="navigation" aria-label="AI Code Reviewer admin pages">
+        <a class="ai-reviewer-subnav__link is-active" href="$baseUrl/plugins/servlet/ai-reviewer/admin">Configuration</a>
+        <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/history">Review History</a>
+        <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/health">Health Dashboard</a>
+        <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/operations">Operations</a>
+    </div>
+
     <div class="aui-page-panel">
         <div class="aui-page-panel-inner">
             <section class="aui-page-panel-content">
                 <div id="ai-reviewer-config-container">
+                    <div class="ai-reviewer-page-intro aui-message aui-message-info">
+                        <p><strong>Category:</strong> Core configuration and policy controls</p>
+                        <p>Use this page to define model routing, review depth, scope, and safety flags used by all AI review runs.</p>
+                    </div>
 
                     <!-- Status Messages -->
                     <div id="aui-message-container"></div>
@@ -238,14 +249,6 @@
                                 Embed Impact Summary in main comment
                             </label>
                             <div class="description">Available for Deep/Full modes. When enabled, the impact summary is appended to the main summary comment.</div>
-                        </div>
-                        <div class="field-group">
-                            <label for="impact-summary-inline">Impact Summary Placement</label>
-                            <div class="checkbox">
-                                <input type="checkbox" id="impact-summary-inline" name="impactSummaryInline"#if($impactSummaryInline) checked#end>
-                                <label for="impact-summary-inline">Embed impact summary inside the main summary comment</label>
-                            </div>
-                            <div class="description">When enabled, Deep/Full modes append the impact summary to the main summary comment instead of posting a separate comment.</div>
                         </div>
                         <div class="field-group">
                             <label for="review-profile">Profile Preset</label>

@@ -20,10 +20,21 @@
     </div>
 </header>
 
+<div class="ai-reviewer-subnav" role="navigation" aria-label="AI Code Reviewer admin pages">
+    <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/admin">Configuration</a>
+    <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/history">Review History</a>
+    <a class="ai-reviewer-subnav__link" href="$baseUrl/plugins/servlet/ai-reviewer/health">Health Dashboard</a>
+    <a class="ai-reviewer-subnav__link is-active" href="$baseUrl/plugins/servlet/ai-reviewer/operations">Operations</a>
+</div>
+
 <div class="aui-page-panel">
     <div class="aui-page-panel-inner">
         <section class="aui-page-panel-content">
             <div id="ai-reviewer-ops-container">
+                <div class="ai-reviewer-page-intro aui-message aui-message-info">
+                    <p><strong>Category:</strong> Live controls and incident response</p>
+                    <p>Use this page to manage queue actions, rollout modes, alert channels, and cleanup scheduling during operations.</p>
+                </div>
                 <div class="health-toolbar">
                     <button type="button" class="aui-button" id="refresh-ops-btn">
                         <span class="aui-icon aui-icon-small aui-iconfont-refresh"></span> Refresh

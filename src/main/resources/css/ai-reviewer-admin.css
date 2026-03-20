@@ -1,5 +1,45 @@
 /* AI Code Reviewer Admin Configuration Styles */
 
+.ai-reviewer-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 16px;
+}
+
+.ai-reviewer-subnav__link {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border: 1px solid #dfe1e6;
+    border-radius: 999px;
+    background-color: #ffffff;
+    color: #42526e;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.ai-reviewer-subnav__link:hover {
+    background-color: #f4f5f7;
+    color: #172b4d;
+    text-decoration: none;
+}
+
+.ai-reviewer-subnav__link.is-active {
+    background-color: #deebff;
+    border-color: #4c9aff;
+    color: #0747a6;
+}
+
+.ai-reviewer-page-intro {
+    margin-bottom: 16px;
+}
+
+.ai-reviewer-page-intro p {
+    margin: 4px 0;
+}
+
 #ai-reviewer-config-container {
     max-width: 900px;
     margin: 20px auto;

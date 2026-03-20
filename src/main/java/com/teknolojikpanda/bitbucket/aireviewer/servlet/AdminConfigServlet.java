@@ -103,6 +103,7 @@ public class AdminConfigServlet extends HttpServlet {
         context.put("ollamaUrl", configValues.get("ollamaUrl"));
         context.put("ollamaModel", configValues.get("ollamaModel"));
         context.put("fallbackModel", configValues.get("fallbackModel"));
+        context.put("ragEmbeddingModel", configValues.get("ragEmbeddingModel"));
         context.put("maxCharsPerChunk", configValues.get("maxCharsPerChunk"));
         context.put("maxFilesPerChunk", configValues.get("maxFilesPerChunk"));
         context.put("maxChunks", configValues.get("maxChunks"));
