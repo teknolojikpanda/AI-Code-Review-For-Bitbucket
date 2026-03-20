@@ -1,5 +1,7 @@
 package com.teknolojikpanda.bitbucket.aireviewer.rest;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.atlassian.bitbucket.user.ApplicationUser;
 import com.atlassian.bitbucket.user.UserSearchRequest;
 import com.atlassian.bitbucket.user.UserService;
@@ -36,6 +38,11 @@ import javax.ws.rs.*;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -63,6 +70,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ConfigResource {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigResource.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final int MAX_SCOPE_SELECTION = 1000;
     private static final Pattern PROJECT_KEY_PATTERN = Pattern.compile("^[A-Z0-9_\\-]+$");
     private static final Pattern REPOSITORY_SLUG_PATTERN = Pattern.compile("^[A-Za-z0-9._\\-]+$");
@@ -551,6 +559,47 @@ public class ConfigResource {
         }
     }
 
+    @GET
+    @Path("/models")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response listModels(@Context HttpServletRequest request,
+                               @QueryParam("ollamaUrl") String ollamaUrl) {
+        UserProfile profile = userManager.getRemoteUser(request);
+        if (!isSystemAdmin(profile)) {
+            return Response.status(Response.Status.FORBIDDEN)
+                    .entity(error("Access denied. Administrator privileges required."))
+                    .build();
+        }
+
+        String resolvedUrl = (ollamaUrl == null || ollamaUrl.trim().isEmpty())
+                ? stringValue(configService.getConfigurationAsMap().get("ollamaUrl"))
+                : ollamaUrl.trim();
+
+        if (resolvedUrl == null || resolvedUrl.isEmpty()) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Ollama URL is required"))
+                    .build();
+        }
+        if (!isValidOllamaUrl(resolvedUrl)) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid URL format or forbidden host"))
+                    .build();
+        }
+
+        try {
+            List<Map<String, Object>> models = fetchOllamaModels(resolvedUrl);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("ollamaUrl", resolvedUrl);
+            payload.put("models", models);
+            return Response.ok(payload).build();
+        } catch (Exception ex) {
+            log.warn("Failed to fetch Ollama models from {}", resolvedUrl, ex);
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Failed to fetch models from Ollama: " + ex.getMessage()))
+                    .build();
+        }
+    }
+
     /**
      * Toggle the global auto-approve setting.
      *
@@ -635,6 +684,74 @@ public class ConfigResource {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private List<Map<String, Object>> fetchOllamaModels(String ollamaUrl) throws Exception {
+        String endpoint = ollamaUrl.endsWith("/") ? ollamaUrl + "api/tags" : ollamaUrl + "/api/tags";
+        URI uri = URI.create(endpoint);
+        HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setConnectTimeout(3000);
+        conn.setReadTimeout(5000);
+
+        int code = conn.getResponseCode();
+        if (code < 200 || code >= 300) {
+            throw new IllegalStateException("HTTP " + code + " while reading /api/tags");
+        }
+
+        StringBuilder body = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                body.append(line);
+            }
+        }
+
+        JsonNode root = OBJECT_MAPPER.readTree(body.toString());
+        JsonNode modelsNode = root.get("models");
+        if (modelsNode == null || !modelsNode.isArray()) {
+            return Collections.emptyList();
+        }
+
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (JsonNode modelNode : modelsNode) {
+            String name = modelNode.path("name").asText("").trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            boolean embedding = isEmbeddingModel(name, modelNode.path("details"));
+            Map<String, Object> descriptor = new LinkedHashMap<>();
+            descriptor.put("name", name);
+            descriptor.put("embedding", embedding);
+            list.add(descriptor);
+        }
+        list.sort((a, b) -> String.valueOf(a.get("name")).compareToIgnoreCase(String.valueOf(b.get("name"))));
+        return list;
+    }
+
+    private boolean isEmbeddingModel(String name, JsonNode detailsNode) {
+        String lowerName = name != null ? name.toLowerCase(Locale.ROOT) : "";
+        if (lowerName.contains("embed") || lowerName.contains("embedding") || lowerName.contains("bge") || lowerName.contains("e5")) {
+            return true;
+        }
+        if (detailsNode == null || detailsNode.isMissingNode()) {
+            return false;
+        }
+        String family = detailsNode.path("family").asText("").toLowerCase(Locale.ROOT);
+        if (family.contains("bert") || family.contains("embed") || family.contains("nomic")) {
+            return true;
+        }
+        JsonNode families = detailsNode.path("families");
+        if (families.isArray()) {
+            for (JsonNode node : families) {
+                String value = node.asText("").toLowerCase(Locale.ROOT);
+                if (value.contains("bert") || value.contains("embed") || value.contains("nomic")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean isSystemAdmin(UserProfile profile) {

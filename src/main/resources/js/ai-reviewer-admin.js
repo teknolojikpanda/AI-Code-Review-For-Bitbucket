@@ -36,6 +36,7 @@
     var catalogCacheKey = 'aiReviewerRepoCatalog::v1';
     var catalogCacheTtlMs = 5 * 60 * 1000;
     var catalogFetchInFlight = null;
+    var availableOllamaModels = [];
 
     /**
      * Initialize the admin configuration page
@@ -49,6 +50,8 @@
         $('#reset-config-btn').on('click', resetToDefaults);
         $('#review-profile').on('change', handleProfileChange);
     $('#review-mode').on('change', updateImpactSummaryInlineAvailability);
+        $('#ollama-url').on('change blur', handleOllamaUrlChanged);
+        $('#ollama-model').on('change', handlePrimaryModelChanged);
         $('#auto-approve-apply-btn').on('click', applyAutoApproveToggle);
         $('#auto-approve').on('change', updateReviewerAccountAvailability);
         $('#repository-scope-tree').on('click', '.scope-node-toggle', handleNodeToggle);
@@ -94,9 +97,9 @@
 
         // Text fields
         $('#ollama-url').val(config.ollamaUrl || '');
-        $('#ollama-model').val(config.ollamaModel || '');
-        $('#fallback-model').val(config.fallbackModel || '');
-        $('#rag-embedding-model').val(config.ragEmbeddingModel || 'nomic-embed-text');
+        $('#ollama-model').attr('data-selected', config.ollamaModel || '');
+        $('#fallback-model').attr('data-selected', config.fallbackModel || '');
+        $('#rag-embedding-model').attr('data-selected', config.ragEmbeddingModel || 'nomic-embed-text');
         $('#max-chars-per-chunk').val(config.maxCharsPerChunk || 60000);
         $('#max-files-per-chunk').val(config.maxFilesPerChunk || 3);
         $('#max-chunks').val(config.maxChunks || 20);
@@ -146,6 +149,95 @@
             .fail(function() {
                 // Scope tree message already handled in ensureRepositoryCatalog.
             });
+
+        loadOllamaModels();
+    }
+
+    function handleOllamaUrlChanged() {
+        loadOllamaModels();
+    }
+
+    function handlePrimaryModelChanged() {
+        renderModelDropdowns();
+    }
+
+    function loadOllamaModels() {
+        var ollamaUrl = $('#ollama-url').val().trim();
+        if (!ollamaUrl.length) {
+            availableOllamaModels = [];
+            renderModelDropdowns();
+            return;
+        }
+
+        $.ajax({
+            url: apiUrl + '/models',
+            type: 'GET',
+            dataType: 'json',
+            data: { ollamaUrl: ollamaUrl },
+            success: function(response) {
+                availableOllamaModels = Array.isArray(response.models) ? response.models : [];
+                renderModelDropdowns();
+            },
+            error: function(xhr) {
+                availableOllamaModels = [];
+                renderModelDropdowns();
+                var errorText = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : 'Failed to load Ollama model list';
+                showMessage('warning', errorText + '. Existing selections preserved.');
+            }
+        });
+    }
+
+    function renderModelDropdowns() {
+        var selectedPrimary = $('#ollama-model').val() || $('#ollama-model').attr('data-selected') || '';
+        var selectedFallback = $('#fallback-model').val() || $('#fallback-model').attr('data-selected') || '';
+        var selectedEmbedding = $('#rag-embedding-model').val() || $('#rag-embedding-model').attr('data-selected') || 'nomic-embed-text';
+
+        var allModelNames = availableOllamaModels.map(function(m) { return m.name; });
+        var embeddingModelNames = availableOllamaModels
+            .filter(function(m) { return m.embedding === true; })
+            .map(function(m) { return m.name; });
+
+        populateSelectOptions($('#ollama-model'), allModelNames, selectedPrimary, 'No models found', true);
+
+        var fallbackNames = allModelNames.filter(function(name) {
+            return name !== ($('#ollama-model').val() || selectedPrimary);
+        });
+        populateSelectOptions($('#fallback-model'), fallbackNames, selectedFallback, 'No fallback model', false);
+
+        populateSelectOptions($('#rag-embedding-model'), embeddingModelNames, selectedEmbedding, 'No embedding model found', true);
+
+        $('#ollama-model').attr('data-selected', $('#ollama-model').val() || selectedPrimary);
+        $('#fallback-model').attr('data-selected', $('#fallback-model').val() || selectedFallback);
+        $('#rag-embedding-model').attr('data-selected', $('#rag-embedding-model').val() || selectedEmbedding);
+    }
+
+    function populateSelectOptions($select, options, selectedValue, emptyLabel, keepUnknownSelection) {
+        if (!$select || !$select.length) {
+            return;
+        }
+        var values = Array.isArray(options) ? options.slice() : [];
+        var selected = (selectedValue || '').trim();
+        if (keepUnknownSelection !== false && selected.length && values.indexOf(selected) === -1) {
+            values.unshift(selected);
+        }
+
+        $select.empty();
+
+        if (!values.length) {
+            $select.append($('<option>').attr('value', '').text(emptyLabel || 'No models available'));
+            $select.val('');
+            return;
+        }
+
+        values.forEach(function(value) {
+            $select.append($('<option>').attr('value', value).text(value));
+        });
+
+        if (selected.length && values.indexOf(selected) !== -1) {
+            $select.val(selected);
+        } else {
+            $select.val(values[0]);
+        }
     }
 
     function buildProfilePresetMap(presets) {
@@ -1404,10 +1496,15 @@
         var overviewRetryDelay = parseInt($('#overview-retry-delay').val());
         var chunkMaxRetries = parseInt($('#chunk-max-retries').val());
         var chunkRetryDelay = parseInt($('#chunk-retry-delay').val());
+        var primaryModel = $('#ollama-model').val().trim();
+        var fallbackModel = $('#fallback-model').val().trim();
+        if (fallbackModel === primaryModel) {
+            fallbackModel = '';
+        }
         var config = {
             ollamaUrl: $('#ollama-url').val().trim(),
-            ollamaModel: $('#ollama-model').val().trim(),
-            fallbackModel: $('#fallback-model').val().trim(),
+            ollamaModel: primaryModel,
+            fallbackModel: fallbackModel,
             ragEmbeddingModel: $('#rag-embedding-model').val().trim(),
             maxCharsPerChunk: parseInt($('#max-chars-per-chunk').val()),
             maxFilesPerChunk: parseInt($('#max-files-per-chunk').val()),
