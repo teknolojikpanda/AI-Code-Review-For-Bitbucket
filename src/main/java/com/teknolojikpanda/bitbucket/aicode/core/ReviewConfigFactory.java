@@ -41,6 +41,7 @@ public class ReviewConfigFactory {
         builder.primaryModel(stringValue(config.get("ollamaModel"), "qwen3-coder:30b"));
         builder.fallbackModelEndpoint(toUri(config.getOrDefault("ollamaUrl", "http://0.0.0.0:11434")));
         builder.fallbackModel(stringValue(config.get("fallbackModel"), "qwen3-coder:7b"));
+        builder.ragEmbeddingModel(stringValue(config.get("ragEmbeddingModel"), "nomic-embed-text"));
 
         builder.maxCharsPerChunk(intValue(config.get("maxCharsPerChunk"), 60_000));
         builder.maxFilesPerChunk(intValue(config.get("maxFilesPerChunk"), 3));

@@ -124,6 +124,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final String DEFAULT_OLLAMA_URL = "http://0.0.0.0:11434";
     private static final String DEFAULT_OLLAMA_MODEL = "qwen3-coder:30b";
     private static final String DEFAULT_FALLBACK_MODEL = "qwen3-coder:7b";
+    private static final String DEFAULT_RAG_EMBEDDING_MODEL = "nomic-embed-text";
     private static final int DEFAULT_MAX_CHARS_PER_CHUNK = 60000;
     private static final int DEFAULT_MAX_FILES_PER_CHUNK = 3;
     private static final int DEFAULT_MAX_CHUNKS = 20;
@@ -181,6 +182,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "ollamaUrl",
                 "ollamaModel",
                 "fallbackModel",
+                "ragEmbeddingModel",
                 "maxCharsPerChunk",
                 "maxFilesPerChunk",
                 "maxChunks",
@@ -334,6 +336,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         });
         validateString(configMap, "ollamaModel", true, 512, errors, null);
         validateString(configMap, "fallbackModel", true, 512, errors, null);
+        validateString(configMap, "ragEmbeddingModel", false, 255, errors, null);
 
         String ollamaModel = trimToNull(configMap.get("ollamaModel"));
         String fallbackModel = trimToNull(configMap.get("fallbackModel"));
@@ -514,6 +517,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         defaults.put("ollamaUrl", DEFAULT_OLLAMA_URL);
         defaults.put("ollamaModel", DEFAULT_OLLAMA_MODEL);
         defaults.put("fallbackModel", DEFAULT_FALLBACK_MODEL);
+        defaults.put("ragEmbeddingModel", DEFAULT_RAG_EMBEDDING_MODEL);
         defaults.put("maxCharsPerChunk", DEFAULT_MAX_CHARS_PER_CHUNK);
         defaults.put("maxFilesPerChunk", DEFAULT_MAX_FILES_PER_CHUNK);
         defaults.put("maxChunks", DEFAULT_MAX_CHUNKS);
@@ -1191,6 +1195,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setOllamaUrl(DEFAULT_OLLAMA_URL);
         config.setOllamaModel(DEFAULT_OLLAMA_MODEL);
         config.setFallbackModel(DEFAULT_FALLBACK_MODEL);
+        config.setRagEmbeddingModel(DEFAULT_RAG_EMBEDDING_MODEL);
         config.setMaxCharsPerChunk(DEFAULT_MAX_CHARS_PER_CHUNK);
         config.setMaxFilesPerChunk(DEFAULT_MAX_FILES_PER_CHUNK);
         config.setMaxChunks(DEFAULT_MAX_CHUNKS);
@@ -1260,6 +1265,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("fallbackModel")) {
             config.setFallbackModel((String) configMap.get("fallbackModel"));
+        }
+        if (configMap.containsKey("ragEmbeddingModel")) {
+            config.setRagEmbeddingModel((String) configMap.get("ragEmbeddingModel"));
         }
         if (configMap.containsKey("maxCharsPerChunk")) {
             config.setMaxCharsPerChunk(getIntValue(configMap, "maxCharsPerChunk"));
@@ -1469,6 +1477,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (isBlank(config.getFallbackModel())) {
             config.setFallbackModel(DEFAULT_FALLBACK_MODEL);
+            updated = true;
+        }
+        if (isBlank(config.getRagEmbeddingModel())) {
+            config.setRagEmbeddingModel(DEFAULT_RAG_EMBEDDING_MODEL);
             updated = true;
         }
 
@@ -1788,6 +1800,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         map.put("ollamaUrl", defaultString(config.getOllamaUrl(), DEFAULT_OLLAMA_URL));
         map.put("ollamaModel", defaultString(config.getOllamaModel(), DEFAULT_OLLAMA_MODEL));
         map.put("fallbackModel", defaultString(config.getFallbackModel(), DEFAULT_FALLBACK_MODEL));
+        map.put("ragEmbeddingModel", defaultString(config.getRagEmbeddingModel(), DEFAULT_RAG_EMBEDDING_MODEL));
         map.put("maxCharsPerChunk", defaultInt(config.getMaxCharsPerChunk(), DEFAULT_MAX_CHARS_PER_CHUNK));
         map.put("maxFilesPerChunk", defaultInt(config.getMaxFilesPerChunk(), DEFAULT_MAX_FILES_PER_CHUNK));
         map.put("maxChunks", defaultInt(config.getMaxChunks(), DEFAULT_MAX_CHUNKS));

@@ -276,6 +276,10 @@ final class PromptRenderer {
     }
 
     private static String resolveEmbeddingModel(ReviewConfig config) {
+        String fromConfig = config.getRagEmbeddingModel();
+        if (fromConfig != null && !fromConfig.trim().isEmpty()) {
+            return fromConfig.trim();
+        }
         String fromProperty = System.getProperty("ai.reviewer.rag.embeddingModel", "").trim();
         if (!fromProperty.isEmpty()) {
             return fromProperty;

@@ -200,4 +200,14 @@ public class ReviewConfigFactoryTest {
         assertFalse(reviewConfig.getProfile().isSkipGeneratedFiles());
         assertEquals(100, reviewConfig.getProfile().getMaxIssuesPerFile());
     }
+
+    @Test
+    public void readsRagEmbeddingModelFromConfig() {
+        Map<String, Object> config = new HashMap<>();
+        config.put("ragEmbeddingModel", "bge-m3");
+
+        ReviewConfig reviewConfig = factory.from(config);
+
+        assertEquals("bge-m3", reviewConfig.getRagEmbeddingModel());
+    }
 }

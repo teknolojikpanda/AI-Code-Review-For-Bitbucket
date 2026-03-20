@@ -83,6 +83,13 @@
                         </div>
 
                         <div class="field-group">
+                            <label for="rag-embedding-model">RAG Embedding Model</label>
+                            <input class="text long-field" type="text" id="rag-embedding-model" name="ragEmbeddingModel"
+                                   value="$ragEmbeddingModel" placeholder="nomic-embed-text">
+                            <div class="description">Embedding model used for semantic retrieval ranking in RAG evidence.</div>
+                        </div>
+
+                        <div class="field-group">
                             <button type="button" id="test-connection-btn" class="aui-button">
                                 <span class="aui-icon aui-icon-small aui-iconfont-check-circle"></span> Test Connection
                             </button>

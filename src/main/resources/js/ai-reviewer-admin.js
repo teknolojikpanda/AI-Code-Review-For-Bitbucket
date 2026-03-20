@@ -96,6 +96,7 @@
         $('#ollama-url').val(config.ollamaUrl || '');
         $('#ollama-model').val(config.ollamaModel || '');
         $('#fallback-model').val(config.fallbackModel || '');
+        $('#rag-embedding-model').val(config.ragEmbeddingModel || 'nomic-embed-text');
         $('#max-chars-per-chunk').val(config.maxCharsPerChunk || 60000);
         $('#max-files-per-chunk').val(config.maxFilesPerChunk || 3);
         $('#max-chunks').val(config.maxChunks || 20);
@@ -1407,6 +1408,7 @@
             ollamaUrl: $('#ollama-url').val().trim(),
             ollamaModel: $('#ollama-model').val().trim(),
             fallbackModel: $('#fallback-model').val().trim(),
+            ragEmbeddingModel: $('#rag-embedding-model').val().trim(),
             maxCharsPerChunk: parseInt($('#max-chars-per-chunk').val()),
             maxFilesPerChunk: parseInt($('#max-files-per-chunk').val()),
             maxChunks: parseInt($('#max-chunks').val()),
@@ -1584,6 +1586,7 @@
             ollamaUrl: 'http://10.152.98.37:11434',
             ollamaModel: 'qwen3-coder:30b',
             fallbackModel: 'qwen3-coder:7b',
+            ragEmbeddingModel: 'nomic-embed-text',
             maxCharsPerChunk: 60000,
             maxFilesPerChunk: 3,
             maxChunks: 20,

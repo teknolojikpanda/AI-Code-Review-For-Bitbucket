@@ -16,6 +16,7 @@ public final class ReviewConfig {
     private final String primaryModel;
     private final URI fallbackModelEndpoint;
     private final String fallbackModel;
+    private final String ragEmbeddingModel;
     private final int maxCharsPerChunk;
     private final int maxFilesPerChunk;
     private final int maxChunks;
@@ -41,6 +42,7 @@ public final class ReviewConfig {
         this.primaryModel = builder.primaryModel;
         this.fallbackModelEndpoint = builder.fallbackModelEndpoint;
         this.fallbackModel = builder.fallbackModel;
+        this.ragEmbeddingModel = builder.ragEmbeddingModel;
         this.maxCharsPerChunk = builder.maxCharsPerChunk;
         this.maxFilesPerChunk = builder.maxFilesPerChunk;
         this.maxChunks = builder.maxChunks;
@@ -80,6 +82,11 @@ public final class ReviewConfig {
     @Nonnull
     public String getFallbackModel() {
         return fallbackModel;
+    }
+
+    @Nonnull
+    public String getRagEmbeddingModel() {
+        return ragEmbeddingModel;
     }
 
     public int getMaxCharsPerChunk() {
@@ -181,6 +188,7 @@ public final class ReviewConfig {
         private String primaryModel;
         private URI fallbackModelEndpoint;
         private String fallbackModel;
+        private String ragEmbeddingModel = "nomic-embed-text";
         private int maxCharsPerChunk = 60_000;
         private int maxFilesPerChunk = 3;
         private int maxChunks = 20;
@@ -218,6 +226,11 @@ public final class ReviewConfig {
 
         public Builder fallbackModel(@Nonnull String value) {
             this.fallbackModel = Objects.requireNonNull(value, "value");
+            return this;
+        }
+
+        public Builder ragEmbeddingModel(@Nonnull String value) {
+            this.ragEmbeddingModel = Objects.requireNonNull(value, "value");
             return this;
         }
 
@@ -337,6 +350,7 @@ public final class ReviewConfig {
             Objects.requireNonNull(primaryModel, "primaryModel");
             Objects.requireNonNull(fallbackModelEndpoint, "fallbackModelEndpoint");
             Objects.requireNonNull(fallbackModel, "fallbackModel");
+            Objects.requireNonNull(ragEmbeddingModel, "ragEmbeddingModel");
             return new ReviewConfig(this);
         }
     }

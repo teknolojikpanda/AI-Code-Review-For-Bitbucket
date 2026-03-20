@@ -29,6 +29,10 @@ public interface AIReviewConfiguration extends Entity {
     String getFallbackModel();
     void setFallbackModel(String model);
 
+    @StringLength(255)
+    String getRagEmbeddingModel();
+    void setRagEmbeddingModel(String model);
+
     // Chunking Configuration
     int getMaxCharsPerChunk();
     void setMaxCharsPerChunk(int maxChars);
