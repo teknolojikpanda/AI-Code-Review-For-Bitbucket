@@ -1,5 +1,7 @@
 package com.teknolojikpanda.bitbucket.aicode.core;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teknolojikpanda.bitbucket.aicode.model.LineRange;
 import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewConfig;
@@ -12,6 +14,11 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewChunk;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewFileMetadata;
 
 import javax.annotation.Nonnull;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -22,11 +29,21 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Comparator;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 final class PromptRenderer {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final int EMBEDDING_CONNECT_TIMEOUT_MS = 1500;
+    private static final int EMBEDDING_READ_TIMEOUT_MS = 3000;
+    private static final int EMBEDDING_CANDIDATE_LIMIT = 60;
+    private static final int RAG_RESULT_LIMIT = 8;
+    private static final String DEFAULT_EMBEDDING_MODEL = "nomic-embed-text";
+    private static final Map<String, float[]> EMBEDDING_CACHE = new ConcurrentHashMap<>();
+    private static final int EMBEDDING_CACHE_MAX = 800;
 
     private PromptRenderer() {
     }
@@ -166,14 +183,42 @@ final class PromptRenderer {
             return "- (rag evidence unavailable)";
         }
 
+        List<EvidenceSnippet> lexicalCandidates = collectLexicalCandidates(context, chunk);
+        if (lexicalCandidates.isEmpty()) {
+            return "- (no related evidence found in repository diff context)";
+        }
+
+        List<EvidenceSnippet> semanticCandidates = rerankWithEmbeddings(context, chunk, lexicalCandidates);
+        List<EvidenceSnippet> result = semanticCandidates.isEmpty() ? lexicalCandidates : semanticCandidates;
+
+        StringBuilder builder = new StringBuilder();
+        int limit = Math.min(RAG_RESULT_LIMIT, result.size());
+        for (int i = 0; i < limit; i++) {
+            EvidenceSnippet snippet = result.get(i);
+            builder.append("- [")
+                    .append(snippet.getPath())
+                    .append("] score=")
+                    .append(snippet.getScoreLabel())
+                    .append(" :: ")
+                    .append(truncate(snippet.getLine(), 220))
+                    .append("\n");
+        }
+        return builder.toString().trim();
+    }
+
+    private static List<EvidenceSnippet> collectLexicalCandidates(ReviewContext context, ReviewChunk chunk) {
+
         Set<String> queryTokens = extractIdentifiersFromChunk(chunk.getContent());
         if (queryTokens.isEmpty()) {
-            return "- (insufficient identifiers for retrieval evidence)";
+            return Collections.emptyList();
         }
 
         List<EvidenceSnippet> snippets = new java.util.ArrayList<>();
         for (Map.Entry<String, String> entry : context.getFileDiffs().entrySet()) {
             String path = entry.getKey();
+            if (chunk.getFiles().contains(path)) {
+                continue;
+            }
             String diff = entry.getValue();
             if (diff == null || diff.isBlank()) {
                 continue;
@@ -181,35 +226,172 @@ final class PromptRenderer {
             String[] lines = diff.split("\\n", -1);
             for (String line : lines) {
                 String normalized = line.trim();
-                if (normalized.isEmpty()) {
+                if (normalized.isEmpty() || normalized.startsWith("diff --git") || normalized.startsWith("+++")
+                        || normalized.startsWith("---") || normalized.startsWith("@@")) {
                     continue;
                 }
                 int score = scoreLineAgainstTokens(normalized, queryTokens);
                 if (score > 0) {
-                    snippets.add(new EvidenceSnippet(path, normalized, score));
+                    snippets.add(EvidenceSnippet.lexical(path, normalized, score));
                 }
             }
         }
 
-        if (snippets.isEmpty()) {
-            return "- (no related evidence found in repository diff context)";
+        snippets.sort(Comparator.comparingInt(EvidenceSnippet::getLexicalScore).reversed());
+        if (snippets.size() > EMBEDDING_CANDIDATE_LIMIT) {
+            return new java.util.ArrayList<>(snippets.subList(0, EMBEDDING_CANDIDATE_LIMIT));
+        }
+        return snippets;
+    }
+
+    private static List<EvidenceSnippet> rerankWithEmbeddings(ReviewContext context,
+                                                               ReviewChunk chunk,
+                                                               List<EvidenceSnippet> lexicalCandidates) {
+        if (lexicalCandidates.isEmpty()) {
+            return Collections.emptyList();
+        }
+        ReviewConfig config = context.getConfig();
+        if (config == null || config.getPrimaryModelEndpoint() == null || !isResolvableEmbeddingHost(config.getPrimaryModelEndpoint())) {
+            return Collections.emptyList();
         }
 
-        snippets.sort(Comparator.comparingInt(EvidenceSnippet::getScore).reversed());
-
-        StringBuilder builder = new StringBuilder();
-        int limit = 8;
-        for (int i = 0; i < snippets.size() && i < limit; i++) {
-            EvidenceSnippet snippet = snippets.get(i);
-            builder.append("- [")
-                    .append(snippet.getPath())
-                    .append("] score=")
-                    .append(snippet.getScore())
-                    .append(" :: ")
-                    .append(truncate(snippet.getLine(), 220))
-                    .append("\n");
+        String embeddingModel = resolveEmbeddingModel(config);
+        String queryText = buildQueryText(chunk);
+        float[] queryVector = fetchEmbedding(config.getPrimaryModelEndpoint(), embeddingModel, queryText);
+        if (queryVector == null || queryVector.length == 0) {
+            return Collections.emptyList();
         }
-        return builder.toString().trim();
+
+        List<EvidenceSnippet> reranked = new java.util.ArrayList<>();
+        for (EvidenceSnippet candidate : lexicalCandidates) {
+            float[] candidateVector = fetchEmbedding(config.getPrimaryModelEndpoint(), embeddingModel, candidate.getLine());
+            if (candidateVector == null || candidateVector.length == 0) {
+                continue;
+            }
+            double cosine = cosineSimilarity(queryVector, candidateVector);
+            reranked.add(candidate.withSemanticScore(cosine));
+        }
+        reranked.sort(Comparator.comparingDouble(EvidenceSnippet::getSemanticScore).reversed());
+        return reranked;
+    }
+
+    private static String resolveEmbeddingModel(ReviewConfig config) {
+        String fromProperty = System.getProperty("ai.reviewer.rag.embeddingModel", "").trim();
+        if (!fromProperty.isEmpty()) {
+            return fromProperty;
+        }
+        String primaryModel = config.getPrimaryModel();
+        if (primaryModel != null && primaryModel.toLowerCase().contains("embed")) {
+            return primaryModel;
+        }
+        return DEFAULT_EMBEDDING_MODEL;
+    }
+
+    private static boolean isResolvableEmbeddingHost(URI endpoint) {
+        String host = endpoint.getHost();
+        if (host == null || host.isBlank()) {
+            return false;
+        }
+        return host.equals("localhost")
+                || host.equals("127.0.0.1")
+                || host.equals("host.docker.internal")
+                || host.contains(".");
+    }
+
+    private static String buildQueryText(ReviewChunk chunk) {
+        String content = chunk.getContent() != null ? chunk.getContent() : "";
+        String compact = content.lines()
+                .filter(line -> line.startsWith("+") && !line.startsWith("+++"))
+                .limit(80)
+                .collect(Collectors.joining("\n"));
+        String files = String.join(",", chunk.getFiles());
+        return truncate("files:" + files + "\n" + compact, 2500);
+    }
+
+    private static float[] fetchEmbedding(URI baseUri, String model, String prompt) {
+        try {
+            String cacheKey = baseUri + "|" + model + "|" + prompt;
+            float[] cached = EMBEDDING_CACHE.get(cacheKey);
+            if (cached != null) {
+                return cached;
+            }
+            String url = baseUri.toString();
+            if (url.endsWith("/")) {
+                url = url + "api/embeddings";
+            } else {
+                url = url + "/api/embeddings";
+            }
+
+            URI uri = URI.create(url);
+            HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setConnectTimeout(EMBEDDING_CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(EMBEDDING_READ_TIMEOUT_MS);
+            conn.setDoOutput(true);
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("model", model);
+            payload.put("prompt", prompt);
+            String json = OBJECT_MAPPER.writeValueAsString(payload);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) {
+                return null;
+            }
+
+            StringBuilder response = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    conn.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+            }
+            JsonNode root = OBJECT_MAPPER.readTree(response.toString());
+            JsonNode embeddingNode = root.get("embedding");
+            if (embeddingNode == null || !embeddingNode.isArray() || embeddingNode.size() == 0) {
+                return null;
+            }
+            float[] vector = new float[embeddingNode.size()];
+            for (int i = 0; i < embeddingNode.size(); i++) {
+                vector[i] = (float) embeddingNode.get(i).asDouble();
+            }
+
+            if (EMBEDDING_CACHE.size() >= EMBEDDING_CACHE_MAX) {
+                EMBEDDING_CACHE.clear();
+            }
+            EMBEDDING_CACHE.put(cacheKey, vector);
+            return vector;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static double cosineSimilarity(float[] left, float[] right) {
+        int size = Math.min(left.length, right.length);
+        if (size == 0) {
+            return 0.0d;
+        }
+        double dot = 0.0d;
+        double leftNorm = 0.0d;
+        double rightNorm = 0.0d;
+        for (int i = 0; i < size; i++) {
+            double a = left[i];
+            double b = right[i];
+            dot += a * b;
+            leftNorm += a * a;
+            rightNorm += b * b;
+        }
+        if (leftNorm == 0.0d || rightNorm == 0.0d) {
+            return 0.0d;
+        }
+        return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
     }
 
     private static int scoreLineAgainstTokens(String line, Set<String> tokens) {
@@ -241,12 +423,22 @@ final class PromptRenderer {
     private static final class EvidenceSnippet {
         private final String path;
         private final String line;
-        private final int score;
+        private final int lexicalScore;
+        private final double semanticScore;
 
-        private EvidenceSnippet(String path, String line, int score) {
+        private EvidenceSnippet(String path, String line, int lexicalScore, double semanticScore) {
             this.path = path;
             this.line = line;
-            this.score = score;
+            this.lexicalScore = lexicalScore;
+            this.semanticScore = semanticScore;
+        }
+
+        private static EvidenceSnippet lexical(String path, String line, int lexicalScore) {
+            return new EvidenceSnippet(path, line, lexicalScore, Double.NaN);
+        }
+
+        private EvidenceSnippet withSemanticScore(double value) {
+            return new EvidenceSnippet(path, line, lexicalScore, value);
         }
 
         private String getPath() {
@@ -257,8 +449,19 @@ final class PromptRenderer {
             return line;
         }
 
-        private int getScore() {
-            return score;
+        private int getLexicalScore() {
+            return lexicalScore;
+        }
+
+        private double getSemanticScore() {
+            return semanticScore;
+        }
+
+        private String getScoreLabel() {
+            if (!Double.isNaN(semanticScore)) {
+                return String.format("%.4f", semanticScore);
+            }
+            return String.valueOf(lexicalScore);
         }
     }
 
