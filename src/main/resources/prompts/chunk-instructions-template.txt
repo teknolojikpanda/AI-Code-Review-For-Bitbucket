@@ -12,6 +12,15 @@ Impact summary:
 Chunk context:
 {{CHUNK_CONTEXT}}
 
+AST context:
+{{AST_CONTEXT}}
+
+Retrieved evidence (RAG):
+{{RAG_EVIDENCE}}
+
+Reasoning protocol:
+{{REASONING_GUIDE}}
+
 Analyze this diff chunk. Only report issues where added lines include [Line N] markers.
 
 CRITICAL ANALYSIS AREAS:

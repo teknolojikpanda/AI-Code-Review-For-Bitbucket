@@ -4,7 +4,7 @@ This document explains how AI Code Reviewer integrates with Bitbucket, how reque
 
 ## High-Level Overview
 
-```
+```text
 Pull Request Event --> PullRequestAIReviewListener
                            |
                            v
@@ -21,6 +21,7 @@ Key modules:
 - **Listener** (`PullRequestAIReviewListener`) subscribes to `PullRequestOpenedEvent` and `PullRequestRescopedEvent`, filters by configuration, and invokes the review service.
 - **Service layer** (`AIReviewServiceImpl`) coordinates diff retrieval, chunk planning, orchestration, comment posting, history persistence, guardrail enforcement, and progress tracking.
 - **Review pipeline** (`TwoPassReviewOrchestrator`, `HeuristicChunkPlanner`, `OllamaAiReviewClient`) prepares prompts, splits diffs into manageable chunks, performs a two-stage model query (overview then chunks), and captures metrics.
+- **Prompt enrichment** (`PromptRenderer`) now injects AST-like symbol signals, cross-file retrieval evidence from PR diffs (RAG-style), and a structured reasoning checklist so chunk analysis is evidence-first rather than pattern-only.
 - **Guardrails services** (rate limiting, queue control, worker degradation, burst credits, rollout cohorts) enforce safe concurrency and provide administrative overrides.
 - **Active Objects entities** persist configuration snapshots, review history, cleanup audits, rollout cohorts, limiter incidents, alert channels, and worker state.
 - **REST layer** exposes configuration, progress, automation, metrics, manual triggers, history browsing, and repository overrides under `/rest/ai-reviewer/1.0`.
@@ -60,6 +61,9 @@ Review modes control how much context the model sees and how aggressively it sca
         - **Global change summary** (all files touched)
         - **Full diff context** for each chunk file
         - **Related-change snippets** from other files in the PR
+        - **AST context** (detected declarations/calls/symbols in chunk)
+        - **RAG evidence** (top scored cross-file evidence lines from PR diff)
+        - **Reasoning guide** (step-by-step evidence and confidence gating)
         - **Impact summary pass** (separate model call)
 - **Chunking**: Larger chunk budgets to include more context.
 - **Profile defaults**: Security-first preset and higher issue caps.

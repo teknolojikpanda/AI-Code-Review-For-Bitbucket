@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: ai-reviewer-bitbucket-db
+    environment:
+      POSTGRES_DB: bitbucket
+      POSTGRES_USER: bitbucket
+      POSTGRES_PASSWORD: bitbucket
+    volumes:
+      - bitbucket-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bitbucket -d bitbucket"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  bitbucket:
+    image: atlassian/bitbucket:9.6.5
+    container_name: ai-reviewer-bitbucket
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "7990:7990"
+      - "7999:7999"
+    environment:
+      JDBC_DRIVER: org.postgresql.Driver
+      JDBC_URL: jdbc:postgresql://postgres:5432/bitbucket
+      JDBC_USER: bitbucket
+      JDBC_PASSWORD: bitbucket
+      JVM_MINIMUM_MEMORY: 2g
+      JVM_MAXIMUM_MEMORY: 4g
+      JVM_SUPPORT_RECOMMENDED_ARGS: -Dupm.plugin.upload.enabled=true
+      ELASTICSEARCH_ENABLED: "false"
+    volumes:
+      - bitbucket-home:/var/atlassian/application-data/bitbucket
+
+volumes:
+  bitbucket-postgres-data:
+  bitbucket-home:

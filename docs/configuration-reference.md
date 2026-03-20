@@ -119,6 +119,9 @@ When you override the user prompt (`prompt.chunk`), you can use these replaceabl
 | `{{OVERVIEW}}` | Repository + pull request overview summary for the review run. |
 | `{{MIN_SEVERITY}}` | The minimum severity string derived from the active review profile (e.g. `low`, `medium`). |
 | `{{CHUNK_CONTEXT}}` | Context block describing the current chunk (file names and metadata). In `deep`/`full` modes it also includes a global change summary, full diff context for chunk files, and related-change snippets from other files in the PR. |
+| `{{AST_CONTEXT}}` | AST-like structural context extracted from changed lines (detected declarations, symbols, and call-site hints). |
+| `{{RAG_EVIDENCE}}` | Retrieved cross-file evidence snippets from the PR diff, ranked by identifier overlap with the current chunk. |
+| `{{REASONING_GUIDE}}` | Step-by-step reasoning checklist injected to enforce evidence-first, high-confidence findings. |
 | `{{ANNOTATED_DIFF}}` | The current diff chunk with line markers (e.g. `[Line 42]`) that the model should reference. |
 | `{{REVIEW_MODE}}` | Human-readable review mode label (for example `Quick`, `Standard`). |
 | `{{MODE_INSTRUCTIONS}}` | Mode-specific focus instructions applied by the selected review mode. |

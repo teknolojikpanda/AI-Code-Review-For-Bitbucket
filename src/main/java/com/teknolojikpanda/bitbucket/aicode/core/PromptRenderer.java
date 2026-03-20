@@ -20,9 +20,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Comparator;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 final class PromptRenderer {
 
@@ -84,12 +86,180 @@ final class PromptRenderer {
         placeholders.put("{{OVERVIEW}}", overview);
         ReviewProfile profile = config.getProfile();
         placeholders.put("{{MIN_SEVERITY}}", profile.getMinSeverity().name().toLowerCase());
-    placeholders.put("{{REVIEW_MODE}}", config.getReviewMode().getDisplayName());
-    placeholders.put("{{MODE_INSTRUCTIONS}}", config.getReviewMode().getPromptInstructions());
+        placeholders.put("{{REVIEW_MODE}}", config.getReviewMode().getDisplayName());
+        placeholders.put("{{MODE_INSTRUCTIONS}}", config.getReviewMode().getPromptInstructions());
         placeholders.put("{{IMPACT_SUMMARY}}", impactSummary != null ? impactSummary : "");
         placeholders.put("{{CHUNK_CONTEXT}}", buildChunkContext(context, chunk));
+        placeholders.put("{{AST_CONTEXT}}", buildAstContext(context, chunk));
+        placeholders.put("{{RAG_EVIDENCE}}", buildRagEvidence(context, chunk));
+        placeholders.put("{{REASONING_GUIDE}}", buildReasoningGuide());
         placeholders.put("{{ANNOTATED_DIFF}}", annotatedDiff);
         return applyPlaceholders(templates.getChunkInstructionsTemplate(), placeholders);
+    }
+
+    private static String buildAstContext(ReviewContext context, ReviewChunk chunk) {
+        if (context == null || chunk == null) {
+            return "- (ast context unavailable)";
+        }
+
+        Set<String> symbols = new LinkedHashSet<>();
+        List<String> relationships = new java.util.ArrayList<>();
+
+        Pattern classPattern = Pattern.compile("\\b(class|interface|enum|record)\\s+([A-Za-z_][A-Za-z0-9_]*)");
+        Pattern methodPattern = Pattern.compile("\\b([A-Za-z_][A-Za-z0-9_<>,\\[\\]]*)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(");
+        Pattern callPattern = Pattern.compile("\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\(");
+
+        for (String rawLine : chunk.getContent().split("\\n", -1)) {
+            String line = rawLine.trim();
+            if (line.isEmpty() || (!line.startsWith("+") && !line.startsWith("-"))) {
+                continue;
+            }
+
+            Matcher classMatcher = classPattern.matcher(line);
+            if (classMatcher.find()) {
+                symbols.add(classMatcher.group(2));
+                relationships.add("- type " + classMatcher.group(2) + " declared as " + classMatcher.group(1));
+            }
+
+            Matcher methodMatcher = methodPattern.matcher(line);
+            if (methodMatcher.find()) {
+                String methodName = methodMatcher.group(2);
+                symbols.add(methodName);
+                relationships.add("- method/function declaration: " + methodName);
+            }
+
+            Matcher callMatcher = callPattern.matcher(line);
+            int callCount = 0;
+            while (callMatcher.find() && callCount < 2) {
+                String callee = callMatcher.group(1);
+                String lower = callee.toLowerCase();
+                if (!lower.equals("if") && !lower.equals("for") && !lower.equals("while") && !lower.equals("switch")) {
+                    symbols.add(callee);
+                    relationships.add("- call site references: " + callee + "(...)" );
+                    callCount++;
+                }
+            }
+        }
+
+        StringBuilder builder = new StringBuilder();
+        if (symbols.isEmpty() && relationships.isEmpty()) {
+            return "- (no strong AST-like signals detected in chunk)";
+        }
+        if (!symbols.isEmpty()) {
+            builder.append("- key symbols: ")
+                    .append(String.join(", ", symbols.stream().limit(12).collect(Collectors.toList())))
+                    .append("\n");
+        }
+        relationships.stream().limit(8).forEach(item -> builder.append(item).append("\n"));
+
+        Set<String> touched = new LinkedHashSet<>(chunk.getFiles());
+        if (!touched.isEmpty()) {
+            builder.append("- touched files for AST scope: ")
+                    .append(String.join(", ", touched.stream().limit(6).collect(Collectors.toList())))
+                    .append("\n");
+        }
+        return builder.toString().trim();
+    }
+
+    private static String buildRagEvidence(ReviewContext context, ReviewChunk chunk) {
+        if (context == null || context.getFileDiffs() == null) {
+            return "- (rag evidence unavailable)";
+        }
+
+        Set<String> queryTokens = extractIdentifiersFromChunk(chunk.getContent());
+        if (queryTokens.isEmpty()) {
+            return "- (insufficient identifiers for retrieval evidence)";
+        }
+
+        List<EvidenceSnippet> snippets = new java.util.ArrayList<>();
+        for (Map.Entry<String, String> entry : context.getFileDiffs().entrySet()) {
+            String path = entry.getKey();
+            String diff = entry.getValue();
+            if (diff == null || diff.isBlank()) {
+                continue;
+            }
+            String[] lines = diff.split("\\n", -1);
+            for (String line : lines) {
+                String normalized = line.trim();
+                if (normalized.isEmpty()) {
+                    continue;
+                }
+                int score = scoreLineAgainstTokens(normalized, queryTokens);
+                if (score > 0) {
+                    snippets.add(new EvidenceSnippet(path, normalized, score));
+                }
+            }
+        }
+
+        if (snippets.isEmpty()) {
+            return "- (no related evidence found in repository diff context)";
+        }
+
+        snippets.sort(Comparator.comparingInt(EvidenceSnippet::getScore).reversed());
+
+        StringBuilder builder = new StringBuilder();
+        int limit = 8;
+        for (int i = 0; i < snippets.size() && i < limit; i++) {
+            EvidenceSnippet snippet = snippets.get(i);
+            builder.append("- [")
+                    .append(snippet.getPath())
+                    .append("] score=")
+                    .append(snippet.getScore())
+                    .append(" :: ")
+                    .append(truncate(snippet.getLine(), 220))
+                    .append("\n");
+        }
+        return builder.toString().trim();
+    }
+
+    private static int scoreLineAgainstTokens(String line, Set<String> tokens) {
+        int score = 0;
+        for (String token : tokens) {
+            if (line.contains(token)) {
+                score += Math.min(token.length(), 12);
+            }
+        }
+        return score;
+    }
+
+    private static String truncate(String value, int maxLen) {
+        if (value == null || value.length() <= maxLen) {
+            return value;
+        }
+        return value.substring(0, maxLen) + " ...";
+    }
+
+    private static String buildReasoningGuide() {
+        return String.join("\n",
+                "1. Start from concrete evidence lines before making claims.",
+                "2. Map each finding to the exact [Line N] marker in added code.",
+                "3. Correlate with AST symbols (types/methods/calls) to avoid shallow pattern matching.",
+                "4. Prefer high-confidence defects with clear runtime/security impact.",
+                "5. If evidence is weak or ambiguous, do not report the issue.");
+    }
+
+    private static final class EvidenceSnippet {
+        private final String path;
+        private final String line;
+        private final int score;
+
+        private EvidenceSnippet(String path, String line, int score) {
+            this.path = path;
+            this.line = line;
+            this.score = score;
+        }
+
+        private String getPath() {
+            return path;
+        }
+
+        private String getLine() {
+            return line;
+        }
+
+        private int getScore() {
+            return score;
+        }
     }
 
     private static int resolveImpactDiffLimit(ReviewConfig config) {
