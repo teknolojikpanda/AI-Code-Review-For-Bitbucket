@@ -27,6 +27,7 @@ import javax.ws.rs.core.Response;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * REST endpoint allowing administrators to trigger manual AI reviews.
@@ -131,14 +132,16 @@ public class ManualReviewResource {
                 Map<String, Object> response = toResultPayload(result, force, treatAsUpdate);
                 return Response.ok(response).build();
             }
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
+            String correlationId = UUID.randomUUID().toString();
             LogSupport.error(log, "manual_review.failed", "Manual review failed", ex,
-                    "pullRequestId", prId,
-                    "projectKey", projectKey,
-                    "repositorySlug", repositorySlug);
+                "correlationId", correlationId,
+                "pullRequestId", prId,
+                "projectKey", projectKey,
+                "repositorySlug", repositorySlug);
             return Response.serverError()
-                    .entity(error("Manual review failed: " + ex.getMessage()))
-                    .build();
+                .entity(errorWithCorrelation("Manual review failed due to internal error.", correlationId))
+                .build();
         }
     }
 
@@ -150,6 +153,12 @@ public class ManualReviewResource {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("error", message);
         return map;
+    }
+
+    private Map<String, Object> errorWithCorrelation(String message, String correlationId) {
+        Map<String, Object> payload = error(message);
+        payload.put("correlationId", correlationId);
+        return payload;
     }
 
     private Map<String, Object> toResultPayload(ReviewResult result, boolean force, boolean treatAsUpdate) {
