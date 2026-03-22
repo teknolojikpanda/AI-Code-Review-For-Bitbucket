@@ -15,6 +15,7 @@
 
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
     var userSearchUrl = apiUrl + '/users';
+    var scopeTree = (window.AIReviewer && window.AIReviewer.ScopeTree) ? window.AIReviewer.ScopeTree : null;
     var profilePresets = {};
     var suppressProfileChange = false;
     var repositoryOverrides = [];
@@ -718,6 +719,10 @@
         if (!$container.length) {
             return;
         }
+        if (scopeTree && typeof scopeTree.setMessage === 'function') {
+            scopeTree.setMessage($container, message);
+            return;
+        }
         if (!message) {
             $container.empty();
             return;
@@ -732,29 +737,16 @@
     }
 
     function buildCatalogIndex() {
+        if (scopeTree && typeof scopeTree.buildCatalogIndex === 'function') {
+            var index = scopeTree.buildCatalogIndex(repositoryCatalog);
+            catalogIndex.projects = index.projects;
+            catalogIndex.repositories = index.repositories;
+            totalRepositoryCount = index.totalRepositories;
+            return;
+        }
         catalogIndex.projects = new Map();
         catalogIndex.repositories = new Map();
         totalRepositoryCount = 0;
-        repositoryCatalog.forEach(function(project) {
-            if (!project || !project.projectKey) {
-                return;
-            }
-            catalogIndex.projects.set(project.projectKey, project);
-            var repos = Array.isArray(project.repositories) ? project.repositories : [];
-            repos.forEach(function(repo) {
-                if (!repo || !repo.repositorySlug) {
-                    return;
-                }
-                var key = buildRepoKey(project.projectKey, repo.repositorySlug);
-                totalRepositoryCount += 1;
-                catalogIndex.repositories.set(key, {
-                    projectKey: project.projectKey,
-                    projectName: project.projectName,
-                    repositorySlug: repo.repositorySlug,
-                    repositoryName: repo.repositoryName
-                });
-            });
-        });
     }
 
     function initializeScopeStateFromOverrides(scopeMode) {
@@ -779,6 +771,9 @@
     }
 
     function buildRepoKey(projectKey, repositorySlug) {
+        if (scopeTree && typeof scopeTree.buildRepoKey === 'function') {
+            return scopeTree.buildRepoKey(projectKey, repositorySlug);
+        }
         if (!projectKey || !repositorySlug) {
             return null;
         }
@@ -786,6 +781,9 @@
     }
 
     function splitRepoKey(key) {
+        if (scopeTree && typeof scopeTree.splitRepoKey === 'function') {
+            return scopeTree.splitRepoKey(key);
+        }
         if (!key || typeof key !== 'string') {
             return null;
         }
@@ -842,169 +840,15 @@
         if (!$container.length) {
             return;
         }
-        if (!repositoryCatalog.length) {
-            $container.html('<div class="loading-message">No repositories available.</div>');
+        if (!scopeTree || typeof scopeTree.render !== 'function') {
+            displayScopeCatalogError('Failed to render repository scope tree: missing ScopeTree module.');
             return;
         }
-
-        var partitioned = partitionProjects(repositoryCatalog);
-        var $tree = $('<div class="scope-tree"></div>');
-        var $rootList = $('<ul class="scope-tree-list"></ul>');
-        $rootList.append(buildAllNode());
-
-        if (partitioned.projects.length) {
-            $rootList.append(buildGroupNode('projects', 'All project repositories', partitioned.projects));
-        }
-        if (partitioned.personal.length) {
-            $rootList.append(buildGroupNode('personal', 'All personal repositories', partitioned.personal));
-        }
-
-        $tree.append($rootList);
-        $container.empty().append($tree);
-    }
-
-    function partitionProjects(catalog) {
-        var projects = [];
-        var personal = [];
-        catalog.forEach(function(project) {
-            if (!project) {
-                return;
-            }
-            var isPersonal = project.personal === true ||
-                (project.projectType && project.projectType.toUpperCase() === 'PERSONAL');
-            (isPersonal ? personal : projects).push(project);
+        scopeTree.render($container, repositoryCatalog, {
+            allLabel: 'All repositories (current and future)',
+            projectGroupLabel: 'All project repositories',
+            personalGroupLabel: 'All personal repositories'
         });
-
-        var comparator = function(a, b) {
-            var left = (a.projectKey || '').toLowerCase();
-            var right = (b.projectKey || '').toLowerCase();
-            return left.localeCompare(right);
-        };
-        projects.sort(comparator);
-        personal.sort(comparator);
-        return { projects: projects, personal: personal };
-    }
-
-    function buildAllNode() {
-        var $checkbox = $('<input type="checkbox" class="scope-checkbox">')
-            .attr('id', 'scope-checkbox-all')
-            .attr('data-node-type', 'all');
-        var $label = $('<label for="scope-checkbox-all">All repositories (current and future)</label>');
-        var $row = $('<div class="node-row"></div>')
-            .append('<span class="scope-node-toggle spacer"></span>')
-            .append($checkbox)
-            .append($label);
-        return $('<li class="scope-node scope-node-root"></li>').append($row);
-    }
-
-    function buildGroupNode(groupType, label, projects) {
-        var groupId = 'scope-group-' + groupType;
-        var $checkbox = $('<input type="checkbox" class="scope-checkbox">')
-            .attr('id', groupId)
-            .attr('data-node-type', 'group')
-            .attr('data-group-type', groupType);
-        var $label = $('<label>').attr('for', groupId).text(label);
-        var repoCount = 0;
-        projects.forEach(function(project) {
-            repoCount += Array.isArray(project.repositories) ? project.repositories.length : 0;
-        });
-        var $count = $('<span class="count-badge"></span>').text(repoCount);
-
-        var $row = $('<div class="node-row"></div>')
-            .append('<button type="button" class="scope-node-toggle" aria-expanded="true"></button>')
-            .append($checkbox)
-            .append($label)
-            .append($count);
-
-        var $children = $('<ul class="scope-children"></ul>');
-        projects.forEach(function(project) {
-            $children.append(buildProjectNode(project, groupType));
-        });
-
-        var $node = $('<li class="scope-node scope-node-group scope-node-expandable"></li>')
-            .attr('data-node-type', 'group')
-            .attr('data-group-type', groupType)
-            .append($row)
-            .append($children);
-
-        if (!repoCount) {
-            $node.removeClass('scope-node-expandable');
-        }
-        return $node;
-    }
-
-    function buildProjectNode(project, groupType) {
-        var projectKey = project.projectKey;
-        var safeId = projectKey.replace(/[^A-Za-z0-9_-]/g, '_');
-        var projectId = 'scope-project-' + safeId;
-
-        var labelText = projectKey;
-        if (project.projectName && project.projectName !== projectKey) {
-            labelText += ' · ' + project.projectName;
-        }
-
-        var $checkbox = $('<input type="checkbox" class="scope-checkbox">')
-            .attr('id', projectId)
-            .attr('data-node-type', 'project')
-            .attr('data-project-key', projectKey)
-            .attr('data-group-type', groupType);
-
-        var $label = $('<label>').attr('for', projectId).text(labelText);
-        var repoList = Array.isArray(project.repositories) ? project.repositories : [];
-        var $count = $('<span class="count-badge"></span>').text(repoList.length);
-
-        var $row = $('<div class="node-row"></div>')
-            .append('<button type="button" class="scope-node-toggle" aria-expanded="true"></button>')
-            .append($checkbox)
-            .append($label)
-            .append($count);
-
-        var $children = $('<ul class="scope-children"></ul>');
-        repoList.forEach(function(repo) {
-            $children.append(buildRepositoryNode(projectKey, repo));
-        });
-
-        var $node = $('<li class="scope-node scope-node-project scope-node-expandable"></li>')
-            .attr('data-node-type', 'project')
-            .attr('data-project-key', projectKey)
-            .attr('data-group-type', groupType)
-            .append($row)
-            .append($children);
-
-        if (!repoList.length) {
-            $node.removeClass('scope-node-expandable');
-        }
-        return $node;
-    }
-
-    function buildRepositoryNode(projectKey, repository) {
-        if (!repository || !repository.repositorySlug) {
-            return $('<li>');
-        }
-        var repoKey = projectKey + '/' + repository.repositorySlug;
-        var safeId = repoKey.replace(/[^A-Za-z0-9_-]/g, '_');
-        var checkboxId = 'scope-repo-' + safeId;
-
-        var $checkbox = $('<input type="checkbox" class="scope-checkbox">')
-            .attr('id', checkboxId)
-            .attr('data-node-type', 'repository')
-            .attr('data-project-key', projectKey)
-            .attr('data-repository-slug', repository.repositorySlug);
-
-        var labelText = repository.repositoryName || repository.repositorySlug;
-
-        var $label = $('<label>').attr('for', checkboxId).text(labelText);
-
-        var $row = $('<div class="node-row"></div>')
-            .append('<span class="scope-node-toggle spacer"></span>')
-            .append($checkbox)
-            .append($label);
-
-        return $('<li class="scope-node scope-node-repository"></li>')
-            .attr('data-node-type', 'repository')
-            .attr('data-project-key', projectKey)
-            .attr('data-repository-slug', repository.repositorySlug)
-            .append($row);
     }
 
     function applyScopeStateToTree() {
@@ -1012,104 +856,13 @@
         if (!$tree.length || !$tree.find('.scope-checkbox').length) {
             return;
         }
+        if (!scopeTree || typeof scopeTree.applySelectionState !== 'function') {
+            return;
+        }
 
         suppressScopeEvents = true;
-        var isGlobal = scopeState.mode === 'all';
-        var $allCheckbox = $('#scope-checkbox-all');
-
-        if ($allCheckbox.length) {
-            $allCheckbox.prop('checked', isGlobal).prop('indeterminate', false);
-        }
-
-        var $otherCheckboxes = $tree.find('.scope-checkbox').not($allCheckbox);
-        if (isGlobal) {
-            $otherCheckboxes.each(function() {
-                $(this)
-                    .prop('checked', true)
-                    .prop('indeterminate', false)
-                    .prop('disabled', true);
-            });
-        } else {
-            $otherCheckboxes.prop('disabled', false);
-            $tree.find('.scope-checkbox[data-node-type="repository"]').each(function() {
-                var $checkbox = $(this);
-                var key = buildRepoKey($checkbox.data('projectKey'), $checkbox.data('repositorySlug'));
-                var selected = scopeState.selectedRepositories.has(key);
-                $checkbox.prop('checked', selected).prop('indeterminate', false);
-            });
-            updateProjectCheckboxStates();
-            updateGroupCheckboxStates();
-            updateGlobalCheckboxIndicator();
-        }
-
+        scopeTree.applySelectionState($tree, scopeState);
         suppressScopeEvents = false;
-    }
-
-    function updateProjectCheckboxStates() {
-        $('#repository-scope-tree li.scope-node-project').each(function() {
-            var $projectNode = $(this);
-            var $projectCheckbox = $projectNode.find('> .node-row .scope-checkbox');
-            var repoCheckboxes = $projectNode.find('> .scope-children .scope-checkbox[data-node-type="repository"]');
-            if (!repoCheckboxes.length) {
-                $projectCheckbox.prop('checked', false).prop('indeterminate', false);
-                return;
-            }
-            var checkedCount = repoCheckboxes.filter(':checked').length;
-            if (checkedCount === repoCheckboxes.length) {
-                $projectCheckbox.prop('checked', true).prop('indeterminate', false);
-            } else if (checkedCount === 0) {
-                $projectCheckbox.prop('checked', false).prop('indeterminate', false);
-            } else {
-                $projectCheckbox.prop('checked', false).prop('indeterminate', true);
-            }
-        });
-    }
-
-    function updateGroupCheckboxStates() {
-        $('#repository-scope-tree li.scope-node-group').each(function() {
-            var $groupNode = $(this);
-            var $groupCheckbox = $groupNode.find('> .node-row .scope-checkbox');
-            var projectCheckboxes = $groupNode.find('> .scope-children .scope-checkbox[data-node-type="project"]');
-            if (!projectCheckboxes.length) {
-                $groupCheckbox.prop('checked', false).prop('indeterminate', false);
-                return;
-            }
-            var allChecked = projectCheckboxes.filter(function() {
-                return $(this).prop('checked') && !$(this).prop('indeterminate');
-            }).length === projectCheckboxes.length;
-
-            var anyChecked = projectCheckboxes.filter(function() {
-                return $(this).prop('checked') || $(this).prop('indeterminate');
-            }).length > 0;
-
-            if (allChecked) {
-                $groupCheckbox.prop('checked', true).prop('indeterminate', false);
-            } else if (!anyChecked) {
-                $groupCheckbox.prop('checked', false).prop('indeterminate', false);
-            } else {
-                $groupCheckbox.prop('checked', false).prop('indeterminate', true);
-            }
-        });
-    }
-
-    function updateGlobalCheckboxIndicator() {
-        var $all = $('#scope-checkbox-all');
-        if (!$all.length) {
-            return;
-        }
-        if (scopeState.mode === 'all') {
-            $all.prop('checked', true).prop('indeterminate', false);
-            return;
-        }
-        if (!scopeState.selectedRepositories.size) {
-            $all.prop('checked', false).prop('indeterminate', false);
-            return;
-        }
-        if (totalRepositoryCount > 0 && scopeState.selectedRepositories.size === totalRepositoryCount) {
-            $all.prop('checked', true).prop('indeterminate', false);
-        } else {
-            $all.prop('checked', false).prop('indeterminate', true);
-        }
     }
 
     function updateScopeSummary() {
@@ -1331,54 +1084,24 @@
     }
 
     function toggleGroupSelection($checkbox) {
-        var checked = $checkbox.is(':checked');
-        var groupType = $checkbox.data('groupType');
-        var selector = '.scope-node[data-group-type="' + groupType + '"] .scope-checkbox[data-node-type="repository"]';
-        $('#repository-scope-tree').find(selector).each(function() {
-            var $repoCheckbox = $(this);
-            var key = buildRepoKey($repoCheckbox.data('projectKey'), $repoCheckbox.data('repositorySlug'));
-            if (!key) {
-                return;
-            }
-            if (checked) {
-                scopeState.selectedRepositories.add(key);
-            } else {
-                scopeState.selectedRepositories.delete(key);
-            }
-            $repoCheckbox.prop('checked', checked);
-        });
+        if (!scopeTree || typeof scopeTree.toggleGroupSelection !== 'function') {
+            return;
+        }
+        scopeTree.toggleGroupSelection($('#repository-scope-tree'), scopeState, $checkbox);
     }
 
     function toggleProjectSelection($checkbox) {
-        var checked = $checkbox.is(':checked');
-        var projectKey = $checkbox.data('projectKey');
-        var selector = '.scope-node[data-project-key="' + projectKey + '"] .scope-checkbox[data-node-type="repository"]';
-        $('#repository-scope-tree').find(selector).each(function() {
-            var $repoCheckbox = $(this);
-            var key = buildRepoKey($repoCheckbox.data('projectKey'), $repoCheckbox.data('repositorySlug'));
-            if (!key) {
-                return;
-            }
-            if (checked) {
-                scopeState.selectedRepositories.add(key);
-            } else {
-                scopeState.selectedRepositories.delete(key);
-            }
-            $repoCheckbox.prop('checked', checked);
-        });
+        if (!scopeTree || typeof scopeTree.toggleProjectSelection !== 'function') {
+            return;
+        }
+        scopeTree.toggleProjectSelection($('#repository-scope-tree'), scopeState, $checkbox);
     }
 
     function toggleRepositorySelection($checkbox) {
-        var checked = $checkbox.is(':checked');
-        var key = buildRepoKey($checkbox.data('projectKey'), $checkbox.data('repositorySlug'));
-        if (!key) {
+        if (!scopeTree || typeof scopeTree.toggleRepositorySelection !== 'function') {
             return;
         }
-        if (checked) {
-            scopeState.selectedRepositories.add(key);
-        } else {
-            scopeState.selectedRepositories.delete(key);
-        }
+        scopeTree.toggleRepositorySelection(scopeState, $checkbox);
     }
 
     function refreshScopeUiAfterSelection() {
