@@ -110,6 +110,7 @@ public class ConfigResourceSecurityTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getEntity();
         assertEquals("Request payload is required", payload.get("error"));
+        assertNotNull(payload.get("correlationId"));
     }
 
     @Test

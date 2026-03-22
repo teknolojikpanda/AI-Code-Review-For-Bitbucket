@@ -509,9 +509,11 @@ public class ConfigResource {
         }
 
         if (params == null) {
+            String correlationId = UUID.randomUUID().toString();
+            log.warn("Config operation 'test Ollama connection' rejected [{}]: request payload is null", correlationId);
             return Response.status(Response.Status.BAD_REQUEST)
-                .entity(error("Request payload is required"))
-                .build();
+                    .entity(errorWithCorrelation("Request payload is required", correlationId))
+                    .build();
         }
 
         String ollamaUrl = params.get("ollamaUrl");
