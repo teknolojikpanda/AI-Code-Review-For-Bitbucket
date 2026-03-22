@@ -14,6 +14,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewFinding;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewPreparation;
 import com.teknolojikpanda.bitbucket.aicode.model.SeverityLevel;
 import com.teknolojikpanda.bitbucket.aireviewer.util.CircuitBreaker;
+import com.teknolojikpanda.bitbucket.aireviewer.util.OutboundUrlValidator;
 import com.teknolojikpanda.bitbucket.aireviewer.util.RateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.util.CircuitBreaker.CircuitBreakerOpenException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -784,6 +785,10 @@ public class OllamaAiReviewClient implements AiReviewClient {
     private ChatResponse executeChat(String baseUrl,
                                      byte[] payloadBytes,
                                      ReviewConfig config) throws Exception {
+        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(baseUrl);
+        if (!validation.isAllowed()) {
+            throw new IllegalArgumentException("Invalid outbound URL: " + validation.getReason());
+        }
         String normalized = baseUrl.endsWith("/") ? baseUrl + "api/chat" : baseUrl + "/api/chat";
         URI chatUri = URI.create(normalized);
         HttpURLConnection connection = (HttpURLConnection) chatUri.toURL().openConnection();

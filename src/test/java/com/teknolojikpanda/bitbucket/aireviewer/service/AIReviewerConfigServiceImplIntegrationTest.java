@@ -38,6 +38,10 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         activeObjects = new TestActiveObjects(entityManager);
         service = new AIReviewerConfigServiceImpl(activeObjects);
         activeObjects.migrate(AIReviewConfiguration.class, AIReviewRepoConfiguration.class);
+
+        Map<String, Object> validGlobal = new HashMap<>(service.getDefaultConfiguration());
+        validGlobal.put("ollamaUrl", "https://8.8.8.8:443");
+        service.updateConfiguration(validGlobal);
     }
 
     @Test

@@ -104,6 +104,11 @@ public class HttpClientUtil {
         Objects.requireNonNull(url, "url cannot be null");
         Objects.requireNonNull(requestBody, "requestBody cannot be null");
 
+        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(url);
+        if (!validation.isAllowed()) {
+            throw new IOException("Invalid outbound URL: " + validation.getReason());
+        }
+
         IOException lastException = null;
 
         for (int attempt = 0; attempt <= retries; attempt++) {
@@ -200,6 +205,11 @@ public class HttpClientUtil {
      */
     public boolean testConnection(@Nonnull String baseUrl) {
         try {
+            OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(baseUrl);
+            if (!validation.isAllowed()) {
+                log.warn("Ollama connection test blocked by outbound URL policy: {}", validation.getReason());
+                return false;
+            }
             String url = baseUrl.endsWith("/") ? baseUrl + "api/tags" : baseUrl + "/api/tags";
             URI uri = URI.create(url);
             HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();

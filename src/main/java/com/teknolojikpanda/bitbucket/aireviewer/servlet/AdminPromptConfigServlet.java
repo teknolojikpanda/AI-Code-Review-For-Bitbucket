@@ -25,6 +25,7 @@ import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 @Named
 public class AdminPromptConfigServlet extends HttpServlet {
@@ -87,9 +88,11 @@ public class AdminPromptConfigServlet extends HttpServlet {
 
         try {
             configValues.putAll(configService.getConfigurationAsMap());
-        } catch (Exception e) {
-            log.error("Failed to load configuration for prompt UI", e);
-            context.put("errorMessage", "Failed to load configuration: " + e.getMessage());
+        } catch (RuntimeException ex) {
+            String correlationId = UUID.randomUUID().toString();
+            log.error("Failed to load configuration for prompt UI [{}]", correlationId, ex);
+            context.put("errorCorrelationId", correlationId);
+            context.put("errorMessage", "Failed to load configuration. Reference: " + correlationId);
         }
 
         PromptTemplates promptDefaults = PromptTemplates.loadDefaults();
