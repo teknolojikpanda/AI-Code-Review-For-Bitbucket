@@ -16,6 +16,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.Page;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController;
+import com.teknolojikpanda.bitbucket.aireviewer.util.StatusTextFormatter;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -510,7 +511,7 @@ public class ProgressResource {
         List<String> parts = new ArrayList<>();
         if (snapshot.isCompleted()) {
             if (snapshot.getFinalStatus() != null) {
-                parts.add(humanizeState(snapshot.getFinalStatus().getValue()));
+                parts.add(StatusTextFormatter.humanize(snapshot.getFinalStatus().getValue(), "Completed", false));
             } else {
                 parts.add("Completed");
             }
@@ -532,28 +533,6 @@ public class ProgressResource {
             parts.add("Awaiting first milestone");
         }
         return String.join(" · ", parts);
-    }
-
-    private String humanizeState(String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return "Completed";
-        }
-        String normalized = value.replace('_', ' ').replace('-', ' ').trim();
-        String[] tokens = normalized.split("\\s+");
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < tokens.length; i++) {
-            if (tokens[i].isEmpty()) {
-                continue;
-            }
-            if (i > 0) {
-                builder.append(' ');
-            }
-            builder.append(Character.toUpperCase(tokens[i].charAt(0)));
-            if (tokens[i].length() > 1) {
-                builder.append(tokens[i].substring(1).toLowerCase());
-            }
-        }
-        return builder.length() == 0 ? "Completed" : builder.toString();
     }
 
     private String formatTimestamp(long epochMillis) {

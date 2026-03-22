@@ -19,6 +19,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewRepoConfiguration;
 import com.teknolojikpanda.bitbucket.aireviewer.util.HttpClientUtil;
+import com.teknolojikpanda.bitbucket.aireviewer.util.OutboundUrlValidator;
 import com.teknolojikpanda.bitbucket.aireviewer.util.PromptKeySupport;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -33,7 +34,6 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Named;
 import java.math.BigDecimal;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -1958,14 +1958,9 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     }
 
     private void validateUrl(String url) {
-        try {
-            URI uri = URI.create(url);
-            String scheme = uri.getScheme();
-            if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
-                throw new IllegalArgumentException("URL must use http or https: " + url);
-            }
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid URL format: " + url, e);
+        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(url);
+        if (!validation.isAllowed()) {
+            throw new IllegalArgumentException("Invalid URL format or forbidden host: " + validation.getReason());
         }
     }
 

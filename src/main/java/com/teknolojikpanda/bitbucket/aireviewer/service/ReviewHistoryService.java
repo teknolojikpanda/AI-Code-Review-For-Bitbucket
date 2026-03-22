@@ -6,6 +6,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewChunk;
 import com.teknolojikpanda.bitbucket.aireviewer.ao.AIReviewHistory;
 import com.teknolojikpanda.bitbucket.aireviewer.util.ChunkTelemetryUtil;
 import com.teknolojikpanda.bitbucket.aireviewer.util.LargeFieldCompression;
+import com.teknolojikpanda.bitbucket.aireviewer.util.StatusTextFormatter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -618,7 +619,7 @@ public class ReviewHistoryService {
         List<String> parts = new ArrayList<>();
         String status = history.getReviewStatus();
         if (status != null && !status.trim().isEmpty()) {
-            parts.add(humanizeStatus(status));
+            parts.add(StatusTextFormatter.humanize(status, "Completed", false));
         }
         long end = history.getReviewEndTime();
         long start = history.getReviewStartTime();
@@ -636,28 +637,6 @@ public class ReviewHistoryService {
             parts.add("Re-review");
         }
         return String.join(" · ", parts);
-    }
-
-    private String humanizeStatus(String status) {
-        String normalized = status.replace('_', ' ').replace('-', ' ').trim();
-        if (normalized.isEmpty()) {
-            return "Completed";
-        }
-        String[] tokens = normalized.split("\\s+");
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < tokens.length; i++) {
-            if (tokens[i].isEmpty()) {
-                continue;
-            }
-            if (i > 0) {
-                builder.append(' ');
-            }
-            builder.append(Character.toUpperCase(tokens[i].charAt(0)));
-            if (tokens[i].length() > 1) {
-                builder.append(tokens[i].substring(1).toLowerCase());
-            }
-        }
-        return builder.toString();
     }
 
     private String formatTimestamp(long epochMillis) {

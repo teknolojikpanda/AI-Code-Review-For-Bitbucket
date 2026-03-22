@@ -6,8 +6,8 @@
     <meta name="application-base-url" content="$baseUrl">
     $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-admin-resources")
 </head>
-<body>
-    <header class="aui-page-header" style="padding-bottom: 20px;">
+<body class="ai-admin-page ai-admin-page--config">
+    <header class="aui-page-header ai-admin-header">
         <div class="aui-page-header-inner">
             <div class="aui-page-header-main">
                 <h1>AI Code Reviewer Configuration</h1>
@@ -481,7 +481,7 @@
                     </form>
 
                     <!-- Loading Indicator -->
-                    <div id="loading-indicator" class="aui-spinner" style="display: none;"></div>
+                    <div id="loading-indicator" class="aui-spinner ai-admin-hidden"></div>
                 </div>
             </section>
         </div>

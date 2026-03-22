@@ -12,6 +12,7 @@ import com.teknolojikpanda.bitbucket.aicode.model.ReviewProfile;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewMode;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewChunk;
 import com.teknolojikpanda.bitbucket.aicode.model.ReviewFileMetadata;
+import com.teknolojikpanda.bitbucket.aireviewer.util.OutboundUrlValidator;
 
 import javax.annotation.Nonnull;
 import java.io.BufferedReader;
@@ -251,7 +252,13 @@ final class PromptRenderer {
             return Collections.emptyList();
         }
         ReviewConfig config = context.getConfig();
-        if (config == null || config.getPrimaryModelEndpoint() == null || !isResolvableEmbeddingHost(config.getPrimaryModelEndpoint())) {
+        if (config == null || config.getPrimaryModelEndpoint() == null) {
+            return Collections.emptyList();
+        }
+
+        OutboundUrlValidator.ValidationResult endpointValidation =
+                OutboundUrlValidator.validateHttpUri(config.getPrimaryModelEndpoint(), null);
+        if (!endpointValidation.isAllowed()) {
             return Collections.emptyList();
         }
 
@@ -289,17 +296,6 @@ final class PromptRenderer {
             return primaryModel;
         }
         return DEFAULT_EMBEDDING_MODEL;
-    }
-
-    private static boolean isResolvableEmbeddingHost(URI endpoint) {
-        String host = endpoint.getHost();
-        if (host == null || host.isBlank()) {
-            return false;
-        }
-        return host.equals("localhost")
-                || host.equals("127.0.0.1")
-                || host.equals("host.docker.internal")
-                || host.contains(".");
     }
 
     private static String buildQueryText(ReviewChunk chunk) {

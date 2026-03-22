@@ -19,7 +19,10 @@ import org.springframework.beans.factory.InitializingBean;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Named;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -60,9 +63,10 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
         try {
             eventPublisher.register(this);
             LogSupport.info(log, "listener.registered", "Listener registered with EventPublisher");
-        } catch (Exception e) {
-            LogSupport.error(log, "listener.registration_failed", "Failed to register listener", e);
-            throw e;
+        } catch (RuntimeException ex) {
+            LogSupport.error(log, "listener.registration_failed", "Failed to register listener", ex,
+                    "category", classifyFailure(ex));
+            throw ex;
         }
     }
 
@@ -169,9 +173,15 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
                         "pullRequestId", pullRequest.getId());
             }
 
-        } catch (Exception e) {
-            LogSupport.error(log, "review.failed", "Review execution failed", e,
-                    "pullRequestId", pullRequest.getId());
+        } catch (IllegalArgumentException ex) {
+            logFailedReview(pullRequest, isUpdate, ex);
+        } catch (RuntimeException ex) {
+            logFailedReview(pullRequest, isUpdate, ex);
+        } catch (Throwable throwable) {
+            if (throwable instanceof Error) {
+                throw (Error) throwable;
+            }
+            logFailedReview(pullRequest, isUpdate, new RuntimeException(throwable));
         }
     }
 
@@ -188,9 +198,10 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
                 return (Boolean) enabled;
             }
             return true; // Default to enabled if not configured
-        } catch (Exception e) {
-            LogSupport.error(log, "config.read_failed", "Failed to resolve review enablement", e);
-            return true;
+        } catch (RuntimeException ex) {
+            LogSupport.error(log, "config.read_failed", "Failed to resolve review enablement; defaulting to disabled", ex,
+                    "category", classifyFailure(ex));
+            return false;
         }
     }
 
@@ -207,8 +218,9 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
                 return (Boolean) reviewDrafts;
             }
             return false; // Default to not reviewing drafts
-        } catch (Exception e) {
-            LogSupport.error(log, "config.read_failed", "Failed to resolve draft review toggle", e);
+        } catch (RuntimeException ex) {
+            LogSupport.error(log, "config.read_failed", "Failed to resolve draft review toggle", ex,
+                    "category", classifyFailure(ex));
             return false;
         }
     }
@@ -277,5 +289,83 @@ public class PullRequestAIReviewListener implements DisposableBean, Initializing
                 && pullRequest.getToRef().getRepository() != null
                 ? pullRequest.getToRef().getRepository().getSlug()
                 : "unknown";
+    }
+
+    private String safeMessage(Exception e) {
+        if (e == null || e.getMessage() == null || e.getMessage().trim().isEmpty()) {
+            return "no message";
+        }
+        return e.getMessage().trim();
+    }
+
+    private void logFailedReview(PullRequest pullRequest, boolean isUpdate, RuntimeException ex) {
+        String category = classifyFailure(ex);
+        ReviewResult failedResult = ReviewResult.builder()
+                .pullRequestId(pullRequest.getId())
+                .status(ReviewResult.Status.FAILED)
+                .filesReviewed(0)
+                .filesSkipped(0)
+                .message(category + " failure: " + safeMessage(ex))
+                .addMetric("review.failure.mode", isUpdate ? "update" : "initial")
+                .addMetric("review.failure.exception", ex.getClass().getName())
+                .addMetric("review.failure.category", category)
+                .build();
+
+        LogSupport.error(log, "review.failed", "Review execution failed", ex,
+                "pullRequestId", pullRequest.getId(),
+                "status", failedResult.getStatus(),
+                "category", category,
+                "message", failedResult.getMessage());
+
+        LogSupport.info(log, "review.complete", "Review completed",
+                "pullRequestId", pullRequest.getId(),
+                "status", failedResult.getStatus(),
+                "issueCount", failedResult.getIssueCount(),
+                "filesReviewed", failedResult.getFilesReviewed(),
+                "message", failedResult.getMessage());
+    }
+
+    private String classifyFailure(Throwable throwable) {
+        if (hasCause(throwable, IllegalArgumentException.class)) {
+            return "validation";
+        }
+        if (hasCause(throwable, java.util.concurrent.TimeoutException.class)
+                || hasCause(throwable, java.net.SocketTimeoutException.class)) {
+            return "timeout";
+        }
+        if (hasCause(throwable, IOException.class)
+                || hasCause(throwable, UncheckedIOException.class)) {
+            return "io";
+        }
+        if (hasCauseNameContaining(throwable, "activeobjects")
+                || hasCauseNameContaining(throwable, "sql")
+                || hasCauseNameContaining(throwable, "persistence")) {
+            return "persistence";
+        }
+        return "internal";
+    }
+
+    private boolean hasCause(Throwable throwable, Class<?> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean hasCauseNameContaining(Throwable throwable, String token) {
+        Throwable current = throwable;
+        String lowerToken = token.toLowerCase(Locale.ROOT);
+        while (current != null) {
+            String className = current.getClass().getName().toLowerCase(Locale.ROOT);
+            if (className.contains(lowerToken)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

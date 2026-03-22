@@ -6,8 +6,8 @@
     <meta name="application-base-url" content="$baseUrl">
     $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-health-resources")
 </head>
-<body>
-<header class="aui-page-header" style="padding-bottom: 20px;">
+<body class="ai-admin-page ai-admin-page--health">
+<header class="aui-page-header ai-admin-header">
     <div class="aui-page-header-inner">
         <div class="aui-page-header-main">
             <h1>AI Code Reviewer Health Dashboard</h1>
@@ -42,7 +42,7 @@
                     <span class="health-toolbar-note">Telemetry refreshes on demand.</span>
                 </div>
 
-                <div id="health-message" class="aui-message info" style="display:none;"></div>
+                <div id="health-message" class="aui-message info ai-admin-hidden"></div>
 
                 <section class="health-section">
                     <header class="health-header">
@@ -78,7 +78,7 @@
                     </div>
                 </section>
 
-                <section class="health-section" style="margin-top: 24px;">
+                <section class="health-section ai-admin-section-spaced">
                     <header class="health-header">
                         <h2>Metrics Summary</h2>
                         <span id="metrics-summary-updated" class="health-updated">—</span>
@@ -118,14 +118,14 @@
                     <div class="queue-note" id="metrics-summary-note">Metrics summary refreshes independently of the telemetry snapshot.</div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
+                <section class="queue-section ai-admin-section-spaced">
                     <header class="queue-header">
                         <h2>Worker Pools by Node</h2>
                         <span id="worker-nodes-updated" class="queue-updated">—</span>
                     </header>
                     <div class="queue-panel">
                         <div class="queue-empty" id="worker-nodes-empty">Worker nodes have not reported telemetry yet.</div>
-                        <table class="aui aui-table aui-table-rowhover" id="worker-nodes-table" style="display:none;">
+                        <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="worker-nodes-table">
                             <thead>
                             <tr>
                                 <th>Node</th>
@@ -141,18 +141,18 @@
                     </div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
+                <section class="queue-section ai-admin-section-spaced">
                     <header class="queue-header">
                         <h2>Scaling Hints</h2>
                         <span id="scaling-hints-updated" class="queue-updated">—</span>
                     </header>
                     <div class="queue-panel">
                         <div class="queue-empty" id="scaling-hints-empty">No scaling actions recommended.</div>
-                        <ul class="health-list" id="scaling-hints-list" style="display:none;"></ul>
+                        <ul class="health-list ai-admin-hidden" id="scaling-hints-list"></ul>
                     </div>
                 </section>
 
-                <section class="automation-section" style="margin-top: 24px;">
+                <section class="automation-section ai-admin-section-spaced">
                     <header class="queue-header">
                         <h2>Webhook Metrics</h2>
                         <span id="delivery-metrics-updated" class="queue-updated">—</span>
@@ -179,14 +179,14 @@
                     </div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
+                <section class="queue-section ai-admin-section-spaced">
                     <header class="queue-header">
                         <h2>Guardrails Alerts</h2>
                         <span id="alerts-updated" class="queue-updated">—</span>
                     </header>
                     <div class="queue-panel">
                         <div class="queue-empty" id="alerts-empty">No active alerts.</div>
-                        <table class="aui aui-table aui-table-rowhover" id="alerts-table" style="display:none;">
+                        <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="alerts-table">
                             <thead>
                             <tr>
                                 <th>Severity</th>
@@ -201,14 +201,14 @@
                     </div>
                 </section>
 
-                <section class="queue-section" style="margin-top: 24px;">
+                <section class="queue-section ai-admin-section-spaced">
                     <header class="queue-header">
                         <h2>Guardrails Health Timeline</h2>
                         <span id="health-timeline-updated" class="queue-updated">—</span>
                     </header>
                     <div class="queue-panel">
                         <div class="queue-empty" id="health-timeline-empty">Loading timeline…</div>
-                        <table class="aui aui-table aui-table-rowhover" id="health-timeline-table" style="display:none;">
+                        <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="health-timeline-table">
                             <thead>
                             <tr>
                                 <th>When</th>

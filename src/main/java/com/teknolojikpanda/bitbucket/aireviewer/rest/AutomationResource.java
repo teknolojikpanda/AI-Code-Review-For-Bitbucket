@@ -239,16 +239,23 @@ public class AutomationResource {
         if (!access.allowed) {
             return access.response;
         }
-        body.validateForCreate();
-        Channel channel = channelService.createChannel(
-                body.url,
-                body.description,
-                body.enabled != null ? body.enabled : true,
-                body.signRequests != null ? body.signRequests : true,
-                body.secret,
-                body.maxRetries,
-                body.retryBackoffSeconds);
-        return Response.ok(channel).build();
+        if (body == null) {
+            return badRequest("Request body is required", "body", "Provide channel payload as JSON");
+        }
+        try {
+            body.validateForCreate();
+            Channel channel = channelService.createChannel(
+                    body.url,
+                    body.description,
+                    body.enabled != null ? body.enabled : true,
+                    body.signRequests != null ? body.signRequests : true,
+                    body.secret,
+                    body.maxRetries,
+                    body.retryBackoffSeconds);
+            return Response.ok(channel).build();
+        } catch (IllegalArgumentException ex) {
+            return badRequest(ex.getMessage(), "channel", "Invalid channel create request");
+        }
     }
 
     @PUT
@@ -261,16 +268,24 @@ public class AutomationResource {
         if (!access.allowed) {
             return access.response;
         }
-        Channel channel = channelService.updateChannel(
-                id,
-                body.description,
-                body.enabled,
-                body.signRequests,
-                body.rotateSecret,
-                body.secret,
-                body.maxRetries,
-                body.retryBackoffSeconds);
-        return Response.ok(channel).build();
+        if (body == null) {
+            return badRequest("Request body is required", "body", "Provide channel payload as JSON");
+        }
+        try {
+            body.validateForUpdate();
+            Channel channel = channelService.updateChannel(
+                    id,
+                    body.description,
+                    body.enabled,
+                    body.signRequests,
+                    body.rotateSecret,
+                    body.secret,
+                    body.maxRetries,
+                    body.retryBackoffSeconds);
+            return Response.ok(channel).build();
+        } catch (IllegalArgumentException ex) {
+            return badRequest(ex.getMessage(), "channel", "Invalid channel update request");
+        }
     }
 
     @DELETE
@@ -431,7 +446,27 @@ public class AutomationResource {
             if (url == null || url.trim().isEmpty()) {
                 throw new IllegalArgumentException("Channel URL is required");
             }
+            if (Boolean.TRUE.equals(rotateSecret) && secret != null && !secret.trim().isEmpty()) {
+                throw new IllegalArgumentException("Provide either rotateSecret or secret, not both");
+            }
         }
+
+        void validateForUpdate() {
+            if (Boolean.TRUE.equals(rotateSecret) && secret != null && !secret.trim().isEmpty()) {
+                throw new IllegalArgumentException("Provide either rotateSecret or secret, not both");
+            }
+        }
+    }
+
+    private Response badRequest(String message, String field, String reason) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("field", field);
+        details.put("reason", reason);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("error", message != null && !message.trim().isEmpty() ? message : "Invalid request");
+        payload.put("details", details);
+        return Response.status(Response.Status.BAD_REQUEST).entity(payload).build();
     }
 
     public static final class RolloutCohortRequest {

@@ -15,6 +15,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewHistoryService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewSchedulerStateService;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewWorkerPool;
+import com.teknolojikpanda.bitbucket.aireviewer.util.StatusTextFormatter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.StreamingOutput;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -60,6 +62,8 @@ import java.util.stream.Collectors;
 public class HistoryResource {
 
     private static final Logger log = LoggerFactory.getLogger(HistoryResource.class);
+    private static final int HTTP_BAD_GATEWAY = 502;
+    private static final int HTTP_GATEWAY_TIMEOUT = 504;
 
     private static final int MAX_RATE_LIMIT_SAMPLES = 10;
     private static final DateTimeFormatter EXPORT_FILENAME_FORMAT =
@@ -194,16 +198,78 @@ public class HistoryResource {
             payload.put("offset", page.getOffset());
             payload.put("nextOffset", computeNextOffset(page));
             payload.put("prevOffset", computePrevOffset(page));
-        payload.put("queueStats", queueStatsToMap());
+            payload.put("queueStats", queueStatsToMap());
             payload.put("ongoing", ongoing);
             payload.put("ongoingCount", ongoing.size());
             return Response.ok(payload).build();
-        } catch (Exception ex) {
-            log.error("Failed to fetch AI review history", ex);
-            return Response.serverError()
-                    .entity(error("Failed to fetch review history: " + ex.getMessage()))
+        } catch (IllegalArgumentException ex) {
+            log.warn("Invalid history query", ex);
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid history query parameters"))
+                    .build();
+        } catch (RuntimeException ex) {
+            return classifiedHistoryFailure("fetch review history", ex)
                     .build();
         }
+    }
+
+    private Response.ResponseBuilder classifiedHistoryFailure(String operation, RuntimeException ex) {
+        if (isTimeoutFailure(ex)) {
+            log.error("History operation '{}' failed", operation, ex);
+            return Response.status(HTTP_GATEWAY_TIMEOUT)
+                    .entity(error("Failed to " + operation + " due to timeout"));
+        }
+        if (isDependencyIoFailure(ex)) {
+            log.error("History operation '{}' failed", operation, ex);
+            return Response.status(HTTP_BAD_GATEWAY)
+                    .entity(error("Failed to " + operation + " due to dependency communication error"));
+        }
+        String message = isPersistenceFailure(ex)
+                ? "Failed to " + operation + " due to persistence error"
+                : "Failed to " + operation + " due to internal error";
+        log.error("History operation '{}' failed", operation, ex);
+        return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(error(message));
+    }
+
+    private boolean isTimeoutFailure(Throwable throwable) {
+        return hasCause(throwable, java.util.concurrent.TimeoutException.class)
+                || hasCause(throwable, java.net.SocketTimeoutException.class);
+    }
+
+    private boolean isDependencyIoFailure(Throwable throwable) {
+        return hasCause(throwable, IOException.class)
+                || hasCause(throwable, UncheckedIOException.class);
+    }
+
+    private boolean isPersistenceFailure(Throwable throwable) {
+        return hasCauseNameContaining(throwable, "activeobjects")
+                || hasCauseNameContaining(throwable, "sql")
+                || hasCauseNameContaining(throwable, "persistence");
+    }
+
+    private boolean hasCause(Throwable throwable, Class<?> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean hasCauseNameContaining(Throwable throwable, String token) {
+        Throwable current = throwable;
+        String lowerToken = token.toLowerCase(java.util.Locale.ROOT);
+        while (current != null) {
+            String className = current.getClass().getName().toLowerCase(java.util.Locale.ROOT);
+            if (className.contains(lowerToken)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @GET
@@ -226,22 +292,25 @@ public class HistoryResource {
         Long until = sanitizeEpoch(untilParam);
 
         try {
-        ReviewHistoryCleanupStatusService.Status cleanupStatus = cleanupStatusService.getStatus();
-        Map<String, Object> summary = historyService.getMetricsSummary(
-                projectKey,
-                repositorySlug,
-                pullRequestId,
-                since,
-                until);
-        summary.put("runtime", runtimeTelemetry());
-        Map<String, Object> retention = historyService.getRetentionStats(cleanupStatus.getRetentionDays());
-        retention.put("schedule", cleanupStatusToMap(cleanupStatus));
-        summary.put("retention", retention);
-        return Response.ok(summary).build();
-        } catch (Exception ex) {
-            log.error("Failed to compute AI review metrics", ex);
-            return Response.serverError()
-                    .entity(error("Failed to compute metrics: " + ex.getMessage()))
+            ReviewHistoryCleanupStatusService.Status cleanupStatus = cleanupStatusService.getStatus();
+            Map<String, Object> summary = historyService.getMetricsSummary(
+                    projectKey,
+                    repositorySlug,
+                    pullRequestId,
+                    since,
+                    until);
+            summary.put("runtime", runtimeTelemetry());
+            Map<String, Object> retention = historyService.getRetentionStats(cleanupStatus.getRetentionDays());
+            retention.put("schedule", cleanupStatusToMap(cleanupStatus));
+            summary.put("retention", retention);
+            return Response.ok(summary).build();
+        } catch (IllegalArgumentException ex) {
+            log.warn("Invalid metrics query", ex);
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid metrics query parameters"))
+                    .build();
+        } catch (RuntimeException ex) {
+            return classifiedHistoryFailure("compute review metrics", ex)
                     .build();
         }
     }
@@ -277,10 +346,13 @@ public class HistoryResource {
                     until,
                     limit));
             return Response.ok(payload).build();
-        } catch (Exception ex) {
-            log.error("Failed to compute daily AI review metrics", ex);
-            return Response.serverError()
-                    .entity(error("Failed to compute daily metrics: " + ex.getMessage()))
+        } catch (IllegalArgumentException ex) {
+            log.warn("Invalid daily metrics query", ex);
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(error("Invalid daily metrics query parameters"))
+                    .build();
+        } catch (RuntimeException ex) {
+            return classifiedHistoryFailure("compute daily metrics", ex)
                     .build();
         }
     }
@@ -371,7 +443,7 @@ public class HistoryResource {
                         actorKey,
                         actorName);
                 payload.put("result", cleanupResultToMap(result));
-            } catch (Exception ex) {
+            } catch (RuntimeException ex) {
                 cleanupAuditService.recordFailure(start, true, actorKey, actorName, ex.getMessage());
                 cleanupStatusService.recordFailure(ex.getMessage());
                 throw ex;
@@ -567,7 +639,7 @@ public class HistoryResource {
         if (event == null) {
             return "Awaiting first milestone";
         }
-        String stage = humanizeStage(event.getStage());
+        String stage = StatusTextFormatter.humanize(event.getStage(), "Queued", true);
         Map<String, Object> details = event.getDetails();
         if (details != null) {
             Object analyzing = details.get("currentlyAnalyzing");
@@ -614,36 +686,11 @@ public class HistoryResource {
         return String.join(" · ", parts);
     }
 
-    private String humanizeStage(String value) {
-        if (value == null || value.isEmpty()) {
-            return "Queued";
-        }
-        String normalized = value.replace('.', ' ').replace('_', ' ').replace('-', ' ').trim();
-        if (normalized.isEmpty()) {
-            return "Queued";
-        }
-        String[] tokens = normalized.split("\\s+");
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < tokens.length; i++) {
-            if (tokens[i].isEmpty()) {
-                continue;
-            }
-            if (i > 0) {
-                builder.append(' ');
-            }
-            builder.append(Character.toUpperCase(tokens[i].charAt(0)));
-            if (tokens[i].length() > 1) {
-                builder.append(tokens[i].substring(1).toLowerCase());
-            }
-        }
-        return builder.toString();
-    }
-
     private String formatTimestamp(long epochMillis) {
         try {
             return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(
                     Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()));
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             return Long.toString(epochMillis);
         }
     }

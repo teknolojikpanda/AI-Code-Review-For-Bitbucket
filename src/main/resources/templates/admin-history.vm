@@ -6,8 +6,8 @@
     <meta name="application-base-url" content="$baseUrl">
     $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-history-resources")
 </head>
-<body>
-<header class="aui-page-header" style="padding-bottom: 20px;">
+<body class="ai-admin-page ai-admin-page--history">
+<header class="aui-page-header ai-admin-header">
     <div class="aui-page-header-inner">
         <div class="aui-page-header-main">
             <h1>AI Code Reviewer History</h1>
@@ -64,9 +64,9 @@
                     </div>
                 </div>
 
-                <div id="history-message" class="aui-message info" style="display:none;"></div>
+                <div id="history-message" class="aui-message info ai-admin-hidden"></div>
 
-                <section id="queue-section" class="queue-section" style="display:none;">
+                <section id="queue-section" class="queue-section ai-admin-hidden">
                     <header class="queue-header">
                         <h2>Queue Snapshot</h2>
                         <span id="queue-updated" class="queue-updated">—</span>
@@ -96,12 +96,12 @@
                     <div class="queue-note" id="queue-note">—</div>
                 </section>
 
-                <section id="metrics-section" class="metrics-section" style="display:none;">
+                <section id="metrics-section" class="metrics-section ai-admin-hidden">
                     <header class="metrics-header">
                         <h2>Summary Metrics</h2>
                         <span id="metrics-subtitle" class="metrics-subtitle"></span>
                     </header>
-                    <div id="metrics-message" class="aui-message info" style="display:none;"></div>
+                    <div id="metrics-message" class="aui-message info ai-admin-hidden"></div>
                     <div class="metrics-grid">
                         <div class="metric-card">
                             <span class="metric-label">Total Reviews</span>

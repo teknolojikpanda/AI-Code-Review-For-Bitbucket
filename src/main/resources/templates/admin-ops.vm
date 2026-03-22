@@ -6,8 +6,8 @@
     <meta name="application-base-url" content="$baseUrl">
     $webResourceManager.requireResource("com.teknolojikpanda.bitbucket.ai-code-reviewer:ai-reviewer-ops-resources")
 </head>
-<body>
-<header class="aui-page-header" style="padding-bottom: 20px;">
+<body class="ai-admin-page ai-admin-page--ops">
+<header class="aui-page-header ai-admin-header">
     <div class="aui-page-header-inner">
         <div class="aui-page-header-main">
             <h1>AI Code Reviewer Operations</h1>
@@ -42,7 +42,7 @@
                     <span class="health-toolbar-note">Queue and automation data refresh on demand.</span>
                 </div>
 
-                <div id="ops-message" class="aui-message info" style="display:none;"></div>
+                <div id="ops-message" class="aui-message info ai-admin-hidden"></div>
 
                 <section class="ops-section ops-section--queue">
                     <header class="ops-section__header">
@@ -81,7 +81,7 @@
                             <input type="text" id="queue-action-reason" class="text long-field" placeholder="Recorded with cancel requests"/>
                             <span class="ops-field-hint">Reason text is persisted with queue or active cancels for auditing.</span>
                         </div>
-                        <div class="aui-message info queue-admin-message" id="queue-admin-message" style="display:none;"></div>
+                        <div class="aui-message info queue-admin-message ai-admin-hidden" id="queue-admin-message"></div>
                     </div>
                     <div class="ops-panel-grid">
                         <div class="ops-panel">
@@ -106,7 +106,7 @@
                             </div>
                             <div class="queue-empty" id="queue-entries-empty">Loading queued reviews…</div>
                             <div class="ops-table-wrapper">
-                                <table class="aui aui-table aui-table-rowhover" id="queue-entries-table" style="display:none;">
+                                <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="queue-entries-table">
                                     <thead>
                                     <tr>
                                         <th>#</th>
@@ -137,7 +137,7 @@
                             </div>
                             <div class="queue-empty" id="queue-active-empty">Loading running reviews…</div>
                             <div class="ops-table-wrapper">
-                                <table class="aui aui-table aui-table-rowhover" id="queue-active-table" style="display:none;">
+                                <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="queue-active-table">
                                     <thead>
                                     <tr>
                                         <th>Repository / PR</th>
@@ -162,7 +162,7 @@
                             </div>
                             <div class="queue-empty" id="queue-actions-empty">Loading audit log…</div>
                             <div class="ops-table-wrapper">
-                                <table class="aui aui-table aui-table-rowhover" id="queue-actions-table" style="display:none;">
+                                <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="queue-actions-table">
                                     <thead>
                                     <tr>
                                         <th>When</th>
@@ -203,7 +203,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="aui-message" id="rollout-message" style="display:none;"></div>
+                    <div class="aui-message ai-admin-hidden" id="rollout-message"></div>
                 </section>
 
                 <section class="ops-section">
@@ -215,10 +215,10 @@
                         <span id="rollout-cohort-default-mode" class="queue-updated">Default rollout: ENFORCED</span>
                     </header>
                     <div class="ops-panel">
-                        <div class="aui-message" id="rollout-cohort-message" style="display:none;"></div>
+                        <div class="aui-message ai-admin-hidden" id="rollout-cohort-message"></div>
                         <div class="queue-empty" id="rollout-cohorts-empty">No cohorts defined.</div>
                         <div class="ops-table-wrapper">
-                            <table class="aui aui-table aui-table-rowhover" id="rollout-cohorts-table" style="display:none;">
+                            <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="rollout-cohorts-table">
                                 <thead>
                                 <tr>
                                     <th>Key</th>
@@ -288,7 +288,7 @@
                             </div>
                             <div class="ops-form-actions">
                                 <button type="submit" class="aui-button aui-button-primary" id="rollout-cohort-submit">Save Cohort</button>
-                                <button type="button" class="aui-button" id="rollout-cohort-cancel" style="display:none;">Cancel Edit</button>
+                                <button type="button" class="aui-button ai-admin-hidden" id="rollout-cohort-cancel">Cancel Edit</button>
                             </div>
                         </form>
                     </div>
@@ -303,10 +303,10 @@
                         <span id="channels-count" class="queue-updated">—</span>
                     </header>
                     <div class="ops-panel">
-                        <div class="aui-message" id="channel-message" style="display:none;"></div>
+                        <div class="aui-message ai-admin-hidden" id="channel-message"></div>
                         <div class="queue-empty" id="channels-empty">No alert channels configured.</div>
                         <div class="ops-table-wrapper">
-                            <table class="aui aui-table aui-table-rowhover" id="channels-table" style="display:none;">
+                            <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="channels-table">
                                 <thead>
                                 <tr>
                                     <th>Description</th>
@@ -374,7 +374,7 @@
                         <div class="ops-panel">
                             <div class="queue-empty" id="deliveries-empty">No alert deliveries recorded yet.</div>
                             <div class="ops-table-wrapper">
-                                <table class="aui aui-table aui-table-rowhover" id="deliveries-table" style="display:none;">
+                                <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="deliveries-table">
                                     <thead>
                                     <tr>
                                         <th>When</th>
@@ -454,7 +454,7 @@
                                 <button type="submit" class="aui-button aui-button-primary" id="cleanup-save-btn">Save Schedule</button>
                                 <button type="button" class="aui-button" id="cleanup-run-btn">Run Once</button>
                             </div>
-                            <div class="aui-message info" id="cleanup-message" style="display:none;"></div>
+                            <div class="aui-message info ai-admin-hidden" id="cleanup-message"></div>
                         </form>
                     </div>
                     <div class="ops-panel">
@@ -467,7 +467,7 @@
                         </div>
                         <div class="queue-empty" id="cleanup-log-empty">No cleanup runs recorded yet.</div>
                         <div class="ops-table-wrapper">
-                            <table class="aui aui-table aui-table-rowhover" id="cleanup-log-table" style="display:none;">
+                            <table class="aui aui-table aui-table-rowhover ai-admin-hidden" id="cleanup-log-table">
                                 <thead>
                                 <tr>
                                     <th>When</th>
@@ -518,7 +518,7 @@
                                 <button type="submit" class="aui-button aui-button-primary" id="cleanup-export-download">Download Export</button>
                                 <button type="button" class="aui-button" id="cleanup-export-preview">Preview JSON</button>
                             </div>
-                            <div class="aui-message info" id="cleanup-export-message" style="display:none;"></div>
+                            <div class="aui-message info ai-admin-hidden" id="cleanup-export-message"></div>
                         </form>
                     </div>
                     <div class="ops-panel">
@@ -550,8 +550,8 @@
                                 <button type="button" class="aui-button" id="cleanup-integrity-run">Run Check</button>
                                 <button type="button" class="aui-button aui-button-primary" id="cleanup-integrity-repair-btn">Run + Repair</button>
                             </div>
-                            <div class="aui-message info" id="cleanup-integrity-message" style="display:none;"></div>
-                            <div class="ops-table-wrapper" id="cleanup-integrity-results" style="display:none;">
+                            <div class="aui-message info ai-admin-hidden" id="cleanup-integrity-message"></div>
+                            <div class="ops-table-wrapper ai-admin-hidden" id="cleanup-integrity-results">
                                 <table class="aui aui-table aui-table-rowhover">
                                     <thead>
                                     <tr>

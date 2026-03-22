@@ -738,9 +738,12 @@ public class AIReviewServiceImpl implements AIReviewService {
             }
             recordIssueMetrics(validated, invalidIssues, metrics);
 
-            ReviewComparison comparison = compareWithPreviousReview(pullRequest, validated, metrics);
-        int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
-            overallStart, comparison, summary.getImpactSummary(), metrics, timeline, configMap, reviewerUser, actingUser);
+                List<ReviewIssue> resolvedIssues = Collections.emptyList();
+                List<ReviewIssue> newIssues = Collections.emptyList();
+                metrics.setGauge("issues.previous", 0);
+
+            int commentsPosted = postCommentsIfNeeded(validated, fileChanges, pullRequest,
+                overallStart, resolvedIssues, newIssues, summary.getImpactSummary(), metrics, timeline, configMap, reviewerUser, actingUser);
             recordProgress("comments.completed", 85, progressDetails(
                     "commentsPosted", commentsPosted,
                     "issuesCommented", validated.isEmpty() ? 0 : validated.size()));
@@ -872,35 +875,12 @@ public class AIReviewServiceImpl implements AIReviewService {
         }
     }
     
-    private ReviewComparison compareWithPreviousReview(@Nonnull PullRequest pr, @Nonnull List<ReviewIssue> issues, @Nonnull MetricsCollector metrics) {
-        List<ReviewIssue> previousIssues = getPreviousIssues(pr);
-        List<ReviewIssue> resolvedIssues = new ArrayList<>();
-        List<ReviewIssue> newIssues = new ArrayList<>();
-        
-        if (!previousIssues.isEmpty()) {
-            metrics.setGauge("issues.previous", previousIssues.size());
-            resolvedIssues = findResolvedIssues(previousIssues, issues);
-            newIssues = findNewIssues(previousIssues, issues);
-            LogSupport.info(log, "review.rereview_comparison", "Re-review comparison results",
-                    "resolved", resolvedIssues.size(),
-                    "new", newIssues.size(),
-                    "previous", previousIssues.size(),
-                    "current", issues.size());
-            metrics.setGauge("issues.resolved", resolvedIssues.size());
-            metrics.setGauge("issues.new", newIssues.size());
-        } else {
-            LogSupport.info(log, "review.rereview_comparison", "First review for pull request");
-            metrics.setGauge("issues.previous", 0);
-        }
-        
-        return new ReviewComparison(resolvedIssues, newIssues);
-    }
-    
     private int postCommentsIfNeeded(@Nonnull List<ReviewIssue> issues,
                                      @Nonnull Map<String, FileChange> fileChanges,
                                      @Nonnull PullRequest pr,
                                      @Nonnull Instant overallStart,
-                                     @Nonnull ReviewComparison comparison,
+                                     @Nonnull List<ReviewIssue> resolvedIssues,
+                                     @Nonnull List<ReviewIssue> newIssues,
                                      @Nonnull String impactSummary,
                                      @Nonnull MetricsCollector metrics,
                                      @Nullable TimelineRecorder timeline,
@@ -941,8 +921,8 @@ public class AIReviewServiceImpl implements AIReviewService {
                             pr,
                             elapsedSeconds,
                             0,
-                            comparison.resolvedIssues,
-                            comparison.newIssues,
+                            resolvedIssues,
+                            newIssues,
                 configMap,
                 impactSummary,
                 inlineImpact);
@@ -1241,16 +1221,6 @@ public class AIReviewServiceImpl implements AIReviewService {
         return trimmed.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
     
-    private static class ReviewComparison {
-        final List<ReviewIssue> resolvedIssues;
-        final List<ReviewIssue> newIssues;
-        
-        ReviewComparison(@Nonnull List<ReviewIssue> resolvedIssues, @Nonnull List<ReviewIssue> newIssues) {
-            this.resolvedIssues = resolvedIssues;
-            this.newIssues = newIssues;
-        }
-    }
-
     private static final class ReviewRun {
         final boolean update;
         final boolean force;
@@ -2161,78 +2131,6 @@ public class AIReviewServiceImpl implements AIReviewService {
             return runAsUser(user, IMPERSONATION_REASON, callable);
         } catch (Exception ex) {
             throw new IllegalStateException(ex);
-        }
-    }
-
-    /**
-     * Determines if two issues are the same based on path, line, and type.
-     *
-     * @param issue1 first issue
-     * @param issue2 second issue
-     * @return true if issues match
-     */
-    private boolean isSameIssue(@Nonnull ReviewIssue issue1, @Nonnull ReviewIssue issue2) {
-        return issue1.getPath().equals(issue2.getPath()) &&
-               Objects.equals(issue1.getLineStart(), issue2.getLineStart()) &&
-               issue1.getType().equals(issue2.getType());
-    }
-
-    /**
-     * Finds issues that were resolved (present in previous but not in current).
-     *
-     * @param previousIssues issues from previous review
-     * @param currentIssues issues from current review
-     * @return list of resolved issues
-     */
-    @Nonnull
-    private List<ReviewIssue> findResolvedIssues(@Nonnull List<ReviewIssue> previousIssues,
-                                                   @Nonnull List<ReviewIssue> currentIssues) {
-        return previousIssues.stream()
-                .filter(prev -> currentIssues.stream()
-                        .noneMatch(curr -> isSameIssue(prev, curr)))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Finds issues that are new (present in current but not in previous).
-     *
-     * @param previousIssues issues from previous review
-     * @param currentIssues issues from current review
-     * @return list of new issues
-     */
-    @Nonnull
-    private List<ReviewIssue> findNewIssues(@Nonnull List<ReviewIssue> previousIssues,
-                                             @Nonnull List<ReviewIssue> currentIssues) {
-        return currentIssues.stream()
-                .filter(curr -> previousIssues.stream()
-                        .noneMatch(prev -> isSameIssue(prev, curr)))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Gets previous review issues from PR comments.
-     * Looks for issues stored in comment metadata or parses issue comments.
-     *
-     * @param pullRequest the pull request
-     * @return list of previous issues (empty if no previous review)
-     */
-    @Nonnull
-    private List<ReviewIssue> getPreviousIssues(@Nonnull PullRequest pullRequest) {
-        List<ReviewIssue> previousIssues = new ArrayList<>();
-
-        try {
-            // Note: In a real implementation, we would fetch comments via CommentService
-            // and parse the summary comment for metadata.
-            // For now, we return empty list as we don't store metadata in comments yet.
-            // This can be enhanced in a future iteration.
-
-            LogSupport.debug(log, "history.previous_issues_not_implemented", "getPreviousIssues returns empty list");
-            return previousIssues;
-
-        } catch (Exception e) {
-            LogSupport.error(log, "history.previous_issues_failed", "Failed to load previous issues", e,
-                    "pullRequestId", pullRequest.getId());
-            return previousIssues;
         }
     }
 

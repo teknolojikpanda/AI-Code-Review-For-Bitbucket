@@ -1,5 +1,21 @@
 /* AI Code Reviewer Admin Configuration Styles */
 
+.ai-admin-page {
+    --ai-admin-stack-gap: 24px;
+}
+
+.ai-admin-header {
+    padding-bottom: 20px;
+}
+
+.ai-admin-hidden {
+    display: none;
+}
+
+.ai-admin-section-spaced {
+    margin-top: var(--ai-admin-stack-gap);
+}
+
 .ai-reviewer-subnav {
     display: flex;
     flex-wrap: wrap;

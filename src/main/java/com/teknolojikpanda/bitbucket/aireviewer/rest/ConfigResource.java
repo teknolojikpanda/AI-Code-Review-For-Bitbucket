@@ -28,6 +28,7 @@ import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore
 import com.teknolojikpanda.bitbucket.aireviewer.service.GuardrailsRateLimitStore.ThrottleIncident;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot;
+import com.teknolojikpanda.bitbucket.aireviewer.util.OutboundUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,8 +40,11 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -55,6 +59,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -76,6 +81,8 @@ public class ConfigResource {
     private static final Pattern REPOSITORY_SLUG_PATTERN = Pattern.compile("^[A-Za-z0-9._\\-]+$");
     private static final RateLimiter RATE_LIMITER = new RateLimiter();
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
+    private static final int HTTP_BAD_GATEWAY = 502;
+    private static final int HTTP_GATEWAY_TIMEOUT = 504;
     private static final long CONFIG_WRITE_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
     private static final int CONFIG_WRITE_LIMIT = 12;
     private static final long TEST_CONNECTION_WINDOW_MS = TimeUnit.MINUTES.toMillis(1);
@@ -145,11 +152,8 @@ public class ConfigResource {
             config.put("rateLimitIncidents", incidentsToList(rateLimitStore.fetchRecentIncidents(RECENT_LIMITER_INCIDENTS)));
             config.put("promptEffective", buildPromptEffective(config));
             return Response.ok(config).build();
-        } catch (Exception e) {
-            log.error("Error getting configuration", e);
-            return Response.serverError()
-                    .entity(error("Failed to get configuration: " + e.getMessage()))
-                    .build();
+        } catch (RuntimeException ex) {
+            return internalFailure("get configuration", ex);
         }
     }
 
@@ -210,9 +214,9 @@ public class ConfigResource {
                     displayName);
             return Response.ok(overrideToMap(record)).build();
         } catch (IllegalArgumentException ex) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error(ex.getMessage()))
-                    .build();
+            return badRequestFromException("create rate limit override",
+                    "Invalid rate limit override payload",
+                    ex);
         }
     }
 
@@ -284,15 +288,11 @@ public class ConfigResource {
                     .entity(error("Invalid configuration", e.getErrors()))
                     .build();
         } catch (IllegalArgumentException e) {
-            log.warn("Invalid configuration: {}", e.getMessage());
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error("Invalid configuration: " + e.getMessage()))
-                    .build();
-        } catch (Exception e) {
-            log.error("Error updating configuration", e);
-            return Response.serverError()
-                    .entity(error("Failed to update configuration: " + e.getMessage()))
-                    .build();
+            return badRequestFromException("update configuration",
+                    "Invalid configuration payload",
+                    e);
+        } catch (RuntimeException ex) {
+            return internalFailure("update configuration", ex);
         }
     }
 
@@ -321,11 +321,8 @@ public class ConfigResource {
             payload.put("start", page.getStart());
             payload.put("limit", page.getLimit());
             return Response.ok(payload).build();
-        } catch (Exception e) {
-            log.error("Error loading repository catalog", e);
-            return Response.serverError()
-                    .entity(error("Failed to load repository catalog: " + e.getMessage()))
-                    .build();
+        } catch (RuntimeException ex) {
+            return internalFailure("load repository catalog", ex);
         }
     }
 
@@ -383,11 +380,8 @@ public class ConfigResource {
             Map<String, Object> payload = new HashMap<>();
             payload.put("users", users);
             return Response.ok(payload).build();
-        } catch (Exception e) {
-            log.error("Error searching users for query '{}'", filter, e);
-            return Response.serverError()
-                    .entity(error("Failed to search users: " + e.getMessage()))
-                    .build();
+        } catch (RuntimeException ex) {
+            return internalFailure("search users", ex);
         }
     }
 
@@ -479,11 +473,8 @@ public class ConfigResource {
             response.put("mode", scopeMode == ScopeMode.ALL ? "all" : "repositories");
             response.put("selectedRepositories", scopes);
             return Response.ok(response).build();
-        } catch (Exception e) {
-            log.error("Failed to update repository scope", e);
-            return Response.serverError()
-                    .entity(error("Failed to update repository scope: " + e.getMessage()))
-                    .build();
+        } catch (RuntimeException ex) {
+            return internalFailure("update repository scope", ex);
         }
     }
 
@@ -517,6 +508,12 @@ public class ConfigResource {
             return rateLimited;
         }
 
+        if (params == null) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                .entity(error("Request payload is required"))
+                .build();
+        }
+
         String ollamaUrl = params.get("ollamaUrl");
         if (ollamaUrl == null || ollamaUrl.trim().isEmpty()) {
             return Response.status(Response.Status.BAD_REQUEST)
@@ -525,9 +522,10 @@ public class ConfigResource {
         }
 
         // Validate URL to prevent SSRF attacks
-        if (!isValidOllamaUrl(ollamaUrl)) {
+        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(ollamaUrl);
+        if (!validation.isAllowed()) {
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error("Invalid URL format or forbidden host"))
+                .entity(error("Invalid URL format or forbidden host"))
                     .build();
         }
 
@@ -548,14 +546,11 @@ public class ConfigResource {
             }
 
         } catch (IllegalArgumentException e) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error("Invalid URL: " + e.getMessage()))
-                    .build();
-        } catch (Exception e) {
-            log.error("Error testing connection", e);
-            return Response.serverError()
-                    .entity(error("Connection test failed: " + e.getMessage()))
-                    .build();
+            return badRequestFromException("test Ollama connection",
+                    "Invalid Ollama URL",
+                    e);
+        } catch (RuntimeException ex) {
+            return internalFailure("test Ollama connection", ex);
         }
     }
 
@@ -580,7 +575,8 @@ public class ConfigResource {
                     .entity(error("Ollama URL is required"))
                     .build();
         }
-        if (!isValidOllamaUrl(resolvedUrl)) {
+        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(resolvedUrl);
+        if (!validation.isAllowed()) {
             return Response.status(Response.Status.BAD_REQUEST)
                     .entity(error("Invalid URL format or forbidden host"))
                     .build();
@@ -592,11 +588,23 @@ public class ConfigResource {
             payload.put("ollamaUrl", resolvedUrl);
             payload.put("models", models);
             return Response.ok(payload).build();
-        } catch (Exception ex) {
-            log.warn("Failed to fetch Ollama models from {}", resolvedUrl, ex);
+        } catch (IllegalArgumentException ex) {
+            log.warn("Rejected model list request for {}: {}", resolvedUrl, ex.getMessage());
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error("Failed to fetch models from Ollama: " + ex.getMessage()))
+                    .entity(error("Invalid Ollama URL or response contract"))
                     .build();
+        } catch (SocketTimeoutException ex) {
+            return failureWithCorrelation(HTTP_GATEWAY_TIMEOUT,
+                "Timed out while fetching models from Ollama",
+                "fetch Ollama models",
+                ex);
+        } catch (IOException | UncheckedIOException ex) {
+            return failureWithCorrelation(HTTP_BAD_GATEWAY,
+                "Failed to communicate with Ollama while fetching models",
+                "fetch Ollama models",
+                ex);
+        } catch (RuntimeException ex) {
+            return internalFailure("fetch Ollama models", ex);
         }
     }
 
@@ -657,36 +665,15 @@ public class ConfigResource {
                     .entity(error("Invalid configuration", ex.getErrors()))
                     .build();
         } catch (IllegalArgumentException ex) {
-            log.warn("Invalid auto-approve toggle request: {}", ex.getMessage());
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(error("Invalid configuration: " + ex.getMessage()))
-                    .build();
-        } catch (Exception ex) {
-            log.error("Failed to toggle auto-approve", ex);
-            return Response.serverError()
-                    .entity(error("Failed to update auto-approve setting: " + ex.getMessage()))
-                    .build();
+            return badRequestFromException("toggle auto-approve",
+                    "Invalid auto-approve configuration",
+                    ex);
+        } catch (RuntimeException ex) {
+            return internalFailure("toggle auto-approve", ex);
         }
     }
 
-    /**
-     * Validates Ollama URL to prevent SSRF attacks
-     */
-    private boolean isValidOllamaUrl(String url) {
-        try {
-            java.net.URI parsedUri = java.net.URI.create(url);
-            String scheme = parsedUri.getScheme();
-            if (scheme == null) {
-                return false;
-            }
-            String protocol = scheme.toLowerCase();
-            return ("http".equals(protocol) || "https".equals(protocol)) && parsedUri.getHost() != null;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private List<Map<String, Object>> fetchOllamaModels(String ollamaUrl) throws Exception {
+    private List<Map<String, Object>> fetchOllamaModels(String ollamaUrl) throws IOException {
         String endpoint = ollamaUrl.endsWith("/") ? ollamaUrl + "api/tags" : ollamaUrl + "/api/tags";
         URI uri = URI.create(endpoint);
         HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
@@ -728,6 +715,93 @@ public class ConfigResource {
         }
         list.sort((a, b) -> String.valueOf(a.get("name")).compareToIgnoreCase(String.valueOf(b.get("name"))));
         return list;
+    }
+
+    private Response internalFailure(String operation, RuntimeException ex) {
+        if (isTimeoutFailure(ex)) {
+            return failureWithCorrelation(HTTP_GATEWAY_TIMEOUT,
+                    "Failed to " + operation + " due to timeout",
+                    operation,
+                    ex);
+        }
+        if (isDependencyIoFailure(ex)) {
+            return failureWithCorrelation(HTTP_BAD_GATEWAY,
+                    "Failed to " + operation + " due to dependency communication error",
+                    operation,
+                    ex);
+        }
+        String message = isPersistenceFailure(ex)
+                ? "Failed to " + operation + " due to persistence error"
+                : "Failed to " + operation + " due to internal error";
+        return failureWithCorrelation(Response.Status.INTERNAL_SERVER_ERROR.getStatusCode(),
+                message,
+                operation,
+                ex);
+    }
+
+    private Response badRequestFromException(String operation, String clientMessage, Exception ex) {
+        return failureWithCorrelation(Response.Status.BAD_REQUEST.getStatusCode(), clientMessage, operation, ex);
+    }
+
+    private Response failureWithCorrelation(int statusCode,
+                                            String clientMessage,
+                                            String operation,
+                                            Exception ex) {
+        String correlationId = UUID.randomUUID().toString();
+        if (statusCode >= 500) {
+            log.error("Config operation '{}' failed [{}]", operation, correlationId, ex);
+        } else {
+            log.warn("Config operation '{}' rejected [{}]", operation, correlationId, ex);
+        }
+        return Response.status(statusCode)
+                .entity(errorWithCorrelation(clientMessage, correlationId))
+                .build();
+    }
+
+    private Map<String, Object> errorWithCorrelation(String message, String correlationId) {
+        Map<String, Object> payload = error(message);
+        payload.put("correlationId", correlationId);
+        return payload;
+    }
+
+    private boolean isTimeoutFailure(Throwable throwable) {
+        return hasCause(throwable, java.util.concurrent.TimeoutException.class)
+                || hasCause(throwable, SocketTimeoutException.class);
+    }
+
+    private boolean isDependencyIoFailure(Throwable throwable) {
+        return hasCause(throwable, IOException.class)
+                || hasCause(throwable, UncheckedIOException.class);
+    }
+
+    private boolean isPersistenceFailure(Throwable throwable) {
+        return hasCauseNameContaining(throwable, "activeobjects")
+                || hasCauseNameContaining(throwable, "sql")
+                || hasCauseNameContaining(throwable, "persistence");
+    }
+
+    private boolean hasCause(Throwable throwable, Class<?> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean hasCauseNameContaining(Throwable throwable, String token) {
+        Throwable current = throwable;
+        String lowerToken = token.toLowerCase(Locale.ROOT);
+        while (current != null) {
+            String className = current.getClass().getName().toLowerCase(Locale.ROOT);
+            if (className.contains(lowerToken)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private boolean isEmbeddingModel(String name, JsonNode detailsNode) {

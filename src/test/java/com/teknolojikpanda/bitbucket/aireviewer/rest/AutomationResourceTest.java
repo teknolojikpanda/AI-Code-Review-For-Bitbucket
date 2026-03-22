@@ -145,6 +145,38 @@ public class AutomationResourceTest {
     }
 
     @Test
+    public void createChannelRejectsNullBody() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+
+        Response response = resource.createChannel(request, null);
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals("Request body is required", payload.get("error"));
+        verify(channelService, never()).createChannel(anyString(), anyString(), anyBoolean(), anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    public void updateChannelRejectsNullBody() {
+        when(userManager.getRemoteUser(request)).thenReturn(profile);
+        UserKey key = new UserKey("admin");
+        when(profile.getUserKey()).thenReturn(key);
+        when(userManager.isSystemAdmin(key)).thenReturn(true);
+
+        Response response = resource.updateChannel(request, 1, null);
+
+        assertEquals(Response.Status.BAD_REQUEST.getStatusCode(), response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) response.getEntity();
+        assertEquals("Request body is required", payload.get("error"));
+        verify(channelService, never()).updateChannel(anyInt(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     public void rolloutStateEndpointReturnsStateForAdmins() {
         when(userManager.getRemoteUser(request)).thenReturn(profile);
         UserKey key = new UserKey("admin");
