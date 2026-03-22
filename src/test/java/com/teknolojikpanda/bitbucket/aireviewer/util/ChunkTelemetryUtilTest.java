@@ -4,8 +4,10 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -72,5 +74,31 @@ public class ChunkTelemetryUtilTest {
         List<Map<String, Object>> entries = ChunkTelemetryUtil.extractEntriesFromJson(compressed);
         assertEquals(40, entries.size());
         assertEquals("chunk-0", entries.get(0).get("chunkId"));
+    }
+
+    @Test
+    public void readMetricsMapResult_invalidJsonSetsParseFailedAndLogsWarning() {
+        AtomicReference<String> warning = new AtomicReference<>();
+        ChunkTelemetryUtil.setWarningObserverForTests(warning::set);
+        try {
+            ChunkTelemetryUtil.MetricsParseResult result = ChunkTelemetryUtil.readMetricsMapResult("{bad-json");
+            assertTrue(result.isParseFailed());
+            assertTrue(result.getMetrics().isEmpty());
+            assertNotNull(warning.get());
+            assertTrue(warning.get().contains("Failed to parse chunk telemetry metrics payload"));
+        } finally {
+            ChunkTelemetryUtil.clearWarningObserverForTests();
+        }
+    }
+
+    @Test
+    public void readMetricsMapResult_emptyOrNullDoesNotSetParseFailed() {
+        ChunkTelemetryUtil.MetricsParseResult nullResult = ChunkTelemetryUtil.readMetricsMapResult(null);
+        assertFalse(nullResult.isParseFailed());
+        assertTrue(nullResult.getMetrics().isEmpty());
+
+        ChunkTelemetryUtil.MetricsParseResult emptyResult = ChunkTelemetryUtil.readMetricsMapResult("   ");
+        assertFalse(emptyResult.isParseFailed());
+        assertTrue(emptyResult.getMetrics().isEmpty());
     }
 }
