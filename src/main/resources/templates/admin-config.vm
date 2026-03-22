@@ -110,6 +110,29 @@
                             <span id="test-connection-result"></span>
                         </div>
 
+                        <h2>Outbound Network Policy</h2>
+                        <div class="field-group">
+                            <label for="outbound-allowed-hosts">Allowed Outbound Hosts</label>
+                            <input class="text long-field" type="text" id="outbound-allowed-hosts"
+                                   name="outboundAllowedHosts" value="$!outboundAllowedHosts"
+                                   placeholder="ollama.internal, ai-gateway.company.local">
+                            <div class="description">
+                                Optional comma-separated allowlist for outbound hosts. Leave empty to allow all non-local hosts.
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <div class="checkbox">
+                                <input class="checkbox" type="checkbox" id="outbound-allow-local-targets"
+                                       name="outboundAllowLocalTargets"
+                                       #if($outboundAllowLocalTargets)checked#end>
+                                <label for="outbound-allow-local-targets">Allow local outbound targets</label>
+                            </div>
+                            <div class="description">
+                                Permits localhost, loopback, and private network IP ranges for development/test environments.
+                            </div>
+                        </div>
+
                         <!-- Processing Configuration -->
                         <h2>Processing Configuration</h2>
                         <div class="field-group">

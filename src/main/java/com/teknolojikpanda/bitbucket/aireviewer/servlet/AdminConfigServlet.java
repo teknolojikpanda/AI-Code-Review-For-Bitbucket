@@ -139,6 +139,8 @@ public class AdminConfigServlet extends HttpServlet {
     context.put("impactSummaryInline", configValues.getOrDefault("impactSummaryInline", defaults.get("impactSummaryInline")));
         context.put("workerDegradationEnabled", configValues.getOrDefault("workerDegradationEnabled", defaults.get("workerDegradationEnabled")));
     context.put("verboseMode", configValues.getOrDefault("verboseMode", defaults.get("verboseMode")));
+        context.put("outboundAllowedHosts", configValues.getOrDefault("outboundAllowedHosts", defaults.get("outboundAllowedHosts")));
+        context.put("outboundAllowLocalTargets", configValues.getOrDefault("outboundAllowLocalTargets", defaults.get("outboundAllowLocalTargets")));
         context.put("aiReviewerUser", configValues.get("aiReviewerUser"));
     context.put("aiReviewerUserDisplayName", configValues.get("aiReviewerUserDisplayName"));
         templateRenderer.render("/templates/admin-config.vm", context, resp.getWriter());

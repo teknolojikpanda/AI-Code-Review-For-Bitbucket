@@ -17,6 +17,14 @@ This reference lists the configuration keys managed by `AIReviewerConfigService`
 | `readTimeout` | Global/Repo | Int (ms) | 30000 | HTTP read timeout for Ollama responses. |
 | `ollamaTimeout` | Global/Repo | Int (ms) | 300000 | Maximum time allowed for a single Ollama review request. |
 | `apiDelayMs` | Global/Repo | Int (ms) | 100 | Artificial delay between API calls to avoid overload. |
+| `outboundAllowedHosts` | Global | String CSV | *(empty)* | Optional outbound host allowlist (supports exact hostnames and `*.` wildcard suffixes). |
+| `outboundAllowLocalTargets` | Global | Bool | `false` | Allow outbound calls to localhost/loopback/private network targets for local development and test setups. |
+
+Outbound URL guardrails:
+
+- By default, local/private targets are blocked for SSRF protection (for example `localhost`, `127.0.0.1`, `host.docker.internal`, RFC1918 ranges).
+- Use the admin configuration page to manage `outboundAllowLocalTargets` and `outboundAllowedHosts`.
+- JVM properties `-Dai.reviewer.outbound.allowLocalTargets=true` and `-Dai.reviewer.outbound.allowedHosts=host1,host2,*.example.com` remain available for bootstrap/compatibility and are synchronized from saved global settings.
 
 ## Review Behaviour
 

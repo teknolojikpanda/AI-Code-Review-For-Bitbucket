@@ -111,6 +111,8 @@
         $('#ollama-model').attr('data-selected', config.ollamaModel || '');
         $('#fallback-model').attr('data-selected', config.fallbackModel || '');
         $('#rag-embedding-model').attr('data-selected', config.ragEmbeddingModel || '');
+        $('#outbound-allowed-hosts').val(config.outboundAllowedHosts || '');
+        $('#outbound-allow-local-targets').prop('checked', config.outboundAllowLocalTargets === true);
         $('#max-chars-per-chunk').val(config.maxCharsPerChunk || 60000);
         $('#max-files-per-chunk').val(config.maxFilesPerChunk || 3);
         $('#max-chunks').val(config.maxChunks || 20);
@@ -1276,6 +1278,8 @@
             ollamaModel: primaryModel,
             fallbackModel: fallbackModel,
             ragEmbeddingModel: $('#rag-embedding-model').val().trim(),
+            outboundAllowedHosts: $('#outbound-allowed-hosts').val().trim(),
+            outboundAllowLocalTargets: $('#outbound-allow-local-targets').is(':checked'),
             maxCharsPerChunk: parseInt($('#max-chars-per-chunk').val()),
             maxFilesPerChunk: parseInt($('#max-files-per-chunk').val()),
             maxChunks: parseInt($('#max-chunks').val()),
@@ -1385,12 +1389,55 @@
             },
             error: function(xhr, status, error) {
                 console.error('Failed to save configuration:', error);
-                var errorMsg = xhr.responseJSON && xhr.responseJSON.message ?
-                    xhr.responseJSON.message : error;
+                var errorMsg = extractApiErrorMessage(xhr, error, 'Failed to save configuration');
                 showMessage('error', 'Failed to save configuration: ' + errorMsg);
                 showLoading(false);
             }
         });
+    }
+
+    function extractApiErrorMessage(xhr, fallbackError, defaultMessage) {
+        if (xhr && xhr.responseJSON) {
+            var payload = xhr.responseJSON;
+            var baseMessage = payload.error || payload.message;
+            var detailsText = formatValidationDetails(payload.details);
+            if (baseMessage && detailsText) {
+                return baseMessage + ' (' + detailsText + ')';
+            }
+            if (baseMessage) {
+                return baseMessage;
+            }
+            if (detailsText) {
+                return detailsText;
+            }
+        }
+
+        if (typeof fallbackError === 'string' && fallbackError.trim().length) {
+            return fallbackError;
+        }
+
+        return defaultMessage || 'Request failed';
+    }
+
+    function formatValidationDetails(details) {
+        if (!details || typeof details !== 'object') {
+            return '';
+        }
+
+        var parts = [];
+        Object.keys(details).forEach(function(key) {
+            var value = details[key];
+            if (value === null || value === undefined) {
+                return;
+            }
+            var text = String(value).trim();
+            if (!text.length) {
+                return;
+            }
+            parts.push(key + ': ' + text);
+        });
+
+        return parts.join('; ');
     }
 
     /**
@@ -1454,6 +1501,8 @@
             ollamaModel: 'qwen3-coder:30b',
             fallbackModel: 'qwen3-coder:7b',
             ragEmbeddingModel: '',
+            outboundAllowedHosts: '',
+            outboundAllowLocalTargets: false,
             maxCharsPerChunk: 60000,
             maxFilesPerChunk: 3,
             maxChunks: 20,

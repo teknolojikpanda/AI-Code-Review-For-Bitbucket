@@ -19,18 +19,29 @@ import java.util.Locale;
 public final class OutboundUrlValidator {
 
     private static final String ALLOWED_HOSTS_PROPERTY = "ai.reviewer.outbound.allowedHosts";
+    private static final String ALLOW_LOCAL_TARGETS_PROPERTY = "ai.reviewer.outbound.allowLocalTargets";
 
     private OutboundUrlValidator() {
     }
 
     @Nonnull
     public static ValidationResult validateHttpUrl(@Nullable String url) {
-        return validateHttpUrl(url, parseAllowedHosts(System.getProperty(ALLOWED_HOSTS_PROPERTY)));
+        return validateHttpUrl(
+                url,
+                parseAllowedHosts(System.getProperty(ALLOWED_HOSTS_PROPERTY)),
+                isLocalTargetOverrideEnabled());
     }
 
     @Nonnull
     public static ValidationResult validateHttpUrl(@Nullable String url,
                                                    @Nullable Collection<String> allowedHosts) {
+        return validateHttpUrl(url, allowedHosts, isLocalTargetOverrideEnabled());
+    }
+
+    @Nonnull
+    public static ValidationResult validateHttpUrl(@Nullable String url,
+                                                   @Nullable Collection<String> allowedHosts,
+                                                   boolean allowLocalTargets) {
         if (url == null || url.trim().isEmpty()) {
             return ValidationResult.invalid("URL is required");
         }
@@ -42,12 +53,19 @@ public final class OutboundUrlValidator {
             return ValidationResult.invalid("Invalid URL format");
         }
 
-        return validateHttpUri(uri, allowedHosts);
+        return validateHttpUri(uri, allowedHosts, allowLocalTargets);
     }
 
     @Nonnull
     public static ValidationResult validateHttpUri(@Nullable URI uri,
                                                    @Nullable Collection<String> allowedHosts) {
+        return validateHttpUri(uri, allowedHosts, isLocalTargetOverrideEnabled());
+    }
+
+    @Nonnull
+    public static ValidationResult validateHttpUri(@Nullable URI uri,
+                                                   @Nullable Collection<String> allowedHosts,
+                                                   boolean allowLocalTargets) {
         if (uri == null) {
             return ValidationResult.invalid("URL is required");
         }
@@ -66,7 +84,7 @@ public final class OutboundUrlValidator {
             return ValidationResult.invalid("URL host is required");
         }
 
-        if (isBlockedAlias(host)) {
+        if (!allowLocalTargets && isBlockedAlias(host)) {
             return ValidationResult.invalid("Host is not allowed for outbound connections");
         }
 
@@ -81,7 +99,7 @@ public final class OutboundUrlValidator {
                 return ValidationResult.invalid("Host does not resolve to an address");
             }
             for (InetAddress address : resolved) {
-                if (isBlockedAddress(address)) {
+                if (!allowLocalTargets && isBlockedAddress(address)) {
                     return ValidationResult.invalid("Host resolves to a blocked network address");
                 }
             }
@@ -141,6 +159,10 @@ public final class OutboundUrlValidator {
             }
         }
         return false;
+    }
+
+    private static boolean isLocalTargetOverrideEnabled() {
+        return Boolean.parseBoolean(System.getProperty(ALLOW_LOCAL_TARGETS_PROPERTY, "false"));
     }
 
     private static boolean isBlockedAddress(InetAddress address) {

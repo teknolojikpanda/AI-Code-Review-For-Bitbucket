@@ -35,6 +35,16 @@ public class AdminJsHardeningTest {
         assertFalse(js.contains("console.log('"));
     }
 
+    @Test
+    public void saveFailureParsesErrorPayloadAndValidationDetails() throws IOException {
+        String js = readAdminScript();
+
+        assertTrue(js.contains("extractApiErrorMessage(xhr, error, 'Failed to save configuration')"));
+        assertTrue(js.contains("var baseMessage = payload.error || payload.message;"));
+        assertTrue(js.contains("var detailsText = formatValidationDetails(payload.details);"));
+        assertTrue(js.contains("parts.push(key + ': ' + text);"));
+    }
+
     private String readAdminScript() throws IOException {
         return Files.readString(
                 Paths.get("src/main/resources/js/ai-reviewer-admin.js"),

@@ -180,6 +180,65 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         assertEquals("Summarize impact using only changed files.", repoOverrides.get("prompt.impact"));
     }
 
+    @Test
+    public void outboundSettingsPersistAndSyncSystemProperties() {
+        String allowedHostsProp = "ai.reviewer.outbound.allowedHosts";
+        String allowLocalTargetsProp = "ai.reviewer.outbound.allowLocalTargets";
+
+        String previousAllowedHosts = System.getProperty(allowedHostsProp);
+        String previousAllowLocalTargets = System.getProperty(allowLocalTargetsProp);
+
+        try {
+            Map<String, Object> updated = new HashMap<>(service.getDefaultConfiguration());
+            updated.put("ollamaUrl", "https://8.8.8.8:443");
+            updated.put("outboundAllowedHosts", "8.8.8.8,*.example.com");
+            updated.put("outboundAllowLocalTargets", true);
+            service.updateConfiguration(updated);
+
+            Map<String, Object> saved = service.getConfigurationAsMap();
+            assertEquals("8.8.8.8,*.example.com", saved.get("outboundAllowedHosts"));
+            assertTrue((Boolean) saved.get("outboundAllowLocalTargets"));
+            assertEquals("8.8.8.8,*.example.com", System.getProperty(allowedHostsProp));
+            assertEquals("true", System.getProperty(allowLocalTargetsProp));
+        } finally {
+            restoreSystemProperty(allowedHostsProp, previousAllowedHosts);
+            restoreSystemProperty(allowLocalTargetsProp, previousAllowLocalTargets);
+        }
+    }
+
+    @Test
+    public void updateConfigurationAcceptsLocalOllamaUrlWhenLocalTargetsEnabledInPayload() {
+        Map<String, Object> updated = new HashMap<>(service.getDefaultConfiguration());
+        updated.put("ollamaUrl", "http://localhost:11434");
+        updated.put("outboundAllowLocalTargets", true);
+
+        service.updateConfiguration(updated);
+
+        Map<String, Object> saved = service.getConfigurationAsMap();
+        assertEquals("http://localhost:11434", saved.get("ollamaUrl"));
+        assertTrue((Boolean) saved.get("outboundAllowLocalTargets"));
+    }
+
+    @Test
+    public void updateConfigurationAcceptsEmptyFallbackModelWithoutValidationFailure() {
+        Map<String, Object> updated = new HashMap<>(service.getDefaultConfiguration());
+        updated.put("ollamaUrl", "https://8.8.8.8:443");
+        updated.put("fallbackModel", "");
+
+        service.updateConfiguration(updated);
+
+        Map<String, Object> saved = service.getConfigurationAsMap();
+        assertEquals("qwen3-coder:7b", saved.get("fallbackModel"));
+    }
+
+    private static void restoreSystemProperty(String key, String value) {
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
     private static final class TestActiveObjects extends EntityManagedActiveObjects {
         TestActiveObjects(EntityManager entityManager) {
             super(entityManager, new ImmediateTransactionManager(), DatabaseType.H2);

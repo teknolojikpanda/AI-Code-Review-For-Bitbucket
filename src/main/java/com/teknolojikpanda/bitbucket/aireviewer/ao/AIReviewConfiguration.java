@@ -161,6 +161,14 @@ public interface AIReviewConfiguration extends Entity {
     boolean isVerboseMode();
     void setVerboseMode(boolean enabled);
 
+    @StringLength(StringLength.UNLIMITED)
+    String getOutboundAllowedHosts();
+    void setOutboundAllowedHosts(String hosts);
+
+    @Default("false")
+    boolean isOutboundAllowLocalTargets();
+    void setOutboundAllowLocalTargets(boolean enabled);
+
     // Review Profile Configuration
     @StringLength(50)
     String getMinSeverity();

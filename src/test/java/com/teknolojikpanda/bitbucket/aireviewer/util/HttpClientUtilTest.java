@@ -5,6 +5,7 @@ import org.junit.Test;
 import java.time.Duration;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class HttpClientUtilTest {
@@ -15,14 +16,15 @@ public class HttpClientUtilTest {
         RateLimiter limiter = client.getRateLimiter();
         limiter.reset();
 
-        long startNs = System.nanoTime();
-        limiter.acquire();
-        limiter.acquire();
-        limiter.acquire();
-        long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
+        // 1 request per 500ms window equals at most ~2 req/sec.
+        assertEquals(1, limiter.getMaxRequests());
+        assertEquals(Duration.ofMillis(500), limiter.getTimeWindow());
 
-        assertTrue("Expected at most ~2 req/sec pacing for 500ms delay, elapsedMs=" + elapsedMs,
-                elapsedMs >= 900);
+        assertTrue(limiter.tryAcquire());
+        assertFalse("Second immediate acquire must be blocked by pacing window", limiter.tryAcquire());
+
+        Thread.sleep(550);
+        assertTrue("Acquire should succeed after pacing window elapses", limiter.tryAcquire());
     }
 
     @Test

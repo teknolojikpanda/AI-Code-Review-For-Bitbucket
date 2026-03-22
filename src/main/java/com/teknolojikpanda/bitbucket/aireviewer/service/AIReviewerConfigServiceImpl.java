@@ -71,6 +71,11 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
 
     private static final String KEY_PARALLEL_THREADS = "parallelThreads";
     private static final String KEY_MAX_PARALLEL_CHUNKS = "maxParallelChunks";
+    private static final String KEY_OUTBOUND_ALLOWED_HOSTS = "outboundAllowedHosts";
+    private static final String KEY_OUTBOUND_ALLOW_LOCAL_TARGETS = "outboundAllowLocalTargets";
+
+    private static final String PROP_OUTBOUND_ALLOWED_HOSTS = "ai.reviewer.outbound.allowedHosts";
+    private static final String PROP_OUTBOUND_ALLOW_LOCAL_TARGETS = "ai.reviewer.outbound.allowLocalTargets";
 
     private static final Set<String> INTEGER_KEYS = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             "maxCharsPerChunk",
@@ -112,7 +117,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             "autoApprove",
             "impactSummaryInline",
         "workerDegradationEnabled",
-        "verboseMode"
+        "verboseMode",
+        KEY_OUTBOUND_ALLOW_LOCAL_TARGETS
     )));
 
     private static final Set<String> SUPPORTED_KEYS;
@@ -167,6 +173,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     private static final boolean DEFAULT_IMPACT_SUMMARY_INLINE = false;
     private static final boolean DEFAULT_WORKER_DEGRADATION_ENABLED = true;
     private static final boolean DEFAULT_VERBOSE_MODE = false;
+    private static final String DEFAULT_OUTBOUND_ALLOWED_HOSTS = "";
+    private static final boolean DEFAULT_OUTBOUND_ALLOW_LOCAL_TARGETS = false;
     private static final String DEFAULT_PRIORITY_PROJECTS = "";
     private static final String DEFAULT_PRIORITY_REPOSITORIES = "";
     private static final int DEFAULT_REPO_ALERT_PERCENT = 80;
@@ -231,6 +239,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 "impactSummaryInline",
                 "workerDegradationEnabled",
                 "verboseMode",
+                KEY_OUTBOUND_ALLOWED_HOSTS,
+                KEY_OUTBOUND_ALLOW_LOCAL_TARGETS,
                 "aiReviewerUser",
                 "scopeMode"
         ));
@@ -283,6 +293,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 }
                 config.save();
             }
+            syncOutboundValidationProperties(config);
             return config;
         });
     }
@@ -300,6 +311,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             updateConfigurationFields(config, configMap);
 
             config.save();
+            syncOutboundValidationProperties(config);
             log.info("Configuration updated successfully");
             return config;
         });
@@ -327,15 +339,18 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
                 && !PromptKeySupport.isPromptKey(key))
             .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
 
+        List<String> outboundAllowedHosts = parseOutboundAllowedHosts(configMap.get(KEY_OUTBOUND_ALLOWED_HOSTS));
+        boolean allowLocalTargets = getBooleanValue(configMap, KEY_OUTBOUND_ALLOW_LOCAL_TARGETS);
+
         validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
             try {
-                validateUrl(value);
+                validateUrl(value, outboundAllowedHosts, allowLocalTargets);
             } catch (IllegalArgumentException e) {
                 errors.put("ollamaUrl", e.getMessage());
             }
         });
         validateString(configMap, "ollamaModel", true, 512, errors, null);
-        validateString(configMap, "fallbackModel", true, 512, errors, null);
+        validateString(configMap, "fallbackModel", false, 512, errors, null);
         validateString(configMap, "ragEmbeddingModel", false, 255, errors, null);
 
         String ollamaModel = trimToNull(configMap.get("ollamaModel"));
@@ -366,6 +381,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         validateIntegerRange(configMap, "ollamaTimeout", 5_000, 600_000, errors);
         validateIntegerRange(configMap, "connectTimeout", 1_000, 120_000, errors);
         validateString(configMap, "aiReviewerUser", false, 255, errors, null);
+        validateString(configMap, KEY_OUTBOUND_ALLOWED_HOSTS, false, 4000, errors, null);
         validateString(configMap, "priorityProjects", false, 2000, errors,
                 value -> validatePriorityScopeList("priorityProjects", value, true, errors));
         validateString(configMap, "priorityRepositories", false, 4000, errors,
@@ -551,6 +567,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     defaults.put("impactSummaryInline", DEFAULT_IMPACT_SUMMARY_INLINE);
         defaults.put("workerDegradationEnabled", DEFAULT_WORKER_DEGRADATION_ENABLED);
     defaults.put("verboseMode", DEFAULT_VERBOSE_MODE);
+        defaults.put(KEY_OUTBOUND_ALLOWED_HOSTS, DEFAULT_OUTBOUND_ALLOWED_HOSTS);
+        defaults.put(KEY_OUTBOUND_ALLOW_LOCAL_TARGETS, DEFAULT_OUTBOUND_ALLOW_LOCAL_TARGETS);
         defaults.put("aiReviewerUser", null);
         defaults.put("priorityProjects", DEFAULT_PRIORITY_PROJECTS);
         defaults.put("priorityRepositories", DEFAULT_PRIORITY_REPOSITORIES);
@@ -1241,6 +1259,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     config.setImpactSummaryInline(DEFAULT_IMPACT_SUMMARY_INLINE);
         config.setWorkerDegradationEnabled(DEFAULT_WORKER_DEGRADATION_ENABLED);
     config.setVerboseMode(DEFAULT_VERBOSE_MODE);
+        config.setOutboundAllowedHosts(DEFAULT_OUTBOUND_ALLOWED_HOSTS);
+        config.setOutboundAllowLocalTargets(DEFAULT_OUTBOUND_ALLOW_LOCAL_TARGETS);
         config.setReviewerUserSlug(null);
     config.setPromptSystemAppend(null);
     config.setPromptChunkOverride(null);
@@ -1251,6 +1271,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         config.setModifiedDate(now);
 
         config.save();
+        syncOutboundValidationProperties(config);
         return config;
     }
 
@@ -1423,6 +1444,12 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
         }
         if (configMap.containsKey("verboseMode")) {
             config.setVerboseMode(getBooleanValue(configMap, "verboseMode"));
+        }
+        if (configMap.containsKey(KEY_OUTBOUND_ALLOWED_HOSTS)) {
+            config.setOutboundAllowedHosts(normalizeOverridesValue(configMap.get(KEY_OUTBOUND_ALLOWED_HOSTS)));
+        }
+        if (configMap.containsKey(KEY_OUTBOUND_ALLOW_LOCAL_TARGETS)) {
+            config.setOutboundAllowLocalTargets(getBooleanValue(configMap, KEY_OUTBOUND_ALLOW_LOCAL_TARGETS));
         }
         if (configMap.containsKey("aiReviewerUser")) {
             config.setReviewerUserSlug(trimToNull(configMap.get("aiReviewerUser")));
@@ -1630,6 +1657,10 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
 
         if (isBlank(config.getScopeMode())) {
             config.setScopeMode(DEFAULT_SCOPE_MODE);
+            updated = true;
+        }
+        if (config.getOutboundAllowedHosts() == null) {
+            config.setOutboundAllowedHosts(DEFAULT_OUTBOUND_ALLOWED_HOSTS);
             updated = true;
         }
 
@@ -1859,6 +1890,8 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     map.put("impactSummaryInline", defaultBoolean(config.isImpactSummaryInline(), DEFAULT_IMPACT_SUMMARY_INLINE));
         map.put("workerDegradationEnabled", defaultBoolean(config.isWorkerDegradationEnabled(), DEFAULT_WORKER_DEGRADATION_ENABLED));
     map.put("verboseMode", defaultBoolean(config.isVerboseMode(), DEFAULT_VERBOSE_MODE));
+        map.put(KEY_OUTBOUND_ALLOWED_HOSTS, defaultString(config.getOutboundAllowedHosts(), DEFAULT_OUTBOUND_ALLOWED_HOSTS));
+        map.put(KEY_OUTBOUND_ALLOW_LOCAL_TARGETS, config.isOutboundAllowLocalTargets());
         map.put("aiReviewerUser", trimToNull(config.getReviewerUserSlug()));
         map.put("aiReviewerUserDisplayName", resolveUserDisplayName(config.getReviewerUserSlug()));
         map.put("scopeMode", defaultString(config.getScopeMode(), DEFAULT_SCOPE_MODE));
@@ -1898,6 +1931,17 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             value = config.getBaseRetryDelayMs();
         }
         return value > 0 ? value : DEFAULT_OVERVIEW_RETRY_DELAY;
+    }
+
+    private void syncOutboundValidationProperties(AIReviewConfiguration config) {
+        String allowedHosts = trimToNull(config.getOutboundAllowedHosts());
+        if (allowedHosts == null) {
+            System.clearProperty(PROP_OUTBOUND_ALLOWED_HOSTS);
+        } else {
+            System.setProperty(PROP_OUTBOUND_ALLOWED_HOSTS, allowedHosts);
+        }
+        System.setProperty(PROP_OUTBOUND_ALLOW_LOCAL_TARGETS,
+                Boolean.toString(config.isOutboundAllowLocalTargets()));
     }
 
     private Map<String, Integer> parseRepoAlertOverrides(@Nullable String raw) {
@@ -1958,10 +2002,26 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
     }
 
     private void validateUrl(String url) {
-        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator.validateHttpUrl(url);
+        validateUrl(url,
+                parseOutboundAllowedHosts(System.getProperty(PROP_OUTBOUND_ALLOWED_HOSTS)),
+                Boolean.parseBoolean(System.getProperty(PROP_OUTBOUND_ALLOW_LOCAL_TARGETS, "false")));
+    }
+
+    private void validateUrl(String url,
+                             Collection<String> allowedHosts,
+                             boolean allowLocalTargets) {
+        OutboundUrlValidator.ValidationResult validation = OutboundUrlValidator
+                .validateHttpUrl(url, allowedHosts, allowLocalTargets);
         if (!validation.isAllowed()) {
             throw new IllegalArgumentException("Invalid URL format or forbidden host: " + validation.getReason());
         }
+    }
+
+    private List<String> parseOutboundAllowedHosts(Object raw) {
+        if (raw == null) {
+            return Collections.emptyList();
+        }
+        return OutboundUrlValidator.parseAllowedHosts(String.valueOf(raw));
     }
 
     private void validateIntegerRange(Map<String, Object> configMap,
