@@ -186,6 +186,8 @@ public class GuardrailsTelemetryService {
             status = "critical";
         } else if ("degraded".equalsIgnoreCase(embeddingHealth)) {
             status = "warning";
+        } else if ("unknown".equalsIgnoreCase(embeddingHealth)) {
+            status = "warning";
         } else {
             status = "ok";
         }

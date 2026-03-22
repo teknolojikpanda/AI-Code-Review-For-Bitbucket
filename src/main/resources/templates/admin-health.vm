@@ -12,11 +12,6 @@
         <div class="aui-page-header-main">
             <h1>AI Code Reviewer Health Dashboard</h1>
         </div>
-        <div class="aui-page-header-actions">
-            <a class="aui-button" href="$baseUrl/plugins/servlet/ai-reviewer/admin">Configuration</a>
-            <a class="aui-button" href="$baseUrl/plugins/servlet/ai-reviewer/operations">Operations</a>
-            <a class="aui-button" href="$baseUrl/plugins/servlet/ai-reviewer/history">History</a>
-        </div>
     </div>
 </header>
 
@@ -83,6 +78,9 @@
                         <h2>AI Pipeline Status (RAG + AST + LLM)</h2>
                         <span id="health-pipeline-updated" class="health-updated">—</span>
                     </header>
+                    <p class="queue-note">
+                        This section explains whether the pipeline can assemble context (AST), enrich prompts (RAG), and produce stable reasoning (LLM).
+                    </p>
                     <div class="queue-note" id="health-pipeline-summary">Pipeline telemetry loading…</div>
                     <div class="health-grid metrics-grid">
                         <div class="health-card metric-card metric-status-normal" id="pipeline-ast-card">
@@ -100,6 +98,10 @@
                             <span class="health-value" id="pipeline-llm-value">—</span>
                             <span class="health-subtext" id="pipeline-llm-note">Loading…</span>
                         </div>
+                    </div>
+                    <div class="queue-panel ai-admin-section-spaced">
+                        <div class="queue-empty" id="health-pipeline-actions-empty">No immediate action required.</div>
+                        <ul class="health-list ai-admin-hidden" id="health-pipeline-actions"></ul>
                     </div>
                 </section>
 

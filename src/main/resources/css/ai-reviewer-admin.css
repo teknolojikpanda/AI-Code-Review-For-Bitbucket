@@ -263,6 +263,16 @@
 .metric-card .health-subtext {
     margin-top: 6px;
     display: inline-block;
+    line-height: 1.4;
+}
+
+#health-pipeline-actions {
+    margin: 0;
+    padding-left: 18px;
+}
+
+#health-pipeline-actions li {
+    margin: 6px 0;
 }
 
 .metric-status-warning {

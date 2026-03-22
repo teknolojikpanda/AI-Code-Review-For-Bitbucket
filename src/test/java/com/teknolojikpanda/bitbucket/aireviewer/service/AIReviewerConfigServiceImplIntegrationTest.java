@@ -181,6 +181,21 @@ public class AIReviewerConfigServiceImplIntegrationTest {
     }
 
     @Test
+    public void updateConfigurationAcceptsMinimalModelPayloadWithoutOutboundFlag() {
+        Map<String, Object> partial = new HashMap<>();
+        partial.put("ollamaUrl", "https://8.8.8.8:443");
+        partial.put("ollamaModel", "primary-model");
+        partial.put("fallbackModel", "fallback-model");
+
+        service.updateConfiguration(partial);
+
+        Map<String, Object> saved = service.getConfigurationAsMap();
+        assertEquals("https://8.8.8.8:443", saved.get("ollamaUrl"));
+        assertEquals("primary-model", saved.get("ollamaModel"));
+        assertEquals("fallback-model", saved.get("fallbackModel"));
+    }
+
+    @Test
     public void outboundSettingsPersistAndSyncSystemProperties() {
         String allowedHostsProp = "ai.reviewer.outbound.allowedHosts";
         String allowLocalTargetsProp = "ai.reviewer.outbound.allowLocalTargets";

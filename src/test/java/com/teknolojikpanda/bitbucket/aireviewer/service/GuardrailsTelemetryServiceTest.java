@@ -233,6 +233,26 @@ public class GuardrailsTelemetryServiceTest {
         assertTrue(metrics.stream().anyMatch(m -> "ai.alerts.ack.latencySecondsAvg".equals(m.get("name"))));
     }
 
+        @Test
+        public void aiPipelineMarksRagAsWarningWhenEmbeddingHealthUnknown() {
+                Map<String, Object> config = new LinkedHashMap<>();
+                config.put("ollamaUrl", "http://ollama:11434");
+                config.put("ollamaModel", "qwen3-coder:30b");
+                config.put("fallbackModel", "qwen3-coder:7b");
+                config.put("ragEmbeddingModel", "nomic-embed-text");
+                config.put("prompt.chunk", "AST={{AST_CONTEXT}} RAG={{RAG_EVIDENCE}} GUIDE={{REASONING_GUIDE}}");
+                when(configService.getConfigurationAsMap()).thenReturn(config);
+                when(modelHealthService.snapshot()).thenReturn(Collections.emptyMap());
+
+                Map<String, Object> snapshot = telemetryService.collectRuntimeSnapshot();
+                @SuppressWarnings("unchecked")
+                Map<String, Object> pipeline = (Map<String, Object>) snapshot.get("aiPipeline");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> rag = (Map<String, Object>) pipeline.get("rag");
+
+                assertEquals("warning", rag.get("status"));
+        }
+
     private ReviewWorkerPool.WorkerPoolSnapshot createWorkerSnapshot() throws Exception {
         Constructor<ReviewWorkerPool.WorkerPoolSnapshot> ctor =
                 ReviewWorkerPool.WorkerPoolSnapshot.class.getDeclaredConstructor(

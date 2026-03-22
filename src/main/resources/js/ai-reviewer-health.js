@@ -95,24 +95,26 @@
     function renderAiPipeline(pipeline) {
         pipeline = pipeline || {};
 
-        renderPipelineComponent('ast', pipeline.ast || {});
-        renderPipelineComponent('rag', pipeline.rag || {});
-        renderPipelineComponent('llm', pipeline.llmReasoning || {});
+        var ast = renderPipelineComponent('ast', 'ast', pipeline.ast || {});
+        var rag = renderPipelineComponent('rag', 'rag', pipeline.rag || {});
+        var llm = renderPipelineComponent('llm', 'llmReasoning', pipeline.llmReasoning || {});
 
         var overall = normalizePipelineStatus(pipeline.overallStatus);
-        var summaryText = 'Overall: ' + overall.label;
-        if (pipeline.overallStatus === 'unknown') {
-            summaryText += ' (pipeline telemetry not available)';
-        }
+        var summaryText = composePipelineSummary(overall, [ast, rag, llm]);
         $('#health-pipeline-summary').text(summaryText);
         $('#health-pipeline-updated').text(pipeline.generatedAt ? formatTimestamp(pipeline.generatedAt) : '—');
+
+        renderPipelineActions([ast, rag, llm]);
     }
 
-    function renderPipelineComponent(key, component) {
+    function renderPipelineComponent(key, componentType, component) {
         component = component || {};
         var normalized = normalizePipelineStatus(component.status);
-        var label = component.summary || '—';
-        var detail = component.detail || 'No telemetry details available.';
+        var detailData = parsePipelineDetail(component.detail);
+        var friendly = pipelineFriendlyMessage(componentType, normalized, detailData, component.detail);
+
+        var label = normalized.label;
+        var detail = friendly.message;
 
         $('#pipeline-' + key + '-value').text(label);
         $('#pipeline-' + key + '-note').text(detail);
@@ -122,20 +124,167 @@
             normalized.metricStatus,
             null
         );
+
+        return {
+            key: key,
+            componentType: componentType,
+            status: normalized.rawStatus,
+            label: normalized.label,
+            message: detail,
+            recommendation: friendly.recommendation
+        };
     }
 
     function normalizePipelineStatus(rawStatus) {
         var status = (rawStatus || 'unknown').toString().toLowerCase();
         if (status === 'critical') {
-            return { label: 'Critical', metricStatus: 'critical' };
+            return { label: 'Critical', metricStatus: 'critical', rawStatus: 'critical' };
         }
         if (status === 'warning') {
-            return { label: 'Warning', metricStatus: 'warning' };
+            return { label: 'Warning', metricStatus: 'warning', rawStatus: 'warning' };
         }
         if (status === 'ok' || status === 'healthy' || status === 'normal') {
-            return { label: 'Healthy', metricStatus: 'normal' };
+            return { label: 'Healthy', metricStatus: 'normal', rawStatus: 'ok' };
         }
-        return { label: 'Unknown', metricStatus: 'normal' };
+        return { label: 'Unknown', metricStatus: 'normal', rawStatus: 'unknown' };
+    }
+
+    function composePipelineSummary(overall, components) {
+        var healthy = components.filter(function(item) { return item.status === 'ok'; }).length;
+        var warning = components.filter(function(item) { return item.status === 'warning'; }).length;
+        var critical = components.filter(function(item) { return item.status === 'critical'; }).length;
+        var unknown = components.filter(function(item) { return item.status === 'unknown'; }).length;
+
+        var summary = 'Overall: ' + overall.label + ' - Healthy: ' + healthy + ', Warning: ' + warning + ', Critical: ' + critical;
+        if (unknown > 0) {
+            summary += ', Unknown: ' + unknown;
+        }
+        if (overall.rawStatus === 'unknown') {
+            summary += '. Pipeline telemetry is not available yet.';
+        }
+        return summary;
+    }
+
+    function renderPipelineActions(components) {
+        var actions = $('#health-pipeline-actions');
+        var empty = $('#health-pipeline-actions-empty');
+        actions.empty();
+
+        var recommendations = components
+            .filter(function(item) { return item.recommendation && item.recommendation.length; })
+            .map(function(item) {
+                return '<li><strong>' + escapeHtml(componentDisplayName(item.componentType)) + ':</strong> ' + escapeHtml(item.recommendation) + '</li>';
+            });
+
+        if (!recommendations.length) {
+            actions.hide();
+            empty.show();
+            return;
+        }
+
+        actions.html(recommendations.join(''));
+        actions.show();
+        empty.hide();
+    }
+
+    function componentDisplayName(componentType) {
+        if (componentType === 'ast') {
+            return 'AST Context';
+        }
+        if (componentType === 'rag') {
+            return 'RAG Evidence';
+        }
+        return 'LLM Reasoning';
+    }
+
+    function parsePipelineDetail(detail) {
+        var data = {};
+        if (!detail || typeof detail !== 'string') {
+            return data;
+        }
+        detail.split(',').forEach(function(token) {
+            var pair = token.split('=');
+            if (pair.length < 2) {
+                return;
+            }
+            var key = pair[0].trim();
+            var value = pair.slice(1).join('=').trim();
+            if (key.length) {
+                data[key] = value;
+            }
+        });
+        return data;
+    }
+
+    function pipelineFriendlyMessage(componentType, normalized, detailData, rawDetail) {
+        if (componentType === 'ast') {
+            var hasPlaceholderFlag = Object.prototype.hasOwnProperty.call(detailData, 'placeholder');
+            var astEnabled = hasPlaceholderFlag
+                ? detailData.placeholder === 'true'
+                : normalized.rawStatus === 'ok';
+            if (astEnabled) {
+                return {
+                    message: rawDetail || 'AST context injection is enabled in the chunk prompt template.',
+                    recommendation: ''
+                };
+            }
+            return {
+                message: rawDetail || 'AST context is not injected because the chunk prompt template is missing the AST placeholder.',
+                recommendation: 'Add {{AST_CONTEXT}} to prompt.chunk so symbol-level context is included.'
+            };
+        }
+
+        if (componentType === 'rag') {
+            var ragEnabled = detailData.placeholder === 'true';
+            var model = detailData.embeddingModel || '(not set)';
+            var health = detailData.embeddingHealth || 'unknown';
+            var ragMessage = 'RAG is ' + (ragEnabled ? 'enabled' : 'disabled') + '. Embedding model: ' + model + '. Health: ' + health + '.';
+
+            if (!ragEnabled) {
+                return {
+                    message: ragMessage,
+                    recommendation: 'Add {{RAG_EVIDENCE}} to prompt.chunk to inject retrieved context snippets.'
+                };
+            }
+            if (!model || model === '(not set)') {
+                return {
+                    message: ragMessage,
+                    recommendation: 'Select a ragEmbeddingModel in Configuration so semantic retrieval can run.'
+                };
+            }
+            if (health === 'degraded' || health === 'failed') {
+                return {
+                    message: ragMessage,
+                    recommendation: 'Check embedding model availability/latency in Ollama and verify model name + endpoint.'
+                };
+            }
+            return {
+                message: ragMessage,
+                recommendation: ''
+            };
+        }
+
+        var guideEnabled = detailData.reasoningGuide === 'true';
+        var invocations = detailData.sampledInvocations || '0';
+        var successRate = detailData.sampledSuccessRate || 'n/a';
+        var reasoningMessage = 'Reasoning guide is ' + (guideEnabled ? 'enabled' : 'disabled') + '. Sampled calls: ' + invocations + '. Success rate: ' + successRate + '.';
+
+        if (!guideEnabled) {
+            return {
+                message: reasoningMessage,
+                recommendation: 'Add {{REASONING_GUIDE}} to prompt.chunk so model reasoning steps are constrained.'
+            };
+        }
+        if (normalized.rawStatus === 'critical' || normalized.rawStatus === 'warning') {
+            return {
+                message: reasoningMessage,
+                recommendation: 'Review model stability (timeouts/errors) and adjust retries/timeouts or fallback model policy.'
+            };
+        }
+        return {
+            message: reasoningMessage,
+            recommendation: ''
+        };
     }
 
     function renderCleanupCard(cleanup) {

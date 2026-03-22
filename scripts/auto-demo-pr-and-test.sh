@@ -132,7 +132,7 @@ ensure_plugin_installed() {
 
 configure_plugin_for_local_ollama() {
   local payload
-  payload="{\"ollamaUrl\":\"$OLLAMA_CONTAINER_URL\",\"ollamaModel\":\"$OLLAMA_MODEL\",\"fallbackModel\":\"$FALLBACK_MODEL\"}"
+  payload="{\"ollamaUrl\":\"$OLLAMA_CONTAINER_URL\",\"ollamaModel\":\"$OLLAMA_MODEL\",\"fallbackModel\":\"$FALLBACK_MODEL\",\"outboundAllowLocalTargets\":true}"
 
   local code
   code="$(bb_api PUT "/rest/ai-reviewer/1.0/config" "$payload")"

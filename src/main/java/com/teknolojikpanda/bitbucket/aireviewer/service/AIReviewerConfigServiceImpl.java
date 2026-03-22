@@ -340,7 +340,7 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             .forEach(key -> errors.putIfAbsent(key, "Unsupported configuration key '" + key + "'"));
 
         List<String> outboundAllowedHosts = parseOutboundAllowedHosts(configMap.get(KEY_OUTBOUND_ALLOWED_HOSTS));
-        boolean allowLocalTargets = getBooleanValue(configMap, KEY_OUTBOUND_ALLOW_LOCAL_TARGETS);
+        boolean allowLocalTargets = getBooleanValueOrDefault(configMap, KEY_OUTBOUND_ALLOW_LOCAL_TARGETS, false);
 
         validateString(configMap, "ollamaUrl", true, 2048, errors, value -> {
             try {
@@ -2147,6 +2147,27 @@ public class AIReviewerConfigServiceImpl implements AIReviewerConfigService {
             return (Boolean) value;
         } else if (value instanceof String) {
             return Boolean.parseBoolean((String) value);
+        }
+        throw new IllegalArgumentException("Cannot convert " + key + " to boolean: " + value);
+    }
+
+    private boolean getBooleanValueOrDefault(Map<String, Object> map, String key, boolean defaultValue) {
+        if (map == null || !map.containsKey(key)) {
+            return defaultValue;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof String) {
+            String normalized = ((String) value).trim();
+            if (normalized.isEmpty()) {
+                return defaultValue;
+            }
+            return Boolean.parseBoolean(normalized);
         }
         throw new IllegalArgumentException("Cannot convert " + key + " to boolean: " + value);
     }

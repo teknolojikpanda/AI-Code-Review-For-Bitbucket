@@ -19,10 +19,15 @@ public class HealthJsPipelineStatusTest {
         );
 
         assertTrue(js.contains("renderAiPipeline(data.aiPipeline || {})"));
-        assertTrue(js.contains("renderPipelineComponent('ast', pipeline.ast || {})"));
-        assertTrue(js.contains("renderPipelineComponent('rag', pipeline.rag || {})"));
-        assertTrue(js.contains("renderPipelineComponent('llm', pipeline.llmReasoning || {})"));
+        assertTrue(js.contains("renderPipelineComponent('ast', 'ast', pipeline.ast || {})"));
+        assertTrue(js.contains("renderPipelineComponent('rag', 'rag', pipeline.rag || {})"));
+        assertTrue(js.contains("renderPipelineComponent('llm', 'llmReasoning', pipeline.llmReasoning || {})"));
         assertTrue(js.contains("normalizePipelineStatus"));
+        assertTrue(js.contains("composePipelineSummary"));
+        assertTrue(js.contains("renderPipelineActions"));
+        assertTrue(js.contains("pipelineFriendlyMessage"));
+        assertTrue(js.contains("rawDetail || 'AST context injection is enabled in the chunk prompt template.'"));
         assertTrue(js.contains("#health-pipeline-summary"));
+        assertTrue(js.contains("#health-pipeline-actions"));
     }
 }
