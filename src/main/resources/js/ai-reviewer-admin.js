@@ -6,12 +6,21 @@
 (function($) {
     'use strict';
 
+    var debugEnabled = window.AIReviewer && window.AIReviewer.debug === true;
+
+    function debugLog() {
+        if (!debugEnabled || !window.console || typeof console.log !== 'function') {
+            return;
+        }
+        console.log.apply(console, arguments);
+    }
+
     // Get base URL - try multiple methods
     var baseUrl = AJS.$('meta[name="application-base-url"]').attr("content") ||
                   AJS.$('meta[name="ajs-context-path"]').attr("content") ||
                   window.location.origin + (AJS.contextPath() || '');
 
-    console.log('Base URL:', baseUrl);
+    debugLog('Base URL:', baseUrl);
 
     var apiUrl = baseUrl + '/rest/ai-reviewer/1.0/config';
     var userSearchUrl = apiUrl + '/users';
@@ -27,6 +36,7 @@
     };
     var totalRepositoryCount = 0;
     var treeInitialized = false;
+    var scopeDependencyMissing = false;
     var scopeState = {
         mode: 'all',
         selectedRepositories: new Set(),
@@ -43,7 +53,7 @@
      * Initialize the admin configuration page
      */
     function init() {
-        console.log('AI Reviewer Admin: Initializing...');
+        debugLog('AI Reviewer Admin: Initializing...');
 
         // Bind event handlers
         $('#ai-reviewer-config-form').on('submit', handleFormSubmit);
@@ -63,7 +73,7 @@
         // Load current configuration
         loadConfiguration();
 
-        console.log('AI Reviewer Admin: Initialized');
+        debugLog('AI Reviewer Admin: Initialized');
     }
 
     /**
@@ -77,7 +87,7 @@
             type: 'GET',
             dataType: 'json',
             success: function(config) {
-                console.log('Configuration loaded:', config);
+                debugLog('Configuration loaded:', config);
                 populateForm(config);
                 showLoading(false);
             },
@@ -736,6 +746,32 @@
         $('#scope-summary').text('Scope: Repository catalogue unavailable.');
     }
 
+    function setScopeControlsDisabled(disabled) {
+        var isDisabled = !!disabled;
+        var $container = $('#scope-tree-container');
+        if ($container.length) {
+            $container.toggleClass('scope-controls-disabled', isDisabled);
+            $container.attr('aria-disabled', isDisabled ? 'true' : 'false');
+        }
+        $('#repository-scope-tree .scope-checkbox').prop('disabled', isDisabled);
+        $('#repository-overrides-body .override-toggle').prop('disabled', isDisabled);
+        $('#guardrails-scope-manage')
+            .prop('disabled', isDisabled)
+            .attr('aria-disabled', isDisabled ? 'true' : 'false');
+    }
+
+    function handleMissingScopeTreeDependency() {
+        scopeDependencyMissing = true;
+        $('#repository-scope-tree').html(
+            '<div class="loading-message error" data-scope-error="missing-dependency">' +
+            'Repository scope is unavailable: required ScopeTree module did not load.' +
+            '</div>'
+        );
+        $('#scope-summary').text('Scope: Repository scope controls unavailable (missing dependency).');
+        setScopeControlsDisabled(true);
+        showMessage('error', 'Repository scope controls are unavailable because ScopeTree failed to load.');
+    }
+
     function buildCatalogIndex() {
         if (scopeTree && typeof scopeTree.buildCatalogIndex === 'function') {
             var index = scopeTree.buildCatalogIndex(repositoryCatalog);
@@ -822,6 +858,9 @@
         if (event) {
             event.preventDefault();
         }
+        if (scopeDependencyMissing) {
+            return;
+        }
         var container = document.getElementById('scope-tree-container');
         if (!container) {
             return;
@@ -841,9 +880,11 @@
             return;
         }
         if (!scopeTree || typeof scopeTree.render !== 'function') {
-            displayScopeCatalogError('Failed to render repository scope tree: missing ScopeTree module.');
+            handleMissingScopeTreeDependency();
             return;
         }
+        scopeDependencyMissing = false;
+        setScopeControlsDisabled(false);
         scopeTree.render($container, repositoryCatalog, {
             allLabel: 'All repositories (current and future)',
             projectGroupLabel: 'All project repositories',
@@ -1046,6 +1087,9 @@
         if (suppressScopeEvents) {
             return;
         }
+        if (scopeDependencyMissing) {
+            return;
+        }
         var $checkbox = $(this);
         var nodeType = $checkbox.data('nodeType');
 
@@ -1116,6 +1160,9 @@
 
     function handleOverrideToggle(event) {
         event.preventDefault();
+        if (scopeDependencyMissing) {
+            return;
+        }
         var $button = $(this);
         var projectKey = $button.data('projectKey');
         var repositorySlug = $button.data('repositorySlug');
@@ -1333,7 +1380,7 @@
             contentType: 'application/json',
             data: JSON.stringify(config),
             success: function(response) {
-                console.log('Configuration saved:', response);
+                debugLog('Configuration saved:', response);
                 synchronizeRepositoryScope();
             },
             error: function(xhr, status, error) {
@@ -1366,7 +1413,7 @@
             contentType: 'application/json',
             data: JSON.stringify({ ollamaUrl: ollamaUrl }),
             success: function(response) {
-                console.log('Connection test response:', response);
+                debugLog('Connection test response:', response);
                 var message = response.message || 'Connection successful!';
                 $('#test-connection-result').removeClass('testing').addClass('success')
                     .text(message);

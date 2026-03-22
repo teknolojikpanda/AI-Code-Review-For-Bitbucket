@@ -33,12 +33,14 @@ import java.util.Objects;
 public class HttpClientUtil {
 
     private static final Logger log = LoggerFactory.getLogger(HttpClientUtil.class);
+    private static final int DEFAULT_API_DELAY_MS = 100;
     // Using simple string building for JSON to avoid external dependencies
 
     private final int connectTimeout;
     private final int readTimeout;
     private final int maxRetries;
     private final int baseRetryDelayMs;
+    private final int effectiveApiDelayMs;
     private final CircuitBreaker circuitBreaker;
     private final RateLimiter rateLimiter;
 
@@ -46,7 +48,7 @@ public class HttpClientUtil {
      * Default constructor for dependency injection.
      */
     public HttpClientUtil() {
-        this(10000, 30000, 3, 1000, 100);
+        this(10000, 30000, 3, 1000, DEFAULT_API_DELAY_MS);
     }
 
     /**
@@ -68,8 +70,9 @@ public class HttpClientUtil {
         this.readTimeout = readTimeout;
         this.maxRetries = maxRetries;
         this.baseRetryDelayMs = baseRetryDelayMs;
+        this.effectiveApiDelayMs = apiDelayMs > 0 ? apiDelayMs : DEFAULT_API_DELAY_MS;
         this.circuitBreaker = new CircuitBreaker("ollama-api", 5, Duration.ofMinutes(1));
-        this.rateLimiter = new RateLimiter("ollama-api", 10, Duration.ofSeconds(1));
+        this.rateLimiter = new RateLimiter("ollama-api", 1, Duration.ofMillis(effectiveApiDelayMs));
     }
 
     /**
@@ -298,5 +301,9 @@ public class HttpClientUtil {
     @Nonnull
     public RateLimiter getRateLimiter() {
         return rateLimiter;
+    }
+
+    public int getEffectiveApiDelayMs() {
+        return effectiveApiDelayMs;
     }
 }
