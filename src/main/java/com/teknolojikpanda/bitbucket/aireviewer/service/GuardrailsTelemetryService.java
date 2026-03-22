@@ -1,5 +1,8 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
+import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
+import com.teknolojikpanda.bitbucket.aicode.model.PromptTemplates;
+import com.teknolojikpanda.bitbucket.aicode.model.ReviewConfig;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController.QueueStats;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewConcurrencyController.QueueStats.ScopeQueueStats;
 import com.teknolojikpanda.bitbucket.aireviewer.service.ReviewRateLimiter.RateLimitSnapshot;
@@ -27,6 +30,9 @@ public class GuardrailsTelemetryService {
     private static final int DURATION_SAMPLE_LIMIT = 200;
     private static final int MODEL_STATS_SAMPLE_LIMIT = 600;
     private static final int CIRCUIT_SAMPLE_LIMIT = 400;
+    private static final String AST_PLACEHOLDER = "{{AST_CONTEXT}}";
+    private static final String RAG_PLACEHOLDER = "{{RAG_EVIDENCE}}";
+    private static final String REASONING_PLACEHOLDER = "{{REASONING_GUIDE}}";
 
     private final ReviewConcurrencyController concurrencyController;
     private final ReviewWorkerPool workerPool;
@@ -43,6 +49,8 @@ public class GuardrailsTelemetryService {
     private final GuardrailsRateLimitOverrideService overrideService;
     private final GuardrailsRateLimitStore rateLimitStore;
     private final GuardrailsRolloutService rolloutService;
+    private final AIReviewerConfigService configService;
+    private final ReviewConfigFactory reviewConfigFactory;
 
     @Inject
     public GuardrailsTelemetryService(ReviewConcurrencyController concurrencyController,
@@ -59,7 +67,9 @@ public class GuardrailsTelemetryService {
                                       ReviewQueueAuditService queueAuditService,
                                       GuardrailsRateLimitOverrideService overrideService,
                                       GuardrailsRateLimitStore rateLimitStore,
-                                      GuardrailsRolloutService rolloutService) {
+                                      GuardrailsRolloutService rolloutService,
+                                      AIReviewerConfigService configService,
+                                      ReviewConfigFactory reviewConfigFactory) {
         this.concurrencyController = Objects.requireNonNull(concurrencyController, "concurrencyController");
         this.workerPool = Objects.requireNonNull(workerPool, "workerPool");
         this.rateLimiter = Objects.requireNonNull(rateLimiter, "rateLimiter");
@@ -75,6 +85,8 @@ public class GuardrailsTelemetryService {
         this.overrideService = Objects.requireNonNull(overrideService, "overrideService");
         this.rateLimitStore = Objects.requireNonNull(rateLimitStore, "rateLimitStore");
         this.rolloutService = Objects.requireNonNull(rolloutService, "rolloutService");
+        this.configService = Objects.requireNonNull(configService, "configService");
+        this.reviewConfigFactory = Objects.requireNonNull(reviewConfigFactory, "reviewConfigFactory");
     }
 
     /**
@@ -103,12 +115,192 @@ public class GuardrailsTelemetryService {
         payload.put("retention", retentionToMap(cleanupStatusService.getStatus()));
         ReviewHistoryService.ModelStats modelStats = historyService.getRecentModelStats(MODEL_STATS_SAMPLE_LIMIT);
         payload.put("modelStats", modelStats != null ? modelStats.toMap() : Collections.emptyMap());
-        payload.put("modelHealth", modelHealthService.snapshot());
+        Map<String, Object> modelHealthSnapshot = modelHealthService.snapshot();
+        payload.put("modelHealth", modelHealthSnapshot);
+        payload.put("aiPipeline", buildAiPipelineSummary(modelStats, modelHealthSnapshot));
         ReviewHistoryService.CircuitStats circuitStats = historyService.getRecentCircuitStats(CIRCUIT_SAMPLE_LIMIT);
         payload.put("circuitBreaker", circuitStats != null ? circuitStats.toMap() : Collections.emptyMap());
         payload.put("healthTimeline", buildHealthTimeline(queueActions, workerNodeTimeline));
         payload.put("generatedAt", System.currentTimeMillis());
         return payload;
+    }
+
+    private Map<String, Object> buildAiPipelineSummary(ReviewHistoryService.ModelStats modelStats,
+                                                       Map<String, Object> modelHealthSnapshot) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("generatedAt", System.currentTimeMillis());
+
+        try {
+            Map<String, Object> config = configService.getConfigurationAsMap();
+            ReviewConfig reviewConfig = reviewConfigFactory.from(config);
+            String chunkTemplate = reviewConfig.getPromptTemplates().getChunkInstructionsTemplate();
+
+            Map<String, Object> ast = buildAstStatus(chunkTemplate);
+            Map<String, Object> rag = buildRagStatus(chunkTemplate, reviewConfig, modelHealthSnapshot);
+            Map<String, Object> llm = buildLlmReasoningStatus(chunkTemplate, reviewConfig, modelStats);
+
+            summary.put("ast", ast);
+            summary.put("rag", rag);
+            summary.put("llmReasoning", llm);
+            summary.put("overallStatus", combineStatuses(
+                    asStatus(ast.get("status")),
+                    asStatus(rag.get("status")),
+                    asStatus(llm.get("status"))));
+            return summary;
+        } catch (RuntimeException ex) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("status", "unknown");
+            error.put("summary", "Pipeline telemetry unavailable");
+            error.put("detail", "Unable to evaluate RAG/AST/LLM pipeline: " + ex.getMessage());
+            summary.put("ast", error);
+            summary.put("rag", error);
+            summary.put("llmReasoning", error);
+            summary.put("overallStatus", "unknown");
+            return summary;
+        }
+    }
+
+    private Map<String, Object> buildAstStatus(String chunkTemplate) {
+        boolean enabled = containsPlaceholder(chunkTemplate, AST_PLACEHOLDER);
+        String status = enabled ? "ok" : "warning";
+        String detail = enabled
+                ? "Chunk prompt includes AST context placeholder."
+                : "Chunk prompt is missing {{AST_CONTEXT}}; AST context will not be injected.";
+        return componentStatus(status, "AST context", detail);
+    }
+
+    private Map<String, Object> buildRagStatus(String chunkTemplate,
+                                               ReviewConfig reviewConfig,
+                                               Map<String, Object> modelHealthSnapshot) {
+        boolean placeholderEnabled = containsPlaceholder(chunkTemplate, RAG_PLACEHOLDER);
+        String embeddingModel = trimToEmpty(reviewConfig.getRagEmbeddingModel());
+        boolean embeddingConfigured = !embeddingModel.isEmpty();
+        String embeddingHealth = lookupModelHealthStatus(modelHealthSnapshot, embeddingModel);
+
+        String status;
+        if (!placeholderEnabled) {
+            status = "warning";
+        } else if (!embeddingConfigured) {
+            status = "warning";
+        } else if ("failed".equalsIgnoreCase(embeddingHealth)) {
+            status = "critical";
+        } else if ("degraded".equalsIgnoreCase(embeddingHealth)) {
+            status = "warning";
+        } else {
+            status = "ok";
+        }
+
+        String detail = "placeholder=" + placeholderEnabled
+                + ", embeddingModel=" + (embeddingConfigured ? embeddingModel : "(not set)")
+                + ", embeddingHealth=" + embeddingHealth;
+        return componentStatus(status, "RAG evidence", detail);
+    }
+
+    private Map<String, Object> buildLlmReasoningStatus(String chunkTemplate,
+                                                        ReviewConfig reviewConfig,
+                                                        ReviewHistoryService.ModelStats modelStats) {
+        boolean reasoningGuideEnabled = containsPlaceholder(chunkTemplate, REASONING_PLACEHOLDER);
+
+        long totalInvocations = 0L;
+        double weightedSuccess = 0D;
+        if (modelStats != null && modelStats.getEntries() != null) {
+            for (ReviewHistoryService.ModelStats.Entry entry : modelStats.getEntries()) {
+                long invocations = Math.max(0L, entry.getTotalInvocations());
+                totalInvocations += invocations;
+                weightedSuccess += entry.getSuccessRate() * invocations;
+            }
+        }
+        double successRate = totalInvocations > 0 ? weightedSuccess / totalInvocations : -1D;
+
+        String status;
+        if (!reasoningGuideEnabled) {
+            status = "warning";
+        } else if (totalInvocations == 0) {
+            status = "warning";
+        } else if (successRate < 0.80D) {
+            status = "critical";
+        } else if (successRate < 0.92D) {
+            status = "warning";
+        } else {
+            status = "ok";
+        }
+
+        String successText = totalInvocations > 0
+                ? String.format(Locale.ROOT, "%.1f%%", successRate * 100D)
+                : "n/a";
+        String detail = "reasoningGuide=" + reasoningGuideEnabled
+                + ", primaryModel=" + trimToEmpty(reviewConfig.getPrimaryModel())
+                + ", sampledInvocations=" + totalInvocations
+                + ", sampledSuccessRate=" + successText;
+        return componentStatus(status, "LLM reasoning", detail);
+    }
+
+    private Map<String, Object> componentStatus(String status, String summary, String detail) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("status", status);
+        map.put("summary", summary);
+        map.put("detail", detail);
+        return map;
+    }
+
+    private boolean containsPlaceholder(String template, String placeholder) {
+        return template != null && placeholder != null && template.contains(placeholder);
+    }
+
+    private String lookupModelHealthStatus(Map<String, Object> modelHealthSnapshot, String modelName) {
+        if (modelName == null || modelName.isEmpty()) {
+            return "not-configured";
+        }
+        if (modelHealthSnapshot == null) {
+            return "unknown";
+        }
+        Object rawModels = modelHealthSnapshot.get("models");
+        if (!(rawModels instanceof List)) {
+            return "unknown";
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> models = ((List<?>) rawModels).stream()
+                .filter(Map.class::isInstance)
+                .map(item -> (Map<String, Object>) item)
+                .collect(java.util.stream.Collectors.toList());
+        for (Map<String, Object> model : models) {
+            String candidate = trimToEmpty(model.get("model"));
+            if (modelName.equalsIgnoreCase(candidate)) {
+                String status = trimToEmpty(model.get("status"));
+                return status.isEmpty() ? "unknown" : status;
+            }
+        }
+        return "unknown";
+    }
+
+    private String combineStatuses(String... statuses) {
+        if (statuses == null || statuses.length == 0) {
+            return "unknown";
+        }
+        String combined = "ok";
+        for (String status : statuses) {
+            if ("critical".equals(status)) {
+                return "critical";
+            }
+            if ("warning".equals(status)) {
+                combined = "warning";
+            } else if ("unknown".equals(status) && "ok".equals(combined)) {
+                combined = "unknown";
+            }
+        }
+        return combined;
+    }
+
+    private String asStatus(Object value) {
+        String status = trimToEmpty(value).toLowerCase(Locale.ROOT);
+        if (status.isEmpty()) {
+            return "unknown";
+        }
+        return status;
+    }
+
+    private String trimToEmpty(Object value) {
+        return value == null ? "" : value.toString().trim();
     }
 
     /**

@@ -80,6 +80,31 @@
 
                 <section class="health-section ai-admin-section-spaced">
                     <header class="health-header">
+                        <h2>AI Pipeline Status (RAG + AST + LLM)</h2>
+                        <span id="health-pipeline-updated" class="health-updated">—</span>
+                    </header>
+                    <div class="queue-note" id="health-pipeline-summary">Pipeline telemetry loading…</div>
+                    <div class="health-grid metrics-grid">
+                        <div class="health-card metric-card metric-status-normal" id="pipeline-ast-card">
+                            <span class="health-label">AST Context</span>
+                            <span class="health-value" id="pipeline-ast-value">—</span>
+                            <span class="health-subtext" id="pipeline-ast-note">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="pipeline-rag-card">
+                            <span class="health-label">RAG Evidence</span>
+                            <span class="health-value" id="pipeline-rag-value">—</span>
+                            <span class="health-subtext" id="pipeline-rag-note">Loading…</span>
+                        </div>
+                        <div class="health-card metric-card metric-status-normal" id="pipeline-llm-card">
+                            <span class="health-label">LLM Reasoning</span>
+                            <span class="health-value" id="pipeline-llm-value">—</span>
+                            <span class="health-subtext" id="pipeline-llm-note">Loading…</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="health-section ai-admin-section-spaced">
+                    <header class="health-header">
                         <h2>Metrics Summary</h2>
                         <span id="metrics-summary-updated" class="health-updated">—</span>
                     </header>

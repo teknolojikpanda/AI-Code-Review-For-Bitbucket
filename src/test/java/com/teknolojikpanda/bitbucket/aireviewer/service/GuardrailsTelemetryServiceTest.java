@@ -1,5 +1,6 @@
 package com.teknolojikpanda.bitbucket.aireviewer.service;
 
+import com.teknolojikpanda.bitbucket.aicode.core.ReviewConfigFactory;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -32,6 +33,8 @@ public class GuardrailsTelemetryServiceTest {
     private GuardrailsRateLimitOverrideService overrideService;
     private GuardrailsRateLimitStore rateLimitStore;
     private GuardrailsRolloutService rolloutService;
+        private AIReviewerConfigService configService;
+        private ReviewConfigFactory reviewConfigFactory;
     private GuardrailsTelemetryService telemetryService;
 
     @Before
@@ -50,6 +53,15 @@ public class GuardrailsTelemetryServiceTest {
         overrideService = mock(GuardrailsRateLimitOverrideService.class);
         rateLimitStore = mock(GuardrailsRateLimitStore.class);
         rolloutService = mock(GuardrailsRolloutService.class);
+        configService = mock(AIReviewerConfigService.class);
+        reviewConfigFactory = new ReviewConfigFactory();
+
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("ollamaUrl", "http://ollama:11434");
+        config.put("ollamaModel", "qwen3-coder:30b");
+        config.put("fallbackModel", "qwen3-coder:7b");
+        config.put("ragEmbeddingModel", "nomic-embed-text");
+        when(configService.getConfigurationAsMap()).thenReturn(config);
 
         ReviewSchedulerStateService.SchedulerState schedulerState =
                 new ReviewSchedulerStateService.SchedulerState(
@@ -170,7 +182,9 @@ public class GuardrailsTelemetryServiceTest {
                 queueAuditService,
                 overrideService,
                 rateLimitStore,
-                rolloutService);
+                rolloutService,
+                configService,
+                reviewConfigFactory);
     }
 
     @Test
@@ -192,6 +206,13 @@ public class GuardrailsTelemetryServiceTest {
         assertTrue(snapshot.containsKey("modelStats"));
         assertTrue(snapshot.containsKey("schedulerState"));
         assertTrue(snapshot.containsKey("modelHealth"));
+        assertTrue(snapshot.containsKey("aiPipeline"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> pipeline = (Map<String, Object>) snapshot.get("aiPipeline");
+        assertTrue(pipeline.containsKey("ast"));
+        assertTrue(pipeline.containsKey("rag"));
+        assertTrue(pipeline.containsKey("llmReasoning"));
+        assertTrue(pipeline.containsKey("overallStatus"));
         @SuppressWarnings("unchecked")
         Map<String, Object> retention = (Map<String, Object>) snapshot.get("retention");
         assertTrue(retention.containsKey("schedule"));

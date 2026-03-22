@@ -85,10 +85,57 @@
         $('#health-retention-note').text('Older than ' + retentionDays + 'd: ' + older + ' • Cutoff ' + cutoff);
 
         renderCleanupCard(cleanup);
+        renderAiPipeline(data.aiPipeline || {});
 
         renderWorkerNodes(data.workerPoolNodes || []);
         renderScalingHints(data.scalingHints || [], data.generatedAt);
         renderHealthTimeline(data.healthTimeline || {});
+    }
+
+    function renderAiPipeline(pipeline) {
+        pipeline = pipeline || {};
+
+        renderPipelineComponent('ast', pipeline.ast || {});
+        renderPipelineComponent('rag', pipeline.rag || {});
+        renderPipelineComponent('llm', pipeline.llmReasoning || {});
+
+        var overall = normalizePipelineStatus(pipeline.overallStatus);
+        var summaryText = 'Overall: ' + overall.label;
+        if (pipeline.overallStatus === 'unknown') {
+            summaryText += ' (pipeline telemetry not available)';
+        }
+        $('#health-pipeline-summary').text(summaryText);
+        $('#health-pipeline-updated').text(pipeline.generatedAt ? formatTimestamp(pipeline.generatedAt) : '—');
+    }
+
+    function renderPipelineComponent(key, component) {
+        component = component || {};
+        var normalized = normalizePipelineStatus(component.status);
+        var label = component.summary || '—';
+        var detail = component.detail || 'No telemetry details available.';
+
+        $('#pipeline-' + key + '-value').text(label);
+        $('#pipeline-' + key + '-note').text(detail);
+        applyMetricStatus(
+            $('#pipeline-' + key + '-card'),
+            $(),
+            normalized.metricStatus,
+            null
+        );
+    }
+
+    function normalizePipelineStatus(rawStatus) {
+        var status = (rawStatus || 'unknown').toString().toLowerCase();
+        if (status === 'critical') {
+            return { label: 'Critical', metricStatus: 'critical' };
+        }
+        if (status === 'warning') {
+            return { label: 'Warning', metricStatus: 'warning' };
+        }
+        if (status === 'ok' || status === 'healthy' || status === 'normal') {
+            return { label: 'Healthy', metricStatus: 'normal' };
+        }
+        return { label: 'Unknown', metricStatus: 'normal' };
     }
 
     function renderCleanupCard(cleanup) {
