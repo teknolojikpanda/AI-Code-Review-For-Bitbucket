@@ -56,6 +56,8 @@ public class ReviewResult {
     private final int filesReviewed;
     private final int filesSkipped;
     private final List<ProgressEvent> progressEvents;
+    private final boolean degraded;
+    private final int failedChunkCount;
 
     private ReviewResult(Builder builder) {
         this.issues = Collections.unmodifiableList(new ArrayList<>(builder.issues));
@@ -66,6 +68,8 @@ public class ReviewResult {
         this.filesReviewed = builder.filesReviewed;
         this.filesSkipped = builder.filesSkipped;
         this.progressEvents = Collections.unmodifiableList(new ArrayList<>(builder.progressEvents));
+        this.degraded = builder.degraded;
+        this.failedChunkCount = builder.failedChunkCount;
     }
 
     /**
@@ -143,6 +147,14 @@ public class ReviewResult {
     @Nonnull
     public List<ProgressEvent> getProgressEvents() {
         return progressEvents;
+    }
+
+    public boolean isDegraded() {
+        return degraded;
+    }
+
+    public int getFailedChunkCount() {
+        return failedChunkCount;
     }
 
     /**
@@ -240,6 +252,8 @@ public class ReviewResult {
         private int filesReviewed = 0;
         private int filesSkipped = 0;
         private final List<ProgressEvent> progressEvents = new ArrayList<>();
+        private boolean degraded = false;
+        private int failedChunkCount = 0;
 
         private Builder() {
         }
@@ -316,6 +330,18 @@ public class ReviewResult {
         public Builder progressEvents(@Nonnull List<ProgressEvent> events) {
             this.progressEvents.clear();
             this.progressEvents.addAll(events);
+            return this;
+        }
+
+        @Nonnull
+        public Builder degraded(boolean degraded) {
+            this.degraded = degraded;
+            return this;
+        }
+
+        @Nonnull
+        public Builder failedChunkCount(int failedChunkCount) {
+            this.failedChunkCount = Math.max(0, failedChunkCount);
             return this;
         }
 

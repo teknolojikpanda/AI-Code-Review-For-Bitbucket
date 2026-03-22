@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -92,6 +93,8 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
 
             List<ReviewFinding> findings = new ArrayList<>();
             EnumMap<SeverityLevel, Integer> counts = new EnumMap<>(SeverityLevel.class);
+            int failedChunkCount = 0;
+            boolean degraded = false;
 
             for (Future<ChunkReviewResult> future : futures) {
                 ChunkReviewResult result;
@@ -100,12 +103,27 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     throw new ReviewCanceledException(null, "Review execution interrupted");
-                } catch (Exception e) {
-                    log.error("Chunk execution failed: {}", e.getMessage(), e);
+                } catch (ExecutionException ee) {
+                    Throwable cause = ee.getCause();
+                    if (cause instanceof ReviewCanceledException) {
+                        throw (ReviewCanceledException) cause;
+                    }
+                    failedChunkCount++;
+                    degraded = true;
+                    log.error("Chunk execution failed: {}",
+                            cause != null ? cause.getMessage() : ee.getMessage(),
+                            cause != null ? cause : ee);
+                    continue;
+                } catch (RuntimeException ex) {
+                    failedChunkCount++;
+                    degraded = true;
+                    log.error("Chunk execution failed: {}", ex.getMessage(), ex);
                     continue;
                 }
 
                 if (!result.isSuccess()) {
+                    failedChunkCount++;
+                    degraded = true;
                     log.warn("Chunk {} failed: {}", result.getChunk().getId(), result.getError());
                     continue;
                 }
@@ -118,8 +136,10 @@ public class TwoPassReviewOrchestrator implements ReviewOrchestrator {
 
         ReviewSummary.Builder builder = ReviewSummary.builder()
                     .findings(findings)
-            .truncated(preparation.isTruncated())
-            .impactSummary(impactSummary);
+                    .truncated(preparation.isTruncated())
+                    .impactSummary(impactSummary)
+                    .degraded(degraded)
+                    .failedChunkCount(failedChunkCount);
             counts.forEach(builder::addCount);
             return builder.build();
         } finally {

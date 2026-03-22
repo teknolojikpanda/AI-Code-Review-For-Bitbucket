@@ -714,6 +714,8 @@ public class AIReviewServiceImpl implements AIReviewService {
             Map<String, Object> analysisCompletedDetails = progressDetails(
                     "findings", summary.totalCount(),
                     "truncated", summary.isTruncated(),
+                    "degraded", summary.isDegraded(),
+                    "failedChunkCount", summary.getFailedChunkCount(),
                     "criticalFindings", summary.countFor(SeverityLevel.CRITICAL),
                     "highFindings", summary.countFor(SeverityLevel.HIGH),
                     "mediumFindings", summary.countFor(SeverityLevel.MEDIUM),
@@ -752,11 +754,14 @@ public class AIReviewServiceImpl implements AIReviewService {
             recordProgress("autoApproval.completed", 90, progressDetails(
                     "autoApproved", approved));
             Map<String, Object> metricsSnapshot = finalizeMetricsSnapshot(metrics, overallStart);
+                metricsSnapshot.put("review.degraded", summary.isDegraded());
+                metricsSnapshot.put("chunks.failed.count", summary.getFailedChunkCount());
             recordProgress("review.completed", 100, progressDetails(
                     "issues", validated.size(),
                     "commentsPosted", commentsPosted,
                     "autoApproved", approved));
             ReviewResult result = buildFinalResult(pullRequestId, validated,
+                    summary,
                     preparation.getOverview().getTotalFiles(),
                     fileChanges.size(), commentsPosted, approved, metricsSnapshot);
             LogSupport.info(log, "review.completed", "Review completed",
@@ -1028,25 +1033,33 @@ public class AIReviewServiceImpl implements AIReviewService {
         return metrics.getMetrics();
     }
 
-    private ReviewResult buildFinalResult(long pullRequestId, @Nonnull List<ReviewIssue> issues, int filesReviewed,
+        private ReviewResult buildFinalResult(long pullRequestId,
+            @Nonnull List<ReviewIssue> issues,
+            @Nonnull ReviewSummary summary,
+            int filesReviewed,
             int totalFiles, int commentsPosted, boolean approved, @Nonnull Map<String, Object> metricsSnapshot) {
         long criticalCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.CRITICAL).count();
         long highCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.HIGH).count();
         long mediumCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.MEDIUM).count();
         long lowCount = issues.stream().filter(i -> i.getSeverity() == ReviewIssue.Severity.LOW).count();
 
-        ReviewResult.Status status = criticalCount > 0 || highCount > 0
+        ReviewResult.Status status = criticalCount > 0 || highCount > 0 || summary.isDegraded()
                 ? ReviewResult.Status.PARTIAL
                 : ReviewResult.Status.SUCCESS;
 
         String approvalStatus = approved ? " (auto-approved)" : "";
-    String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s",
-        issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted, approvalStatus);
+        String degradedSuffix = summary.isDegraded()
+            ? String.format("; degraded execution (%d chunk failures)", summary.getFailedChunkCount())
+            : "";
+        String message = String.format("Review completed: %d issues found (%d critical, %d high, %d medium, %d low), %d comments posted%s%s",
+            issues.size(), criticalCount, highCount, mediumCount, lowCount, commentsPosted, degradedSuffix, approvalStatus);
 
         return applyProgress(ReviewResult.builder()
                 .pullRequestId(pullRequestId)
                 .status(status)
                 .message(message)
+            .degraded(summary.isDegraded())
+            .failedChunkCount(summary.getFailedChunkCount())
                 .issues(issues)
                 .filesReviewed(filesReviewed)
                 .filesSkipped(totalFiles - filesReviewed)
