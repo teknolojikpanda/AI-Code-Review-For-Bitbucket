@@ -99,6 +99,21 @@ Repository overrides implicitly define scope membership when `scopeMode` is not 
 
 Keys beginning with `prompt` (for example `prompt.system`, `prompt.overview`, `prompt.chunk`) accept multi-line strings to override the bundled templates stored in `src/main/resources/prompts`. They are validated for size and for unsafe placeholders before saving.
 
+Canonical prompt override keys are:
+
+- `prompt.system`
+- `prompt.chunk`
+- `prompt.overview`
+- `prompt.overviewfile`
+- `prompt.impact`
+- `prompt.system.append`
+- `prompt.chunk.append`
+
+Compatibility aliases:
+
+- `prompt.fileline` is still accepted as an alias of `prompt.overviewfile` for backward compatibility.
+- `prompt.fileline` is deprecated and will be removed in a future release.
+
 Additional prompt keys:
 
 - `prompt.system.append` (Global/Repo): Appends additional text to the default system prompt.

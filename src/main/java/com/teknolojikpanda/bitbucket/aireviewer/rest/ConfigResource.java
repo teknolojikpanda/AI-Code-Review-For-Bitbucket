@@ -1021,6 +1021,7 @@ public class ConfigResource {
         Map<String, String> effective = new LinkedHashMap<>();
         effective.put("prompt.system", templates.getSystemPrompt());
         effective.put("prompt.chunk", templates.getChunkInstructionsTemplate());
+        effective.put("prompt.impact", templates.getImpactSummaryTemplate());
         return effective;
     }
 

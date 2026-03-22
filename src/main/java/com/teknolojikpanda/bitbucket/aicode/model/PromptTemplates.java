@@ -7,12 +7,53 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
  * Holds prompt template segments for AI interactions.
  */
 public final class PromptTemplates {
+
+    public static final String KEY_SYSTEM = "prompt.system";
+    public static final String KEY_CHUNK = "prompt.chunk";
+    public static final String KEY_OVERVIEW = "prompt.overview";
+    public static final String KEY_OVERVIEW_FILE = "prompt.overviewfile";
+    public static final String KEY_IMPACT = "prompt.impact";
+    public static final String KEY_SYSTEM_APPEND = "prompt.system.append";
+    public static final String KEY_CHUNK_APPEND = "prompt.chunk.append";
+
+    private static final Map<String, String> PROMPT_KEY_ALIASES;
+
+    static {
+        Map<String, String> aliases = new LinkedHashMap<>();
+        aliases.put(KEY_SYSTEM, KEY_SYSTEM);
+        aliases.put("system", KEY_SYSTEM);
+        aliases.put("systemprompt", KEY_SYSTEM);
+
+        aliases.put(KEY_CHUNK, KEY_CHUNK);
+        aliases.put("chunk", KEY_CHUNK);
+        aliases.put("chunkinstructions", KEY_CHUNK);
+
+        aliases.put(KEY_OVERVIEW, KEY_OVERVIEW);
+        aliases.put("overview", KEY_OVERVIEW);
+
+        aliases.put(KEY_OVERVIEW_FILE, KEY_OVERVIEW_FILE);
+        aliases.put("overviewfile", KEY_OVERVIEW_FILE);
+        aliases.put("prompt.fileline", KEY_OVERVIEW_FILE);
+
+        aliases.put(KEY_IMPACT, KEY_IMPACT);
+        aliases.put("impact", KEY_IMPACT);
+        aliases.put("impactsummary", KEY_IMPACT);
+
+        aliases.put(KEY_SYSTEM_APPEND, KEY_SYSTEM_APPEND);
+        aliases.put(KEY_CHUNK_APPEND, KEY_CHUNK_APPEND);
+
+        PROMPT_KEY_ALIASES = Collections.unmodifiableMap(aliases);
+    }
 
     private static final String DEFAULT_SYSTEM_PATH = "prompts/system-prompt.txt";
     private static final String DEFAULT_CHUNK_PATH = "prompts/chunk-instructions-template.txt";
@@ -71,29 +112,24 @@ public final class PromptTemplates {
             if (value == null) {
                 return;
             }
-            switch (key.toLowerCase()) {
-                case "system":
-                case "systemprompt":
-                case "prompt.system":
+            String canonical = canonicalPromptKey(key);
+            if (canonical == null) {
+                return;
+            }
+            switch (canonical) {
+                case KEY_SYSTEM:
                     builder.systemPrompt(value);
                     break;
-                case "chunk":
-                case "chunkinstructions":
-                case "prompt.chunk":
+                case KEY_CHUNK:
                     builder.chunkInstructionsTemplate(value);
                     break;
-                case "overview":
-                case "prompt.overview":
+                case KEY_OVERVIEW:
                     builder.overviewTemplate(value);
                     break;
-                case "overviewfile":
-                case "prompt.fileline":
-                case "prompt.overviewfile":
+                case KEY_OVERVIEW_FILE:
                     builder.overviewFileEntryTemplate(value);
                     break;
-                case "impact":
-                case "impactsummary":
-                case "prompt.impact":
+                case KEY_IMPACT:
                     builder.impactSummaryTemplate(value);
                     break;
                 default:
@@ -130,6 +166,21 @@ public final class PromptTemplates {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    public static Set<String> supportedPromptKeys() {
+        return PROMPT_KEY_ALIASES.keySet();
+    }
+
+    public static String canonicalPromptKey(String key) {
+        if (key == null) {
+            return null;
+        }
+        String normalized = key.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return PROMPT_KEY_ALIASES.get(normalized);
     }
 
     public static final class Builder {

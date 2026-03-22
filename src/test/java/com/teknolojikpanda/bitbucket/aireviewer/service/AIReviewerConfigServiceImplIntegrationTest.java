@@ -157,6 +157,25 @@ public class AIReviewerConfigServiceImplIntegrationTest {
         assertTrue(service.isRepositoryWithinScope("PROJ", "repo_ONE"));
     }
 
+    @Test
+    public void updateConfigurationAcceptsPromptImpactOverride() {
+        Map<String, Object> updated = new HashMap<>(service.getDefaultConfiguration());
+        updated.put("ollamaUrl", "https://8.8.8.8:443");
+        updated.put("ollamaModel", "primary-model");
+        updated.put("fallbackModel", "fallback-model");
+        service.updateConfiguration(updated);
+
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put("prompt.impact", "Summarize impact using only changed files.");
+        service.updateRepositoryConfiguration("PROJ", "repo", overrides, "tester");
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> repoOverrides = (Map<String, Object>) service
+                .getRepositoryConfiguration("PROJ", "repo")
+                .get("overrides");
+        assertEquals("Summarize impact using only changed files.", repoOverrides.get("prompt.impact"));
+    }
+
     private static final class TestActiveObjects extends EntityManagedActiveObjects {
         TestActiveObjects(EntityManager entityManager) {
             super(entityManager, new ImmediateTransactionManager(), DatabaseType.H2);
