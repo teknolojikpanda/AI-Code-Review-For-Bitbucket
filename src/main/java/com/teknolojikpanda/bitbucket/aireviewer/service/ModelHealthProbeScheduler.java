@@ -14,6 +14,7 @@ import com.atlassian.scheduler.config.RunMode;
 import com.atlassian.scheduler.config.Schedule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.teknolojikpanda.bitbucket.aireviewer.util.HttpClientUtil;
+import com.teknolojikpanda.bitbucket.aireviewer.util.OutboundUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 /**
  * Periodically probes the configured Ollama models so we can mark them degraded before user traffic fails.
@@ -109,7 +111,11 @@ public class ModelHealthProbeScheduler implements LifecycleAware, DisposableBean
         public JobRunnerResponse runJob(JobRunnerRequest request) {
             try {
                 Map<String, Object> config = configService.getConfigurationAsMap();
-                String baseUrl = stringValue(config.get("ollamaUrl"), "http://0.0.0.0:11434");
+                String baseUrl = stringValue(config.get("ollamaUrl"), null);
+                if (baseUrl == null) {
+                    log.info("Model health probe skipped: ollamaUrl is missing or blank");
+                    return JobRunnerResponse.success("Model health probes skipped (ollamaUrl not configured)");
+                }
                 probeModel(baseUrl, stringValue(config.get("ollamaModel"), ""));
                 probeModel(baseUrl, stringValue(config.get("fallbackModel"), ""));
                 return JobRunnerResponse.success("Model health probes executed");
@@ -124,6 +130,25 @@ public class ModelHealthProbeScheduler implements LifecycleAware, DisposableBean
         if (model.isEmpty()) {
             return;
         }
+
+        OutboundUrlValidator.ValidationResult validation =
+            OutboundUrlValidator.validateHttpUrl(baseUrl);
+        if (!validation.isAllowed()) {
+            String reason = validation.getReason() != null
+                ? validation.getReason()
+                : "outbound URL validation rejected endpoint";
+            String correlationId = UUID.randomUUID().toString();
+            log.warn("Model health probe skipped [{}] endpoint='{}' model='{}' reason='{}'",
+                correlationId,
+                baseUrl,
+                model,
+                reason);
+            modelHealthService.recordFailure(baseUrl,
+                model,
+                "Probe skipped by outbound URL policy: " + reason + " [correlationId=" + correlationId + "]");
+            return;
+        }
+
         String endpoint = normalizeEndpoint(baseUrl);
         String chatUrl = endpoint.endsWith("/")
                 ? endpoint + "api/chat"
@@ -180,7 +205,7 @@ public class ModelHealthProbeScheduler implements LifecycleAware, DisposableBean
 
     private String normalizeEndpoint(String value) {
         if (value == null || value.trim().isEmpty()) {
-            return "http://0.0.0.0:11434";
+            return "";
         }
         return value.trim().replaceAll("/+$", "");
     }
